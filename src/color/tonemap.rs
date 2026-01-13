@@ -47,7 +47,7 @@ fn reinhard_tonemap(l_in: f32, l_max: f32) -> f32 {
 /// ACES-inspired filmic tone mapping curve.
 ///
 /// Attempt to match the ACES RRT + ODT look with a simpler curve.
-/// Input and output are both in [0, ~10] range (HDR linear).
+/// Input and output are both in `[0, ~10]` range (HDR linear).
 #[inline]
 fn filmic_tonemap(x: f32) -> f32 {
     // Simple S-curve approximation
@@ -105,7 +105,7 @@ fn bt2390_tonemap(scene_linear: f32, source_peak: f32, target_peak: f32) -> f32 
 
 /// Tone map a single PQ HDR pixel to SDR.
 ///
-/// Input: PQ-encoded RGB [0,1]
+/// Input: PQ-encoded RGB `[0,1]`
 /// Output: Linear RGB suitable for sRGB encoding
 pub fn tonemap_pq_to_sdr(pq_rgb: [f32; 3], config: &ToneMapConfig) -> [f32; 3] {
     // 1. Decode PQ to linear (normalized to 10000 nits)
@@ -141,13 +141,13 @@ pub fn tonemap_pq_to_sdr(pq_rgb: [f32; 3], config: &ToneMapConfig) -> [f32; 3] {
         gamut_converted[2] * lum_ratio / config.target_peak_nits,
     ];
 
-    // 7. Soft-clip to [0,1] gamut
+    // 7. Soft-clip to `[0,1]` gamut
     soft_clip_gamut(tonemapped)
 }
 
 /// Tone map a single HLG HDR pixel to SDR.
 ///
-/// Input: HLG-encoded RGB [0,1]
+/// Input: HLG-encoded RGB `[0,1]`
 /// Output: Linear RGB suitable for sRGB encoding
 pub fn tonemap_hlg_to_sdr(hlg_rgb: [f32; 3], config: &ToneMapConfig) -> [f32; 3] {
     // 1. Decode HLG to display-referred linear (at 1000 nits nominal)
@@ -164,7 +164,7 @@ pub fn tonemap_hlg_to_sdr(hlg_rgb: [f32; 3], config: &ToneMapConfig) -> [f32; 3]
     // 3. Calculate luminance (in nits)
     let lum_nits = rgb_to_luminance(gamut_converted, config.target_gamut);
 
-    // 4. Apply tone mapping - normalize luminance to [0,1] range first
+    // 4. Apply tone mapping - normalize luminance to `[0,1]` range first
     let lum_normalized = lum_nits / source_peak;
     let lum_tonemapped = bt2390_tonemap(lum_normalized, 1.0, config.target_peak_nits / source_peak);
 
@@ -175,7 +175,7 @@ pub fn tonemap_hlg_to_sdr(hlg_rgb: [f32; 3], config: &ToneMapConfig) -> [f32; 3]
         0.0
     };
 
-    // Scale from source peak to normalized [0,1] for SDR
+    // Scale from source peak to normalized `[0,1]` for SDR
     let tonemapped = [
         gamut_converted[0] / source_peak * lum_ratio,
         gamut_converted[1] / source_peak * lum_ratio,
@@ -188,8 +188,8 @@ pub fn tonemap_hlg_to_sdr(hlg_rgb: [f32; 3], config: &ToneMapConfig) -> [f32; 3]
 
 /// Tone map HDR content to SDR based on transfer function.
 ///
-/// Input: Encoded HDR RGB [0,1] (PQ or HLG encoded)
-/// Output: Linear SDR RGB [0,1] ready for sRGB OETF
+/// Input: Encoded HDR RGB `[0,1]` (PQ or HLG encoded)
+/// Output: Linear SDR RGB `[0,1]` ready for sRGB OETF
 pub fn tonemap_to_sdr(
     encoded_rgb: [f32; 3],
     transfer: ColorTransfer,

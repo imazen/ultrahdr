@@ -19,7 +19,7 @@ use crate::types::ColorTransfer;
 // sRGB Transfer Function (IEC 61966-2-1)
 // ============================================================================
 
-/// sRGB OETF: Linear [0,1] → sRGB encoded [0,1]
+/// sRGB OETF: Linear `[0,1]` → sRGB encoded `[0,1]`
 #[inline]
 pub fn srgb_oetf(linear: f32) -> f32 {
     if linear <= 0.0031308 {
@@ -29,7 +29,7 @@ pub fn srgb_oetf(linear: f32) -> f32 {
     }
 }
 
-/// sRGB EOTF (inverse OETF): sRGB encoded [0,1] → Linear [0,1]
+/// sRGB EOTF (inverse OETF): sRGB encoded `[0,1]` → Linear `[0,1]`
 #[inline]
 pub fn srgb_eotf(encoded: f32) -> f32 {
     if encoded <= 0.04045 {
@@ -50,7 +50,7 @@ const PQ_C1: f32 = 3424.0 / 4096.0; // 0.8359375
 const PQ_C2: f32 = 2413.0 / 4096.0 * 32.0; // 18.8515625
 const PQ_C3: f32 = 2392.0 / 4096.0 * 32.0; // 18.6875
 
-/// PQ OETF: Linear [0,1] (normalized to 10000 nits) → PQ encoded [0,1]
+/// PQ OETF: Linear `[0,1]` (normalized to 10000 nits) → PQ encoded `[0,1]`
 ///
 /// Input is linear light normalized so that 1.0 = 10000 nits.
 #[inline]
@@ -66,7 +66,7 @@ pub fn pq_oetf(linear: f32) -> f32 {
     (numerator / denominator).powf(PQ_M2)
 }
 
-/// PQ EOTF: PQ encoded [0,1] → Linear [0,1] (normalized to 10000 nits)
+/// PQ EOTF: PQ encoded `[0,1]` → Linear `[0,1]` (normalized to 10000 nits)
 ///
 /// Output is linear light normalized so that 1.0 = 10000 nits.
 #[inline]
@@ -108,7 +108,7 @@ const HLG_A: f32 = 0.17883277;
 const HLG_B: f32 = 0.28466892; // 1 - 4*a
 const HLG_C: f32 = 0.55991073; // 0.5 - a*ln(4*a)
 
-/// HLG OETF: Scene linear [0,1] → HLG encoded [0,1]
+/// HLG OETF: Scene linear `[0,1]` → HLG encoded `[0,1]`
 ///
 /// Input is scene-referred linear light (not display-referred).
 #[inline]
@@ -125,7 +125,7 @@ pub fn hlg_oetf(linear: f32) -> f32 {
     }
 }
 
-/// HLG inverse OETF: HLG encoded [0,1] → Scene linear [0,1]
+/// HLG inverse OETF: HLG encoded `[0,1]` → Scene linear `[0,1]`
 #[inline]
 pub fn hlg_oetf_inv(encoded: f32) -> f32 {
     if encoded <= 0.0 {
@@ -145,7 +145,7 @@ pub fn hlg_oetf_inv(encoded: f32) -> f32 {
 /// The OOTF applies a system gamma that depends on the display peak luminance.
 /// For a 1000 nit display, gamma ≈ 1.2.
 ///
-/// `scene_linear`: Scene-referred linear [0,1]
+/// `scene_linear`: Scene-referred linear `[0,1]`
 /// `display_peak_nits`: Peak luminance of the display (typically 1000 for HLG)
 /// Returns: Display-referred linear, scaled to display_peak_nits
 #[inline]
@@ -177,7 +177,7 @@ pub fn hlg_ootf_inv(display_linear: f32, display_peak_nits: f32) -> f32 {
     (display_linear / display_peak_nits).powf(1.0 / gamma)
 }
 
-/// HLG EOTF: HLG encoded [0,1] → Display linear (nits)
+/// HLG EOTF: HLG encoded `[0,1]` → Display linear (nits)
 ///
 /// This is the combination of inverse OETF and OOTF.
 #[inline]
@@ -203,7 +203,7 @@ pub fn apply_oetf(linear: f32, transfer: ColorTransfer) -> f32 {
 
 /// Apply EOTF (encoded → linear) for the given transfer function.
 ///
-/// For HLG, assumes a 1000 nit display and returns normalized linear [0,1].
+/// For HLG, assumes a 1000 nit display and returns normalized linear `[0,1]`.
 #[inline]
 pub fn apply_eotf(encoded: f32, transfer: ColorTransfer) -> f32 {
     match transfer {

@@ -55,9 +55,9 @@ impl YuvCoefficients {
 // Full-range RGB ↔ YCbCr conversions (float)
 // ============================================================================
 
-/// Convert linear RGB [0,1] to YCbCr.
+/// Convert linear RGB `[0,1]` to YCbCr.
 ///
-/// Y is in [0, 1], Cb and Cr are in [-0.5, 0.5].
+/// Y is in `[0, 1]`, Cb and Cr are in `[-0.5, 0.5]`.
 /// Uses full-range encoding (not limited range 16-235).
 #[inline]
 pub fn rgb_to_ycbcr(rgb: [f32; 3], coeffs: YuvCoefficients) -> [f32; 3] {
@@ -75,7 +75,7 @@ pub fn rgb_to_ycbcr(rgb: [f32; 3], coeffs: YuvCoefficients) -> [f32; 3] {
     [y, cb, cr]
 }
 
-/// Convert YCbCr to linear RGB [0,1].
+/// Convert YCbCr to linear RGB `[0,1]`.
 #[inline]
 pub fn ycbcr_to_rgb(ycbcr: [f32; 3], coeffs: YuvCoefficients) -> [f32; 3] {
     let [y, cb, cr] = ycbcr;
@@ -96,9 +96,9 @@ pub fn ycbcr_to_rgb(ycbcr: [f32; 3], coeffs: YuvCoefficients) -> [f32; 3] {
 // 8-bit integer conversions (full range)
 // ============================================================================
 
-/// Convert 8-bit sRGB [0,255] to YCbCr with 8-bit output.
+/// Convert 8-bit sRGB `[0,255]` to YCbCr with 8-bit output.
 ///
-/// Y is in [0, 255], Cb and Cr are in [0, 255] (128 = neutral).
+/// Y is in `[0, 255]`, Cb and Cr are in `[0, 255]` (128 = neutral).
 #[inline]
 pub fn rgb8_to_ycbcr8(rgb: [u8; 3], coeffs: YuvCoefficients) -> [u8; 3] {
     let r = rgb[0] as f32 / 255.0;
@@ -107,7 +107,7 @@ pub fn rgb8_to_ycbcr8(rgb: [u8; 3], coeffs: YuvCoefficients) -> [u8; 3] {
 
     let [y, cb, cr] = rgb_to_ycbcr([r, g, b], coeffs);
 
-    // Convert to 8-bit: Y stays [0,255], Cb/Cr shifted to [0,255]
+    // Convert to 8-bit: Y stays `[0,255]`, Cb/Cr shifted to `[0,255]`
     let y_out = (y * 255.0).round().clamp(0.0, 255.0) as u8;
     let cb_out = ((cb + 0.5) * 255.0).round().clamp(0.0, 255.0) as u8;
     let cr_out = ((cr + 0.5) * 255.0).round().clamp(0.0, 255.0) as u8;
@@ -115,7 +115,7 @@ pub fn rgb8_to_ycbcr8(rgb: [u8; 3], coeffs: YuvCoefficients) -> [u8; 3] {
     [y_out, cb_out, cr_out]
 }
 
-/// Convert 8-bit YCbCr [0,255] to RGB.
+/// Convert 8-bit YCbCr `[0,255]` to RGB.
 #[inline]
 pub fn ycbcr8_to_rgb8(ycbcr: [u8; 3], coeffs: YuvCoefficients) -> [u8; 3] {
     let y = ycbcr[0] as f32 / 255.0;
@@ -135,7 +135,7 @@ pub fn ycbcr8_to_rgb8(ycbcr: [u8; 3], coeffs: YuvCoefficients) -> [u8; 3] {
 // 10-bit integer conversions (for P010/HDR)
 // ============================================================================
 
-/// Convert 10-bit YCbCr [0,1023] to linear RGB [0,1].
+/// Convert 10-bit YCbCr `[0,1023]` to linear RGB `[0,1]`.
 ///
 /// Assumes full-range encoding (not limited range).
 #[inline]
@@ -147,7 +147,7 @@ pub fn ycbcr10_to_rgb(ycbcr: [u16; 3], coeffs: YuvCoefficients) -> [f32; 3] {
     ycbcr_to_rgb([y, cb, cr], coeffs)
 }
 
-/// Convert linear RGB [0,1] to 10-bit YCbCr [0,1023].
+/// Convert linear RGB `[0,1]` to 10-bit YCbCr `[0,1023]`.
 #[inline]
 pub fn rgb_to_ycbcr10(rgb: [f32; 3], coeffs: YuvCoefficients) -> [u16; 3] {
     let [y, cb, cr] = rgb_to_ycbcr(rgb, coeffs);
@@ -163,27 +163,27 @@ pub fn rgb_to_ycbcr10(rgb: [f32; 3], coeffs: YuvCoefficients) -> [u16; 3] {
 // Limited range conversions (ITU-R BT.601/709/2020)
 // ============================================================================
 
-/// Convert full-range Y [0,1] to limited-range 8-bit [16,235].
+/// Convert full-range Y `[0,1]` to limited-range 8-bit `[16,235]`.
 #[inline]
 pub fn y_full_to_limited_8(y: f32) -> u8 {
     let limited = 16.0 + y * (235.0 - 16.0);
     limited.round().clamp(16.0, 235.0) as u8
 }
 
-/// Convert limited-range 8-bit Y [16,235] to full-range [0,1].
+/// Convert limited-range 8-bit Y `[16,235]` to full-range `[0,1]`.
 #[inline]
 pub fn y_limited_to_full_8(y: u8) -> f32 {
     ((y as f32) - 16.0) / (235.0 - 16.0)
 }
 
-/// Convert full-range CbCr [-0.5,0.5] to limited-range 8-bit [16,240].
+/// Convert full-range CbCr [-0.5,0.5] to limited-range 8-bit `[16,240]`.
 #[inline]
 pub fn cbcr_full_to_limited_8(c: f32) -> u8 {
     let limited = 128.0 + c * (240.0 - 16.0);
     limited.round().clamp(16.0, 240.0) as u8
 }
 
-/// Convert limited-range 8-bit CbCr [16,240] to full-range [-0.5,0.5].
+/// Convert limited-range 8-bit CbCr `[16,240]` to full-range [-0.5,0.5].
 #[inline]
 pub fn cbcr_limited_to_full_8(c: u8) -> f32 {
     ((c as f32) - 128.0) / (240.0 - 16.0)

@@ -6,7 +6,7 @@ use crate::types::{ColorTransfer, GainMap, GainMapMetadata, PixelFormat, RawImag
 /// Output format for HDR reconstruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HdrOutputFormat {
-    /// Linear float RGB [0, ~50] where 1.0 = SDR white (203 nits)
+    /// Linear float RGB `[0, ~50]` where 1.0 = SDR white (203 nits)
     LinearFloat,
     /// PQ-encoded 10-bit RGBA (1010102)
     Pq1010102,
@@ -169,7 +169,7 @@ fn bilinear(v00: f32, v10: f32, v01: f32, v11: f32, fx: f32, fy: f32) -> f32 {
     top * (1.0 - fy) + bottom * fy
 }
 
-/// Decode gain value from normalized [0,1] to linear multiplier.
+/// Decode gain value from normalized `[0,1]` to linear multiplier.
 fn decode_gain(normalized: f32, metadata: &GainMapMetadata, channel: usize, weight: f32) -> f32 {
     // Undo gamma
     let gamma = metadata.gamma[channel];

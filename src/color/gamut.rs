@@ -203,7 +203,7 @@ pub fn convert_gamut(rgb: [f32; 3], from: ColorGamut, to: ColorGamut) -> [f32; 3
 /// Soft-clip out-of-gamut colors to preserve hue.
 ///
 /// When converting from a wider gamut to a narrower one, some colors may
-/// fall outside [0,1]. This function clips them while preserving hue.
+/// fall outside `[0,1]`. This function clips them while preserving hue.
 #[inline]
 pub fn soft_clip_gamut(rgb: [f32; 3]) -> [f32; 3] {
     let max_channel = rgb[0].max(rgb[1]).max(rgb[2]);

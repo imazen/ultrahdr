@@ -46,7 +46,7 @@ impl Default for GainMapConfig {
 /// Compute a gain map from HDR and SDR images.
 ///
 /// The gain map represents the ratio between HDR and SDR pixel values,
-/// encoded as 8-bit values in the range [0, 255].
+/// encoded as 8-bit values in the range `[0, 255]`.
 pub fn compute_gainmap(
     hdr: &RawImage,
     sdr: &RawImage,
@@ -157,7 +157,7 @@ fn compute_luminance_gainmap(
             let gain_clamped = gain.clamp(config.min_content_boost, config.max_content_boost);
             let log_gain = gain_clamped.ln();
 
-            // Normalize to [0, 1]
+            // Normalize to `[0, 1]`
             let normalized = if log_range > 0.0 {
                 (log_gain - log_min) / log_range
             } else {
@@ -229,7 +229,7 @@ fn compute_multichannel_gainmap(
     gainmap
 }
 
-/// Extract linear RGB [0,1] from a raw image at the given pixel position.
+/// Extract linear RGB `[0,1]` from a raw image at the given pixel position.
 fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
     match img.format {
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
