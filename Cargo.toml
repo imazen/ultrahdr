@@ -1,0 +1,45 @@
+[package]
+name = "ultrahdr"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Pure Rust Ultra HDR (JPEG with gain map) encoder/decoder"
+repository = "https://github.com/imazen/ultrahdr"
+keywords = ["hdr", "jpeg", "gainmap", "ultrahdr", "image"]
+categories = ["multimedia::images", "encoding"]
+
+[dependencies]
+# JPEG codec (local)
+jpegli-rs = { path = "../jpegli-rs/jpegli-rs" }
+
+# Color management
+moxcms = "0.6"
+
+# Half-precision float
+half = "2.4"
+
+# Image buffer abstractions
+imgref = "1.10"
+rgb = { version = "0.8", features = ["as-bytes"] }
+bytemuck = { version = "1.14", features = ["derive"] }
+
+# SIMD
+wide = "1.1"
+multiversion = "0.8"
+
+# Error handling
+thiserror = "2.0"
+
+[dev-dependencies]
+# Testing
+criterion = "0.5"
+fast-ssim2 = "0.6"
+proptest = "1.4"
+
+# [[bench]]
+# name = "gainmap"
+# harness = false
+
+[features]
+default = []
+simd = []  # Enable explicit SIMD optimizations
