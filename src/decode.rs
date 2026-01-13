@@ -169,13 +169,15 @@ impl Decoder {
 }
 
 /// Decode JPEG to RGB.
-fn decode_jpeg_to_rgb(data: &[u8]) -> Result<RawImage> {
-    let decoded = jpegli::decode(data)
+fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<RawImage> {
+    let decoded = jpegli::Decoder::new()
+        .output_format(jpegli::PixelFormat::Rgb)
+        .decode(jpeg_data)
         .map_err(|e| Error::DecodeError(format!("JPEG decode failed: {}", e)))?;
 
-    let width = decoded.width();
-    let height = decoded.height();
-    let pixels = decoded.pixels();
+    let width = decoded.width;
+    let height = decoded.height;
+    let pixels = &decoded.data;
     let bpp = decoded.bytes_per_pixel();
 
     // Convert to RGBA if needed
@@ -220,13 +222,15 @@ fn decode_jpeg_to_rgb(data: &[u8]) -> Result<RawImage> {
 }
 
 /// Decode JPEG to grayscale.
-fn decode_jpeg_to_grayscale(data: &[u8]) -> Result<RawImage> {
-    let decoded = jpegli::decode(data)
+fn decode_jpeg_to_grayscale(jpeg_data: &[u8]) -> Result<RawImage> {
+    let decoded = jpegli::Decoder::new()
+        .output_format(jpegli::PixelFormat::Gray)
+        .decode(jpeg_data)
         .map_err(|e| Error::DecodeError(format!("JPEG decode failed: {}", e)))?;
 
-    let width = decoded.width();
-    let height = decoded.height();
-    let pixels = decoded.pixels();
+    let width = decoded.width;
+    let height = decoded.height;
+    let pixels = &decoded.data;
     let bpp = decoded.bytes_per_pixel();
 
     // Convert to grayscale if needed

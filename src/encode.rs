@@ -175,7 +175,7 @@ impl Encoder {
 
     /// Encode base SDR image to JPEG.
     fn encode_base_jpeg(&self, sdr: &RawImage) -> Result<Vec<u8>> {
-        match sdr.format {
+        let (pixel_format, data): (jpegli::PixelFormat, std::borrow::Cow<[u8]>) = match sdr.format {
             PixelFormat::Rgba8 => {
                 // Convert RGBA to RGB for JPEG
                 let rgb: Vec<u8> = sdr
@@ -183,30 +183,38 @@ impl Encoder {
                     .chunks(4)
                     .flat_map(|rgba| [rgba[0], rgba[1], rgba[2]])
                     .collect();
+                (jpegli::PixelFormat::Rgb, std::borrow::Cow::Owned(rgb))
+            }
+            PixelFormat::Rgb8 => (
+                jpegli::PixelFormat::Rgb,
+                std::borrow::Cow::Borrowed(&sdr.data[..]),
+            ),
+            _ => {
+                return Err(Error::EncodeError(format!(
+                    "Unsupported SDR pixel format: {:?}",
+                    sdr.format
+                )))
+            }
+        };
 
-                jpegli::encode_rgb(sdr.width, sdr.height, &rgb, self.base_quality)
-                    .map_err(|e| Error::JpegEncode(e.to_string()))
-            }
-            PixelFormat::Rgb8 => {
-                jpegli::encode_rgb(sdr.width, sdr.height, &sdr.data, self.base_quality)
-                    .map_err(|e| Error::JpegEncode(e.to_string()))
-            }
-            _ => Err(Error::EncodeError(format!(
-                "Unsupported SDR pixel format: {:?}",
-                sdr.format
-            ))),
-        }
+        jpegli::Encoder::new()
+            .width(sdr.width)
+            .height(sdr.height)
+            .pixel_format(pixel_format)
+            .quality(jpegli::Quality::from_quality(self.base_quality as f32))
+            .encode(&data)
+            .map_err(|e| Error::JpegEncode(e.to_string()))
     }
 
     /// Encode gain map to JPEG.
     fn encode_gainmap_jpeg(&self, gainmap: &crate::GainMap) -> Result<Vec<u8>> {
-        jpegli::encode_gray(
-            gainmap.width,
-            gainmap.height,
-            &gainmap.data,
-            self.gainmap_quality,
-        )
-        .map_err(|e| Error::JpegEncode(e.to_string()))
+        jpegli::Encoder::new()
+            .width(gainmap.width)
+            .height(gainmap.height)
+            .pixel_format(jpegli::PixelFormat::Gray)
+            .quality(jpegli::Quality::from_quality(self.gainmap_quality as f32))
+            .encode(&gainmap.data)
+            .map_err(|e| Error::JpegEncode(e.to_string()))
     }
 
     /// Create final Ultra HDR JPEG structure.

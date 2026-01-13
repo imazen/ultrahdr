@@ -10,7 +10,7 @@ categories = ["multimedia::images", "encoding"]
 
 [dependencies]
 # JPEG codec
-jpegli-rs = { git = "https://github.com/imazen/jpegli-rs.git" }
+jpegli-rs = "0.3"
 
 # Color management
 moxcms = "0.6"
