@@ -9,8 +9,8 @@ keywords = ["hdr", "jpeg", "gainmap", "ultrahdr", "image"]
 categories = ["multimedia::images", "encoding"]
 
 [dependencies]
-# JPEG codec (local)
-jpegli-rs = { path = "../jpegli-rs/jpegli-rs" }
+# JPEG codec
+jpegli-rs = { git = "https://github.com/imazen/jpegli-rs.git" }
 
 # Color management
 moxcms = "0.6"
