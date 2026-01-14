@@ -1,0 +1,15 @@
+# Ignore build artifacts
+target/
+Cargo.lock
+
+# Ignore IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ignore git
+.git/
+
+# Ignore test images (will be downloaded fresh)
+test_images/
