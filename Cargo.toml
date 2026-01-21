@@ -10,7 +10,7 @@ categories = ["multimedia::images", "encoding"]
 
 [dependencies]
 # JPEG codec
-jpegli-rs = "0.3"
+jpegli-rs = { path = "../jpegli-rs/jpegli-rs", features = ["decoder"] }
 
 # Color management
 moxcms = "0.6"

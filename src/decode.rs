@@ -170,8 +170,9 @@ impl Decoder {
 
 /// Decode JPEG to RGB.
 fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<RawImage> {
-    let decoded = jpegli::Decoder::new()
-        .output_format(jpegli::PixelFormat::Rgb)
+    use jpegli::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
+    let decoded = JpegDecoder::new()
+        .output_format(JpegPixelFormat::Rgb)
         .decode(jpeg_data)
         .map_err(|e| Error::DecodeError(format!("JPEG decode failed: {}", e)))?;
 
@@ -223,8 +224,9 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<RawImage> {
 
 /// Decode JPEG to grayscale.
 fn decode_jpeg_to_grayscale(jpeg_data: &[u8]) -> Result<RawImage> {
-    let decoded = jpegli::Decoder::new()
-        .output_format(jpegli::PixelFormat::Gray)
+    use jpegli::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
+    let decoded = JpegDecoder::new()
+        .output_format(JpegPixelFormat::Gray)
         .decode(jpeg_data)
         .map_err(|e| Error::DecodeError(format!("JPEG decode failed: {}", e)))?;
 
@@ -245,7 +247,7 @@ fn decode_jpeg_to_grayscale(jpeg_data: &[u8]) -> Result<RawImage> {
                 let g = rgb[1] as f32;
                 let b = rgb[2] as f32;
                 // BT.709 luminance
-                (0.2126 * r + 0.7152 * g + 0.0722 * b).clamp(0.0, 255.0) as u8
+                (0.2126_f32 * r + 0.7152 * g + 0.0722 * b).clamp(0.0, 255.0) as u8
             })
             .collect()
     } else {

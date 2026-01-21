@@ -175,7 +175,9 @@ impl Encoder {
 
     /// Encode base SDR image to JPEG.
     fn encode_base_jpeg(&self, sdr: &RawImage) -> Result<Vec<u8>> {
-        let (pixel_format, data): (jpegli::PixelFormat, std::borrow::Cow<[u8]>) = match sdr.format {
+        use jpegli::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
+
+        let (pixel_layout, data): (PixelLayout, std::borrow::Cow<[u8]>) = match sdr.format {
             PixelFormat::Rgba8 => {
                 // Convert RGBA to RGB for JPEG
                 let rgb: Vec<u8> = sdr
@@ -183,10 +185,10 @@ impl Encoder {
                     .chunks(4)
                     .flat_map(|rgba| [rgba[0], rgba[1], rgba[2]])
                     .collect();
-                (jpegli::PixelFormat::Rgb, std::borrow::Cow::Owned(rgb))
+                (PixelLayout::Rgb8Srgb, std::borrow::Cow::Owned(rgb))
             }
             PixelFormat::Rgb8 => (
-                jpegli::PixelFormat::Rgb,
+                PixelLayout::Rgb8Srgb,
                 std::borrow::Cow::Borrowed(&sdr.data[..]),
             ),
             _ => {
@@ -197,24 +199,26 @@ impl Encoder {
             }
         };
 
-        jpegli::Encoder::new()
-            .width(sdr.width)
-            .height(sdr.height)
-            .pixel_format(pixel_format)
-            .quality(jpegli::Quality::from_quality(self.base_quality as f32))
-            .encode(&data)
-            .map_err(|e| Error::JpegEncode(e.to_string()))
+        let config = EncoderConfig::ycbcr(self.base_quality as f32, ChromaSubsampling::Quarter);
+        let mut enc = config
+            .encode_from_bytes(sdr.width, sdr.height, pixel_layout)
+            .map_err(|e| Error::JpegEncode(e.to_string()))?;
+        enc.push_packed(&data, Unstoppable)
+            .map_err(|e| Error::JpegEncode(e.to_string()))?;
+        enc.finish().map_err(|e| Error::JpegEncode(e.to_string()))
     }
 
     /// Encode gain map to JPEG.
     fn encode_gainmap_jpeg(&self, gainmap: &crate::GainMap) -> Result<Vec<u8>> {
-        jpegli::Encoder::new()
-            .width(gainmap.width)
-            .height(gainmap.height)
-            .pixel_format(jpegli::PixelFormat::Gray)
-            .quality(jpegli::Quality::from_quality(self.gainmap_quality as f32))
-            .encode(&gainmap.data)
-            .map_err(|e| Error::JpegEncode(e.to_string()))
+        use jpegli::encoder::{EncoderConfig, PixelLayout, Unstoppable};
+
+        let config = EncoderConfig::grayscale(self.gainmap_quality as f32);
+        let mut enc = config
+            .encode_from_bytes(gainmap.width, gainmap.height, PixelLayout::Gray8Srgb)
+            .map_err(|e| Error::JpegEncode(e.to_string()))?;
+        enc.push_packed(&gainmap.data, Unstoppable)
+            .map_err(|e| Error::JpegEncode(e.to_string()))?;
+        enc.finish().map_err(|e| Error::JpegEncode(e.to_string()))
     }
 
     /// Create final Ultra HDR JPEG structure.
