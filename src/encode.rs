@@ -10,7 +10,7 @@ use crate::metadata::{
     xmp::{create_xmp_app1_marker, generate_xmp},
 };
 use crate::types::{
-    ColorGamut, ColorTransfer, Error, GainMapMetadata, PixelFormat, RawImage, Result,
+    ColorGamut, ColorTransfer, Error, GainMap, GainMapMetadata, PixelFormat, RawImage, Result,
 };
 
 /// Ultra HDR encoder.
@@ -19,10 +19,13 @@ use crate::types::{
 /// - HDR only: Automatically generates SDR via tone mapping
 /// - HDR + SDR: Uses provided SDR image
 /// - HDR + compressed SDR: Uses pre-encoded JPEG for base image
+/// - HDR + SDR + existing gain map: Reuses pre-computed gain map (for lossless round-trips)
 pub struct Encoder {
     hdr_image: Option<RawImage>,
     sdr_image: Option<RawImage>,
     compressed_sdr: Option<Vec<u8>>,
+    existing_gainmap: Option<GainMap>,
+    existing_metadata: Option<GainMapMetadata>,
     base_quality: u8,
     gainmap_quality: u8,
     gainmap_scale: u8,
@@ -44,6 +47,8 @@ impl Encoder {
             hdr_image: None,
             sdr_image: None,
             compressed_sdr: None,
+            existing_gainmap: None,
+            existing_metadata: None,
             base_quality: 90,
             gainmap_quality: 85,
             gainmap_scale: 4,
@@ -74,6 +79,37 @@ impl Encoder {
     pub fn set_compressed_sdr(&mut self, jpeg: Vec<u8>) -> &mut Self {
         self.compressed_sdr = Some(jpeg);
         self
+    }
+
+    /// Set an existing gain map and metadata (optional).
+    ///
+    /// If provided, this gain map will be used instead of computing a new one.
+    /// This enables lossless UltraHDR round-trips (decode → process → encode)
+    /// when the SDR dimensions haven't changed.
+    ///
+    /// Note: The caller is responsible for ensuring the gain map is appropriate
+    /// for the SDR image. If the SDR dimensions have changed (e.g., after resize),
+    /// the gain map should be invalidated and recomputed.
+    pub fn set_existing_gainmap(
+        &mut self,
+        gainmap: GainMap,
+        metadata: GainMapMetadata,
+    ) -> &mut Self {
+        self.existing_gainmap = Some(gainmap);
+        self.existing_metadata = Some(metadata);
+        self
+    }
+
+    /// Clear any existing gain map, forcing recomputation.
+    pub fn clear_existing_gainmap(&mut self) -> &mut Self {
+        self.existing_gainmap = None;
+        self.existing_metadata = None;
+        self
+    }
+
+    /// Check if an existing gain map is set.
+    pub fn has_existing_gainmap(&self) -> bool {
+        self.existing_gainmap.is_some() && self.existing_metadata.is_some()
     }
 
     /// Set JPEG quality for base and gain map images.
@@ -144,20 +180,32 @@ impl Encoder {
             }
         };
 
-        // Compute gain map
-        let config = GainMapConfig {
-            scale_factor: self.gainmap_scale,
-            gamma: 1.0,
-            multi_channel: false,
-            min_content_boost: self.min_content_boost,
-            max_content_boost: self.target_display_peak / 203.0, // SDR white = 203 nits
-            offset_sdr: 1.0 / 64.0,
-            offset_hdr: 1.0 / 64.0,
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: self.target_display_peak / 203.0,
-        };
+        // Use existing gain map if provided, otherwise compute a new one
+        let (gainmap, metadata) =
+            if let (Some(gm), Some(meta)) = (&self.existing_gainmap, &self.existing_metadata) {
+                // Validate that the existing gain map dimensions are appropriate
+                // The gain map should be roughly (sdr_width / scale) x (sdr_height / scale)
+                let expected_scale = self.gainmap_scale.max(1) as u32;
+                let expected_width = (sdr.width + expected_scale - 1) / expected_scale;
+                let expected_height = (sdr.height + expected_scale - 1) / expected_scale;
 
-        let (gainmap, metadata) = compute_gainmap(hdr, &sdr, &config)?;
+                // Allow some tolerance for rounding differences
+                let width_ok =
+                    gm.width >= expected_width.saturating_sub(1) && gm.width <= expected_width + 1;
+                let height_ok = gm.height >= expected_height.saturating_sub(1)
+                    && gm.height <= expected_height + 1;
+
+                if width_ok && height_ok {
+                    // Reuse existing gain map
+                    (gm.clone(), meta.clone())
+                } else {
+                    // Dimensions don't match - recompute
+                    self.compute_new_gainmap(hdr, &sdr)?
+                }
+            } else {
+                // No existing gain map - compute new one
+                self.compute_new_gainmap(hdr, &sdr)?
+            };
 
         // Encode base JPEG
         let base_jpeg = if let Some(ref compressed) = self.compressed_sdr {
@@ -171,6 +219,27 @@ impl Encoder {
 
         // Create Ultra HDR structure
         self.create_ultrahdr_jpeg(&base_jpeg, &gainmap_jpeg, &metadata, sdr.gamut)
+    }
+
+    /// Compute a new gain map from HDR and SDR images.
+    fn compute_new_gainmap(
+        &self,
+        hdr: &RawImage,
+        sdr: &RawImage,
+    ) -> Result<(GainMap, GainMapMetadata)> {
+        let config = GainMapConfig {
+            scale_factor: self.gainmap_scale,
+            gamma: 1.0,
+            multi_channel: false,
+            min_content_boost: self.min_content_boost,
+            max_content_boost: self.target_display_peak / 203.0, // SDR white = 203 nits
+            offset_sdr: 1.0 / 64.0,
+            offset_hdr: 1.0 / 64.0,
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: self.target_display_peak / 203.0,
+        };
+
+        compute_gainmap(hdr, sdr, &config)
     }
 
     /// Encode base SDR image to JPEG.
@@ -310,5 +379,23 @@ mod tests {
         let encoder = Encoder::new();
         let result = encoder.encode();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_existing_gainmap_methods() {
+        let mut encoder = Encoder::new();
+
+        // Initially no existing gain map
+        assert!(!encoder.has_existing_gainmap());
+
+        // Set existing gain map
+        let gainmap = GainMap::new(100, 100);
+        let metadata = GainMapMetadata::new();
+        encoder.set_existing_gainmap(gainmap, metadata);
+        assert!(encoder.has_existing_gainmap());
+
+        // Clear it
+        encoder.clear_existing_gainmap();
+        assert!(!encoder.has_existing_gainmap());
     }
 }
