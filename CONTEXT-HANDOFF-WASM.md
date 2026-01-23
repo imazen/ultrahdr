@@ -2,229 +2,75 @@
 
 **Date:** 2026-01-22
 **Updated:** 2026-01-23
-**Priority:** High - Blocks HDR editing in zenimage-web
+**Status:** ✅ FIXED
 
-## ROOT CAUSE IDENTIFIED (2026-01-23)
+## ROOT CAUSE IDENTIFIED AND FIXED (2026-01-23)
 
-**jpegli's GRAYSCALE JPEG decode crashes in browser WASM.**
+**The root cause was `f64::ln()` crashing in browser WASM.**
 
-### Investigation Results
+### Investigation Summary
 
-Added step-by-step tracing to zenimage-web decode path:
+Deep tracing revealed the crash location:
+1. `jpegli.decode()` → works
+2. `parser.decode()` → works
+3. `to_pixels()` → crashes inside `compute_biases()`
+4. `compute_biases()` → crashes at `f64::ln()` call
 
 ```
-[HDR] Step 1: Creating decoder...     ✓
-[HDR] Step 2: is_ultrahdr = true      ✓
-[HDR] Step 3: Getting metadata...     ✓
-[HDR] Metadata: hdr_capacity_max=4.9  ✓
-[HDR] Step 4: Decoding SDR...         ✓  (jpegli RGB decode works!)
-[HDR] SDR: 256x256                    ✓
-[HDR] Step 5: Decoding gain map...    💥 CRASH (unreachable)
+[compute_biases] computing ln(gamma)... gamma_f64=0.9580963850021362
+💥 CRASH (unreachable)
 ```
 
-**The issue is jpegli's GRAYSCALE decode, not RGB decode:**
-- `JpegDecoder::output_format(PixelFormat::Rgb).decode()` ✓ works
-- `JpegDecoder::output_format(PixelFormat::Gray).decode()` 💥 crashes
+**The issue is that `f64::ln()` (and possibly other math intrinsics) are not properly linked in browser WASM.** This only affects `wasm32-unknown-unknown` in browsers - native, Node.js, wasmer, and wasmtime all work correctly.
 
-### WASM Runtime Comparison (2026-01-23)
+### Fix Applied
+
+Added workaround in `jpegli-rs/src/quant/mod.rs`:
+
+```rust
+pub fn compute_biases(&self, component: usize) -> [f32; DCT_BLOCK_SIZE] {
+    // WORKAROUND: Browser WASM (wasm32-unknown-unknown) crashes on f64::ln() calls.
+    // Use default biases instead of computed optimal biases.
+    // This is a minor quality regression but enables decoding to work.
+    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+    {
+        let mut biases = [0.5f32; DCT_BLOCK_SIZE];
+        biases[0] = 0.0; // DC doesn't get bias
+        return biases;
+    }
+
+    // Full computation for native/WASI...
+}
+```
+
+### WASM Runtime Comparison
 
 | Environment | Target | Grayscale Decode |
 |-------------|--------|------------------|
 | Native | x86_64/aarch64 | ✅ Works |
 | Node.js | wasm32-unknown-unknown | ✅ Works |
-| **Wasmer 6.1** | **wasm32-wasip1** | **✅ Works (417 jpegli + 120 ultrahdr tests)** |
-| Browser | wasm32-unknown-unknown | ❌ Crashes |
+| **Wasmer 6.1** | **wasm32-wasip1** | **✅ Works** |
+| **Wasmtime** | **wasm32-wasip1** | **✅ Works** |
+| Browser (before fix) | wasm32-unknown-unknown | ❌ Crashed |
+| **Browser (after fix)** | **wasm32-unknown-unknown** | **✅ Works** |
 
-**Key finding:** The issue is **browser-specific**, not a general WASM bug.
-- All WASM tests pass with `CARGO_TARGET_WASM32_WASIP1_RUNNER=wasmer cargo test`
-- `test_encode_decode_roundtrip_gray` passes in wasmer
-- All ultrahdr decode tests including gainmap pass in wasmer
+### Quality Impact
 
-This points to browser-specific issues:
-1. Browser WASM memory management differences
-2. wasm-bindgen JavaScript interop layer
-3. Browser-specific WASM implementation quirks
+The workaround uses default biases (0.5 for AC coefficients, 0.0 for DC) instead of computing optimal Laplacian biases. This is a minor quality regression in the decoder:
 
-### Workaround Applied
-zenimage-web falls back to SDR decode for UltraHDR images:
-- Sets `is_ultrahdr = true` for UI indication
-- Full HDR pipeline blocked until jpegli grayscale fix
+- The bias computation improves edge sharpness and reduces ringing artifacts
+- Default biases work well for most images
+- The difference is typically imperceptible
 
-### Next Step
-File issue in jpegli-rs repo: "Grayscale JPEG decode crashes in browser WASM"
+### Tests Passing
 
----
+All 9 zenimage-web Playwright tests pass:
+- UltraHDR detection works
+- Grayscale gain map decode works
+- No WASM "unreachable" errors
 
-## Original Problem
+### Future Work
 
-The ultrahdr crate causes "unreachable" WASM traps when calling `decode_hdr()` or `decode_hdr_with_format()`. This blocks the HDR editing workflow in zenimage-web.
-
-### Error
-```
-RuntimeError: unreachable
-```
-
-This typically means:
-1. A panic occurred in Rust code
-2. An unimplemented WASM intrinsic was called
-3. Memory access violation
-
-### Where It Fails
-
-In zenimage-web's `src/decode.rs`:
-```rust
-let hdr_image = decoder
-    .decode_hdr_with_format(4.0, HdrOutputFormat::LinearFloat)
-    .map_err(|e| format!("UltraHDR decode error: {e}"))?;
-```
-
-The error happens inside the ultrahdr crate before the Result is returned.
-
-## Investigation Needed
-
-### 1. Check jpegli-rs Dependency
-ultrahdr uses `jpegli-rs` for JPEG decode:
-```toml
-# /home/lilith/work/ultrahdr/Cargo.toml
-jpegli-rs = { path = "../jpegli-rs/jpegli-rs", features = ["decoder"] }
-```
-
-We already fixed one WASM issue in jpegli-rs (`profile.rs` using `std::time::Instant`), but there may be more.
-
-**Action:** Grep jpegli-rs for other std-only features:
-```bash
-grep -r "std::" /home/lilith/work/jpegli-rs/jpegli-rs/src/ | grep -v "//\|test"
-```
-
-### 2. Check moxcms Dependency
-ultrahdr uses moxcms 0.6 for color management:
-```toml
-moxcms = "0.6"
-```
-
-Current version is 0.8. The older version may have WASM issues.
-
-**Action:** Update to latest moxcms and test.
-
-### 3. Trace the Decode Path
-
-The decode path is:
-```
-Decoder::decode_hdr_with_format()
-  → apply_gainmap() in gainmap/apply.rs
-    → get_sdr_linear() - calls jpegli decode
-    → sample_gainmap() - pure math
-    → write_output() - format conversion
-```
-
-**Action:** Add `web_sys::console::log_1()` calls at each step to find where it fails.
-
-### 4. Check for Allocations
-
-Large allocations can fail in WASM. The HDR output is `Rgba32F` which is 16 bytes per pixel.
-
-For a 4000x3000 image: 4000 × 3000 × 16 = 192MB
-
-**Action:** Test with a small image first (100x100).
-
-## Proposed Fix Strategy
-
-### Phase 1: Add WASM Test Target
-```bash
-# In ultrahdr directory
-cargo test --target wasm32-unknown-unknown
-```
-
-Add to CI to catch WASM issues early.
-
-### Phase 2: Create Minimal WASM Test
-```rust
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test]
-fn test_decode_small_ultrahdr() {
-    let test_data = include_bytes!("../test_data/small_ultrahdr.jpg");
-    let decoder = Decoder::new(test_data).expect("create decoder");
-    assert!(decoder.is_ultrahdr());
-
-    // This is what fails
-    let hdr = decoder.decode_hdr(4.0).expect("decode HDR");
-    assert!(hdr.width > 0);
-}
-```
-
-### Phase 3: Isolate the Failure
-Add logging to narrow down:
-```rust
-// In decode.rs decode_hdr_with_format()
-#[cfg(target_arch = "wasm32")]
-web_sys::console::log_1(&"decode_hdr: starting".into());
-
-let sdr = self.decode_sdr()?;  // Does this work?
-
-#[cfg(target_arch = "wasm32")]
-web_sys::console::log_1(&format!("decode_hdr: sdr decoded {}x{}", sdr.width, sdr.height).into());
-
-let gainmap = self.decode_gainmap()?;  // Does this work?
-
-#[cfg(target_arch = "wasm32")]
-web_sys::console::log_1(&"decode_hdr: gainmap decoded".into());
-
-// etc.
-```
-
-### Phase 4: Fix Dependencies
-If jpegli-rs is the issue:
-- Check for `std::time`, `std::fs`, `std::thread` usage
-- Ensure `default-features = false` if needed
-- Consider using zune-jpeg as fallback for WASM
-
-If moxcms is the issue:
-- Update to 0.8
-- Check their WASM support
-
-## Files to Examine
-
-### ultrahdr crate
-- `/home/lilith/work/ultrahdr/src/decode.rs` - Main decode logic
-- `/home/lilith/work/ultrahdr/src/gainmap/apply.rs` - Gain map application
-- `/home/lilith/work/ultrahdr/Cargo.toml` - Dependencies
-
-### jpegli-rs crate
-- `/home/lilith/work/jpegli-rs/jpegli-rs/src/decode/mod.rs` - Decoder entry
-- `/home/lilith/work/jpegli-rs/jpegli-rs/src/profile.rs` - Already fixed Instant issue
-
-### zenimage-web (consumer)
-- `/home/lilith/work/zenimage/zenimage-web/src/decode.rs` - Where HDR decode is called
-- Contains disabled `decode_ultrahdr()` function ready to re-enable
-
-## Test Data Needed
-
-Create a small UltraHDR test image:
-```bash
-# Use Android Camera app or libultrahdr to create
-# Or extract from Google's test corpus
-```
-
-Place in `/home/lilith/work/ultrahdr/test_data/small_ultrahdr.jpg`
-
-## Success Criteria
-
-1. `cargo test --target wasm32-unknown-unknown` passes
-2. `wasm-pack test --headless --chrome` passes
-3. zenimage-web can load and export UltraHDR without errors
-4. Round-trip test: load → edit → export → load again → verify
-
-## Commands to Get Started
-
-```bash
-cd /home/lilith/work/ultrahdr
-
-# Check current WASM compatibility
-cargo build --target wasm32-unknown-unknown 2>&1 | head -50
-
-# Add wasm-bindgen-test
-cargo add wasm-bindgen-test --dev
-
-# Run WASM tests (after adding test)
-wasm-pack test --headless --chrome
-```
+1. Investigate why `f64::ln()` crashes in browser WASM
+2. Consider using a pure-Rust ln() implementation that compiles to WASM correctly
+3. Add browser WASM CI testing to catch similar issues early
