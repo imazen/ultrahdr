@@ -2,11 +2,13 @@
 name = "ultrahdr"
 version.workspace = true
 edition.workspace = true
+rust-version = "1.75"
 license.workspace = true
 repository.workspace = true
 description = "Pure Rust Ultra HDR (JPEG with gain map) encoder/decoder"
 keywords = ["hdr", "jpeg", "gainmap", "ultrahdr", "image"]
 categories = ["multimedia::images", "encoding"]
+readme = "../README.md"
 
 [dependencies]
 # Core gain map math and metadata

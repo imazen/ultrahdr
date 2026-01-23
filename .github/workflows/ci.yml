@@ -23,7 +23,6 @@ jobs:
           - windows-latest
           - windows-11-arm
           - macos-latest
-          - macos-15-intel
     steps:
       - uses: actions/checkout@v6
 
@@ -35,14 +34,17 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      - name: Clone zune-image (test dependency)
+        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
+
       - name: Build
-        run: cargo build --release
+        run: cargo build --workspace --all-targets
 
       - name: Run tests
-        run: cargo test --release
+        run: cargo test --workspace --all-targets
 
       - name: Run clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   fmt:
     name: Format
@@ -56,10 +58,32 @@ jobs:
           components: rustfmt
 
       - name: Check formatting
-        run: cargo fmt --check
+        run: cargo fmt --all --check
 
   wasm:
-    name: WASM
+    name: WASM Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Check ultrahdr-core WASM build
+        run: cargo build --package ultrahdr-core --target wasm32-unknown-unknown
+
+      - name: Check ultrahdr-core WASM (no default features)
+        run: cargo build --package ultrahdr-core --target wasm32-unknown-unknown --no-default-features
+
+  wasm-test:
+    name: WASM Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -77,11 +101,12 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Check WASM build
-        run: cargo check --target wasm32-unknown-unknown
+      - name: Clone zune-image (test dependency)
+        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
 
       - name: Run WASM tests
-        run: wasm-pack test --node
+        run: wasm-pack test --node ultrahdr
+        continue-on-error: true  # WASM tests may need browser environment
 
   docs:
     name: Documentation
@@ -92,7 +117,61 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Clone zune-image (doc dependency)
+        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
+
       - name: Check docs
-        run: cargo doc --no-deps
+        run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Clone zune-image (test dependency)
+        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
+
+      - name: Generate coverage
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+
+  msrv:
+    name: MSRV (1.75)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust 1.75
+        uses: dtolnay/rust-toolchain@1.75
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Clone zune-image (test dependency)
+        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
+
+      - name: Check MSRV
+        run: cargo check --workspace

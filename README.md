@@ -1,16 +1,32 @@
 # ultrahdr
 
+[![CI](https://github.com/imazen/ultrahdr/actions/workflows/ci.yml/badge.svg)](https://github.com/imazen/ultrahdr/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/imazen/ultrahdr/graph/badge.svg)](https://codecov.io/gh/imazen/ultrahdr)
+[![crates.io](https://img.shields.io/crates/v/ultrahdr.svg)](https://crates.io/crates/ultrahdr)
+[![docs.rs](https://docs.rs/ultrahdr/badge.svg)](https://docs.rs/ultrahdr)
+[![MSRV](https://img.shields.io/badge/MSRV-1.75-blue)](https://blog.rust-lang.org/2023/12/28/Rust-1.75.0.html)
+[![License](https://img.shields.io/crates/l/ultrahdr.svg)](LICENSE)
+
 Pure Rust implementation of [Ultra HDR](https://developer.android.com/media/platform/hdr-image-format) (gain map HDR) encoding and decoding.
 
 Ultra HDR is a backward-compatible HDR image format that embeds a gain map in a standard JPEG, allowing HDR-capable displays to reconstruct the full HDR image while remaining viewable as SDR on legacy displays.
+
+## Crates
+
+| Crate | Description |
+|-------|-------------|
+| [`ultrahdr`](ultrahdr/) | Full encoder/decoder with jpegli-rs JPEG codec |
+| [`ultrahdr-core`](ultrahdr-core/) | Pure math and metadata - no codec dependency, WASM-compatible |
 
 ## Features
 
 - **Encode**: Create Ultra HDR JPEGs from HDR images (with optional SDR input)
 - **Decode**: Extract and apply gain maps to reconstruct HDR content
 - **Tone mapping**: Automatic SDR generation from HDR-only input
+- **Adaptive tonemapping**: Learn tone curves from existing HDR/SDR pairs
 - **Metadata**: Full XMP (hdrgm namespace) and ISO 21496-1 support
 - **Pure Rust**: No C dependencies, uses [jpegli-rs](https://github.com/imazen/jpegli-rs) for JPEG
+- **WASM**: `ultrahdr-core` compiles to WebAssembly
 
 ## Usage
 
@@ -60,6 +76,20 @@ if decoder.is_ultrahdr() {
     let metadata = decoder.metadata();
     println!("HDR capacity: {:.1}x", metadata.hdr_capacity_max);
 }
+```
+
+### Adaptive Tonemapping (Preserve Artistic Intent)
+
+When editing HDR content, use `AdaptiveTonemapper` to learn the original tone curve and reproduce it:
+
+```rust
+use ultrahdr_core::color::{AdaptiveTonemapper, FitConfig};
+
+// Learn tone curve from original HDR/SDR pair
+let tonemapper = AdaptiveTonemapper::fit(&original_hdr, &original_sdr)?;
+
+// Apply to edited HDR - preserves the original artistic intent
+let new_sdr = tonemapper.apply(&edited_hdr)?;
 ```
 
 ## Supported Formats
@@ -198,9 +228,30 @@ enc.push_packed(&edited_sdr, JpegliStop)?;
 let re_encoded = enc.finish()?;
 ```
 
+## Cooperative Cancellation
+
+Long-running operations accept an `impl Stop` parameter from the [`enough`](https://crates.io/crates/enough) crate for cooperative cancellation:
+
+```rust
+use ultrahdr_core::{Unstoppable, Stop};
+use enough::AtomicStop;
+
+// Simple usage - no cancellation
+let (gainmap, metadata) = compute_gainmap(&hdr, &sdr, &config, Unstoppable)?;
+
+// With cancellation support
+let stop = AtomicStop::new();
+let stop_clone = stop.clone();
+std::thread::spawn(move || {
+    std::thread::sleep(Duration::from_secs(5));
+    stop_clone.stop();
+});
+let result = compute_gainmap(&hdr, &sdr, &config, &stop);
+```
+
 ## License
 
-MIT OR Apache-2.0
+Apache-2.0
 
 ## AI-Generated Code Notice
 

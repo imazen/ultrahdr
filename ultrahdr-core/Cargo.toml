@@ -2,11 +2,13 @@
 name = "ultrahdr-core"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
 license = "Apache-2.0"
 description = "Core gain map math and metadata for Ultra HDR - no codec dependencies"
 repository = "https://github.com/imazen/ultrahdr"
 keywords = ["hdr", "gainmap", "ultrahdr", "image", "no_std"]
 categories = ["multimedia::images", "encoding", "no-std"]
+readme = "../README.md"
 
 [dependencies]
 # Cooperative cancellation
