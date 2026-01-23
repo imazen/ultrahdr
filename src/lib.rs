@@ -48,6 +48,7 @@
 #![warn(clippy::all)]
 
 pub mod color;
+pub mod container;
 pub mod gainmap;
 pub mod jpeg;
 pub mod metadata;
