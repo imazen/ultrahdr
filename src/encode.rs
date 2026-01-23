@@ -186,8 +186,8 @@ impl Encoder {
                 // Validate that the existing gain map dimensions are appropriate
                 // The gain map should be roughly (sdr_width / scale) x (sdr_height / scale)
                 let expected_scale = self.gainmap_scale.max(1) as u32;
-                let expected_width = (sdr.width + expected_scale - 1) / expected_scale;
-                let expected_height = (sdr.height + expected_scale - 1) / expected_scale;
+                let expected_width = sdr.width.div_ceil(expected_scale);
+                let expected_height = sdr.height.div_ceil(expected_scale);
 
                 // Allow some tolerance for rounding differences
                 let width_ok =

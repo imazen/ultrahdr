@@ -109,7 +109,11 @@ fn test_encode_quality_settings() {
     assert!(high_result.len() > 100, "High quality output too small");
 
     // Verify both are valid JPEGs (start with SOI marker)
-    assert_eq!(&low_result[0..2], &[0xFF, 0xD8], "Low quality not valid JPEG");
+    assert_eq!(
+        &low_result[0..2],
+        &[0xFF, 0xD8],
+        "Low quality not valid JPEG"
+    );
     assert_eq!(
         &high_result[0..2],
         &[0xFF, 0xD8],
