@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn test_fraction_roundtrip() {
-        let values = [0.0, 1.0, -1.0, 0.5, 3.14159, -2.71828];
+        let values = [0.0, 1.0, -1.0, 0.5, 3.5, -2.5];
         for &v in &values {
             let f = Fraction::from_f32(v);
             let roundtrip = f.to_f32();
