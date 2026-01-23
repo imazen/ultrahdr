@@ -5,6 +5,8 @@
 
 pub mod apply;
 pub mod compute;
+pub mod streaming;
 
 pub use apply::*;
 pub use compute::*;
+pub use streaming::*;
