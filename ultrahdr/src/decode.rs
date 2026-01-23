@@ -7,6 +7,7 @@ use ultrahdr_core::metadata::{
 };
 use ultrahdr_core::{
     ColorGamut, ColorTransfer, Error, GainMap, GainMapMetadata, PixelFormat, RawImage, Result,
+    Unstoppable,
 };
 
 use crate::jpeg::{extract_icc_profile, find_xmp_data};
@@ -110,7 +111,7 @@ impl Decoder {
         let sdr = self.decode_sdr()?;
         let gainmap = self.decode_gainmap()?;
 
-        apply_gainmap(&sdr, &gainmap, metadata, display_boost, format)
+        apply_gainmap(&sdr, &gainmap, metadata, display_boost, format, Unstoppable)
     }
 
     /// Parse the Ultra HDR structure.

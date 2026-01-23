@@ -2,6 +2,7 @@
 
 use crate::color::transfer::{pq_oetf, srgb_eotf, srgb_oetf};
 use crate::types::{ColorTransfer, GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
+use enough::Stop;
 
 /// Output format for HDR reconstruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,12 +21,16 @@ pub enum HdrOutputFormat {
 /// - 1.0 = SDR output (no boost)
 /// - 2.0 = 2x brightness capability
 /// - 4.0 = 4x brightness capability (typical HDR display)
+///
+/// The `stop` parameter enables cooperative cancellation. Pass `Unstoppable`
+/// when cancellation is not needed.
 pub fn apply_gainmap(
     sdr: &RawImage,
     gainmap: &GainMap,
     metadata: &GainMapMetadata,
     display_boost: f32,
     output_format: HdrOutputFormat,
+    stop: impl Stop,
 ) -> Result<RawImage> {
     let width = sdr.width;
     let height = sdr.height;
@@ -55,8 +60,11 @@ pub fn apply_gainmap(
         }
     };
 
-    // Process each pixel
+    // Process each row, checking for cancellation periodically
     for y in 0..height {
+        // Check for cancellation once per row (not per pixel for performance)
+        stop.check()?;
+
         for x in 0..width {
             // Get SDR pixel (convert to linear)
             let sdr_linear = get_sdr_linear(sdr, x, y);
@@ -322,7 +330,7 @@ mod tests {
             use_base_color_space: true,
         };
 
-        let result = apply_gainmap(&sdr, &gainmap, &metadata, 4.0, HdrOutputFormat::Srgb8).unwrap();
+        let result = apply_gainmap(&sdr, &gainmap, &metadata, 4.0, HdrOutputFormat::Srgb8, enough::Unstoppable).unwrap();
 
         assert_eq!(result.width, 4);
         assert_eq!(result.height, 4);

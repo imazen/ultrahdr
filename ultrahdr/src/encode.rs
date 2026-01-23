@@ -8,6 +8,7 @@ use ultrahdr_core::metadata::{
 };
 use ultrahdr_core::{
     ColorGamut, ColorTransfer, Error, GainMap, GainMapMetadata, PixelFormat, RawImage, Result,
+    Unstoppable,
 };
 
 use crate::jpeg::{
@@ -240,7 +241,7 @@ impl Encoder {
             hdr_capacity_max: self.target_display_peak / 203.0,
         };
 
-        compute_gainmap(hdr, sdr, &config)
+        compute_gainmap(hdr, sdr, &config, Unstoppable)
     }
 
     /// Encode base SDR image to JPEG.

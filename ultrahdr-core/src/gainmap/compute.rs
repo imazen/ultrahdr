@@ -3,6 +3,7 @@
 use crate::color::gamut::rgb_to_luminance;
 use crate::color::transfer::{apply_eotf, pq_eotf, srgb_eotf};
 use crate::types::{ColorTransfer, GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
+use enough::Stop;
 
 /// Configuration for gain map computation.
 #[derive(Debug, Clone)]
@@ -47,10 +48,14 @@ impl Default for GainMapConfig {
 ///
 /// The gain map represents the ratio between HDR and SDR pixel values,
 /// encoded as 8-bit values in the range `[0, 255]`.
+///
+/// The `stop` parameter enables cooperative cancellation. Pass `Unstoppable`
+/// when cancellation is not needed.
 pub fn compute_gainmap(
     hdr: &RawImage,
     sdr: &RawImage,
     config: &GainMapConfig,
+    stop: impl Stop,
 ) -> Result<(GainMap, GainMapMetadata)> {
     // Validate inputs
     if hdr.width != sdr.width || hdr.height != sdr.height {
@@ -81,6 +86,7 @@ pub fn compute_gainmap(
             config,
             &mut actual_min_boost,
             &mut actual_max_boost,
+            &stop,
         )?
     } else {
         compute_luminance_gainmap(
@@ -92,6 +98,7 @@ pub fn compute_gainmap(
             config,
             &mut actual_min_boost,
             &mut actual_max_boost,
+            &stop,
         )?
     };
 
@@ -125,6 +132,7 @@ fn compute_luminance_gainmap(
     config: &GainMapConfig,
     actual_min_boost: &mut f32,
     actual_max_boost: &mut f32,
+    stop: &impl Stop,
 ) -> Result<GainMap> {
     let mut gainmap = GainMap::new(gm_width, gm_height)?;
 
@@ -133,6 +141,9 @@ fn compute_luminance_gainmap(
     let log_range = log_max - log_min;
 
     for gy in 0..gm_height {
+        // Check for cancellation once per row
+        stop.check()?;
+
         for gx in 0..gm_width {
             // Sample center pixel of the block
             let x = (gx * scale + scale / 2).min(hdr.width - 1);
@@ -186,6 +197,7 @@ fn compute_multichannel_gainmap(
     config: &GainMapConfig,
     actual_min_boost: &mut f32,
     actual_max_boost: &mut f32,
+    stop: &impl Stop,
 ) -> Result<GainMap> {
     let mut gainmap = GainMap::new_multichannel(gm_width, gm_height)?;
 
@@ -194,6 +206,9 @@ fn compute_multichannel_gainmap(
     let log_range = log_max - log_min;
 
     for gy in 0..gm_height {
+        // Check for cancellation once per row
+        stop.check()?;
+
         for gx in 0..gm_width {
             let x = (gx * scale + scale / 2).min(hdr.width - 1);
             let y = (gy * scale + scale / 2).min(hdr.height - 1);
@@ -418,7 +433,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (gainmap, metadata) = compute_gainmap(&hdr, &sdr, &config).unwrap();
+        let (gainmap, metadata) = compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
 
         // Check dimensions
         assert_eq!(gainmap.width, 4);
