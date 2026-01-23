@@ -264,3 +264,95 @@ fn test_jpegli_rgb_decode_direct() {
     assert_eq!(decoded.width, 8);
     assert_eq!(decoded.height, 8);
 }
+
+// ============================================================================
+// Raw JPEG Passthrough Workaround for Browser WASM
+// ============================================================================
+
+/// Test extracting raw gain map JPEG without decoding.
+///
+/// This demonstrates the workaround for browser WASM grayscale decode crash:
+/// 1. Use decoder.gainmap_jpeg() to get raw bytes (no decode)
+/// 2. Use encoder.set_existing_gainmap_jpeg() to pass through (no re-encode)
+#[wasm_bindgen_test]
+fn test_gainmap_jpeg_extraction_workaround() {
+    setup();
+
+    let decoder = ultrahdr::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
+    assert!(decoder.is_ultrahdr());
+
+    // This DOES NOT decode - just extracts raw JPEG bytes
+    let gainmap_jpeg = decoder.gainmap_jpeg().expect("extract gainmap JPEG");
+
+    // Verify it's a valid JPEG
+    assert!(!gainmap_jpeg.is_empty(), "gainmap JPEG should not be empty");
+    assert_eq!(
+        &gainmap_jpeg[0..2],
+        &[0xFF, 0xD8],
+        "gainmap should start with JPEG SOI"
+    );
+
+    // Get metadata (this also doesn't decode pixels)
+    let metadata = decoder.metadata().expect("get metadata");
+
+    // Now we could re-encode using set_existing_gainmap_jpeg() to bypass decode/re-encode
+    // This is the workaround used by zenimage-web for browser WASM
+}
+
+/// Test full roundtrip using raw JPEG passthrough (bypasses grayscale decode).
+///
+/// This is the recommended pattern for browser WASM where grayscale decode crashes.
+#[wasm_bindgen_test]
+fn test_roundtrip_with_raw_jpeg_passthrough() {
+    setup();
+
+    // Decode original UltraHDR
+    let decoder = ultrahdr::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
+    assert!(decoder.is_ultrahdr());
+
+    // Extract raw gain map JPEG (no decode, avoids crash)
+    let gainmap_jpeg = decoder.gainmap_jpeg().expect("extract gainmap JPEG").to_vec();
+    let metadata = decoder.metadata().expect("get metadata").clone();
+
+    // Decode only SDR (RGB decode works fine in browser WASM)
+    let sdr = decoder.decode_sdr().expect("decode SDR");
+
+    // Create HDR image from SDR (simple: just scale up for test)
+    let hdr_data: Vec<u8> = sdr
+        .data
+        .chunks(4)
+        .flat_map(|rgba| {
+            let r = (rgba[0] as f32 / 255.0 * 1.5).to_ne_bytes();
+            let g = (rgba[1] as f32 / 255.0 * 1.5).to_ne_bytes();
+            let b = (rgba[2] as f32 / 255.0 * 1.5).to_ne_bytes();
+            let a = 1.0f32.to_ne_bytes();
+            [r, g, b, a].concat()
+        })
+        .collect();
+
+    let hdr = ultrahdr::RawImage {
+        width: sdr.width,
+        height: sdr.height,
+        stride: sdr.width * 16,
+        format: ultrahdr::PixelFormat::Rgba32F,
+        gamut: ultrahdr::ColorGamut::Bt709,
+        transfer: ultrahdr::ColorTransfer::Linear,
+        data: hdr_data,
+    };
+
+    // Re-encode using raw JPEG passthrough (bypasses grayscale encode too)
+    let result = ultrahdr::Encoder::new()
+        .set_hdr_image(hdr)
+        .set_sdr_image(sdr)
+        .set_existing_gainmap_jpeg(gainmap_jpeg, metadata)
+        .set_quality(90, 85)
+        .encode()
+        .expect("encode with raw JPEG passthrough");
+
+    // Verify result is valid UltraHDR
+    assert!(!result.is_empty());
+    assert_eq!(&result[0..2], &[0xFF, 0xD8], "should be valid JPEG");
+
+    let new_decoder = ultrahdr::Decoder::new(&result).expect("decode result");
+    assert!(new_decoder.is_ultrahdr(), "result should be UltraHDR");
+}
