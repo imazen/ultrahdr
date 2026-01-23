@@ -311,7 +311,10 @@ fn test_roundtrip_with_raw_jpeg_passthrough() {
     assert!(decoder.is_ultrahdr());
 
     // Extract raw gain map JPEG (no decode, avoids crash)
-    let gainmap_jpeg = decoder.gainmap_jpeg().expect("extract gainmap JPEG").to_vec();
+    let gainmap_jpeg = decoder
+        .gainmap_jpeg()
+        .expect("extract gainmap JPEG")
+        .to_vec();
     let metadata = decoder.metadata().expect("get metadata").clone();
 
     // Decode only SDR (RGB decode works fine in browser WASM)
