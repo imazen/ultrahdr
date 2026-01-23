@@ -26,10 +26,24 @@ Added step-by-step tracing to zenimage-web decode path:
 - `JpegDecoder::output_format(PixelFormat::Rgb).decode()` ✓ works
 - `JpegDecoder::output_format(PixelFormat::Gray).decode()` 💥 crashes
 
-### Node.js vs Browser
-- All 8 WASM tests pass in Node.js (`wasm-pack test --node`)
-- Browser WASM crashes on grayscale decode
-- This is a **browser-specific jpegli-rs bug**
+### WASM Runtime Comparison (2026-01-23)
+
+| Environment | Target | Grayscale Decode |
+|-------------|--------|------------------|
+| Native | x86_64/aarch64 | ✅ Works |
+| Node.js | wasm32-unknown-unknown | ✅ Works |
+| **Wasmer 6.1** | **wasm32-wasip1** | **✅ Works (417 jpegli + 120 ultrahdr tests)** |
+| Browser | wasm32-unknown-unknown | ❌ Crashes |
+
+**Key finding:** The issue is **browser-specific**, not a general WASM bug.
+- All WASM tests pass with `CARGO_TARGET_WASM32_WASIP1_RUNNER=wasmer cargo test`
+- `test_encode_decode_roundtrip_gray` passes in wasmer
+- All ultrahdr decode tests including gainmap pass in wasmer
+
+This points to browser-specific issues:
+1. Browser WASM memory management differences
+2. wasm-bindgen JavaScript interop layer
+3. Browser-specific WASM implementation quirks
 
 ### Workaround Applied
 zenimage-web falls back to SDR decode for UltraHDR images:
