@@ -101,41 +101,33 @@ pub fn parse_xmp(xmp_data: &str) -> Result<(GainMapMetadata, Option<usize>)> {
     // Parse hdrgm:GainMapMin
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:GainMapMin") {
         let values = parse_xmp_values(&val);
-        for (i, v) in values.iter().enumerate().take(3) {
-            metadata.min_content_boost[i] = 2.0f32.powf(*v); // Convert from log2
+        for i in 0..3 {
+            metadata.min_content_boost[i] = 2.0f32.powf(values[i]); // Convert from log2
         }
     }
 
     // Parse hdrgm:GainMapMax
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:GainMapMax") {
         let values = parse_xmp_values(&val);
-        for (i, v) in values.iter().enumerate().take(3) {
-            metadata.max_content_boost[i] = 2.0f32.powf(*v); // Convert from log2
+        for i in 0..3 {
+            metadata.max_content_boost[i] = 2.0f32.powf(values[i]); // Convert from log2
         }
     }
 
     // Parse hdrgm:Gamma
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:Gamma") {
         let values = parse_xmp_values(&val);
-        for (i, v) in values.iter().enumerate().take(3) {
-            metadata.gamma[i] = *v;
-        }
+        metadata.gamma = values;
     }
 
     // Parse hdrgm:OffsetSDR
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:OffsetSDR") {
-        let values = parse_xmp_values(&val);
-        for (i, v) in values.iter().enumerate().take(3) {
-            metadata.offset_sdr[i] = *v;
-        }
+        metadata.offset_sdr = parse_xmp_values(&val);
     }
 
     // Parse hdrgm:OffsetHDR
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:OffsetHDR") {
-        let values = parse_xmp_values(&val);
-        for (i, v) in values.iter().enumerate().take(3) {
-            metadata.offset_hdr[i] = *v;
-        }
+        metadata.offset_hdr = parse_xmp_values(&val);
     }
 
     // Parse hdrgm:HDRCapacityMin
@@ -187,11 +179,19 @@ fn extract_attribute(xmp: &str, attr_name: &str) -> Option<String> {
 }
 
 /// Parse comma-separated or single values from XMP.
-fn parse_xmp_values(value: &str) -> Vec<f32> {
-    value
+/// Returns exactly 3 values: if input has 1 value, it's replicated to all channels.
+fn parse_xmp_values(value: &str) -> [f32; 3] {
+    let parsed: Vec<f32> = value
         .split(',')
         .filter_map(|s| s.trim().parse::<f32>().ok())
-        .collect()
+        .collect();
+
+    match parsed.len() {
+        0 => [0.0; 3],
+        1 => [parsed[0]; 3], // Single value: replicate to all channels
+        2 => [parsed[0], parsed[1], 0.0],
+        _ => [parsed[0], parsed[1], parsed[2]], // 3+ values
+    }
 }
 
 /// Create APP1 marker with XMP data.
