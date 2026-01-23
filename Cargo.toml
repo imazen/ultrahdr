@@ -9,8 +9,8 @@ keywords = ["hdr", "jpeg", "gainmap", "ultrahdr", "image"]
 categories = ["multimedia::images", "encoding"]
 
 [dependencies]
-# JPEG codec
-jpegli-rs = { path = "../jpegli-rs/jpegli-rs", features = ["decoder"] }
+# JPEG codec (optional, for convenience APIs)
+jpegli-rs = { version = "0.9.1", features = ["decoder"], optional = true }
 
 # Color management
 moxcms = "0.8"
@@ -58,6 +58,7 @@ zune-jpeg = { path = "../zune-image/crates/zune-jpeg" }
 # harness = false
 
 [features]
-default = []
+default = ["jpegli"]
+jpegli = ["jpegli-rs"]  # Convenience APIs with bundled codec
 simd = []  # Enable explicit SIMD optimizations
 ffi-tests = ["libultrahdr"]  # Enable FFI parity tests with libultrahdr C++
