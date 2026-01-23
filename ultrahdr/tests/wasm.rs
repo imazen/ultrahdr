@@ -8,8 +8,8 @@
 
 use wasm_bindgen_test::*;
 
-// Note: run_in_browser is commented out to allow --node testing
-// wasm_bindgen_test_configure!(run_in_browser);
+// Enable browser testing to match zenimage-web environment
+wasm_bindgen_test_configure!(run_in_browser);
 
 /// Set up panic hook for better error messages in WASM.
 fn setup() {
@@ -176,4 +176,88 @@ fn test_wasm_roundtrip() {
     let decoded_hdr = decoder.decode_hdr(4.0).expect("decode HDR");
     assert_eq!(decoded_hdr.width, 64);
     assert_eq!(decoded_hdr.height, 64);
+}
+
+// ============================================================================
+// Jpegli Grayscale Decode Tests (reproducing browser WASM crash)
+// ============================================================================
+
+/// Create a grayscale JPEG programmatically for testing.
+fn create_grayscale_jpeg(width: u32, height: u32) -> Vec<u8> {
+    use jpegli::encoder::{EncoderConfig, PixelLayout};
+
+    // Create simple grayscale gradient
+    let mut gray_data = vec![0u8; (width * height) as usize];
+    for y in 0..height {
+        for x in 0..width {
+            gray_data[(y * width + x) as usize] = ((x + y) % 256) as u8;
+        }
+    }
+
+    // Encode as grayscale
+    let config = EncoderConfig::grayscale(90.0);
+    let mut enc = config
+        .encode_from_bytes(width, height, PixelLayout::Gray8Srgb)
+        .expect("encoder setup");
+    enc.push_packed(&gray_data, enough::Unstoppable).expect("push");
+    enc.finish().expect("finish encode")
+}
+
+/// Test direct jpegli grayscale decode - THIS CRASHES IN BROWSER WASM.
+///
+/// This test isolates the jpegli grayscale decode issue from ultrahdr.
+/// - Node.js WASM: PASS
+/// - Browser WASM: CRASH ("RuntimeError: unreachable")
+///
+/// The crash occurs in jpegli's decoder when decoding grayscale JPEGs.
+/// RGB decode works fine; only grayscale decode crashes.
+#[wasm_bindgen_test]
+fn test_jpegli_grayscale_decode_direct() {
+    setup();
+
+    use jpegli::decoder::Decoder;
+
+    // Create a 64x64 grayscale JPEG (similar size to gain maps)
+    let jpeg_data = create_grayscale_jpeg(64, 64);
+
+    let decoder = Decoder::new();
+
+    // This crashes in browser WASM with "RuntimeError: unreachable"
+    let result = decoder.decode(&jpeg_data);
+
+    match result {
+        Ok(decoded) => {
+            assert_eq!(decoded.width, 64, "Expected 64x64 image");
+            assert_eq!(decoded.height, 64, "Expected 64x64 image");
+        }
+        Err(e) => {
+            panic!("Jpegli grayscale decode failed: {:?}", e);
+        }
+    }
+}
+
+/// Test jpegli RGB decode for comparison - this should always work.
+#[wasm_bindgen_test]
+fn test_jpegli_rgb_decode_direct() {
+    setup();
+
+    use jpegli::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout};
+    use jpegli::decoder::Decoder;
+
+    // Create a simple RGB JPEG
+    let config = EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter);
+    let mut enc = config
+        .encode_from_bytes(8, 8, PixelLayout::Rgb8Srgb)
+        .expect("encoder setup");
+
+    let pixels = vec![255u8, 0, 0].repeat(64); // 8x8 red image
+    enc.push_packed(&pixels, enough::Unstoppable).expect("push");
+    let jpeg_data = enc.finish().expect("finish");
+
+    // Decode RGB - this works in both Node.js and browser WASM
+    let decoder = Decoder::new();
+    let decoded = decoder.decode(&jpeg_data).expect("RGB decode should work in WASM");
+
+    assert_eq!(decoded.width, 8);
+    assert_eq!(decoded.height, 8);
 }

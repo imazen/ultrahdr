@@ -1,9 +1,47 @@
 # Context Handoff: Fix ultrahdr Crate for WASM
 
 **Date:** 2026-01-22
+**Updated:** 2026-01-23
 **Priority:** High - Blocks HDR editing in zenimage-web
 
-## Problem
+## ROOT CAUSE IDENTIFIED (2026-01-23)
+
+**jpegli's GRAYSCALE JPEG decode crashes in browser WASM.**
+
+### Investigation Results
+
+Added step-by-step tracing to zenimage-web decode path:
+
+```
+[HDR] Step 1: Creating decoder...     ✓
+[HDR] Step 2: is_ultrahdr = true      ✓
+[HDR] Step 3: Getting metadata...     ✓
+[HDR] Metadata: hdr_capacity_max=4.9  ✓
+[HDR] Step 4: Decoding SDR...         ✓  (jpegli RGB decode works!)
+[HDR] SDR: 256x256                    ✓
+[HDR] Step 5: Decoding gain map...    💥 CRASH (unreachable)
+```
+
+**The issue is jpegli's GRAYSCALE decode, not RGB decode:**
+- `JpegDecoder::output_format(PixelFormat::Rgb).decode()` ✓ works
+- `JpegDecoder::output_format(PixelFormat::Gray).decode()` 💥 crashes
+
+### Node.js vs Browser
+- All 8 WASM tests pass in Node.js (`wasm-pack test --node`)
+- Browser WASM crashes on grayscale decode
+- This is a **browser-specific jpegli-rs bug**
+
+### Workaround Applied
+zenimage-web falls back to SDR decode for UltraHDR images:
+- Sets `is_ultrahdr = true` for UI indication
+- Full HDR pipeline blocked until jpegli grayscale fix
+
+### Next Step
+File issue in jpegli-rs repo: "Grayscale JPEG decode crashes in browser WASM"
+
+---
+
+## Original Problem
 
 The ultrahdr crate causes "unreachable" WASM traps when calling `decode_hdr()` or `decode_hdr_with_format()`. This blocks the HDR editing workflow in zenimage-web.
 
