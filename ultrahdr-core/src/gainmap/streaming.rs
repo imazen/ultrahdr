@@ -1,7 +1,14 @@
 //! Streaming APIs for low-memory gain map processing.
 //!
-//! These APIs process images in row batches (typically 8-16 rows for JPEG MCU alignment),
-//! drastically reducing memory usage compared to full-image APIs.
+//! This module provides four streaming processors, two for decode (SDR+gainmap → HDR)
+//! and two for encode (HDR+SDR → gainmap):
+//!
+//! | Type | Direction | Memory Model | Use When |
+//! |------|-----------|--------------|----------|
+//! | [`RowDecoder`] | Decode | Full gainmap in memory | Gainmap fits in RAM |
+//! | [`StreamDecoder`] | Decode | Ring buffer (16 rows) | Parallel JPEG decode |
+//! | [`RowEncoder`] | Encode | Synchronized batches | Same-rate HDR/SDR |
+//! | [`StreamEncoder`] | Encode | Independent buffers | Parallel JPEG decode |
 //!
 //! # Memory Comparison (4K image, 3840x2160)
 //!
@@ -12,27 +19,34 @@
 //! | Full encode | ~170 MB |
 //! | Streaming encode (16 rows) | ~4 MB |
 //!
-//! # Features
+//! # Choosing a Decoder
 //!
-//! - **Flexible batch sizes**: Process 1-N rows at a time (16 is typical for JPEG MCUs)
-//! - **Stride support**: Handle row padding from various decoders
-//! - **YCbCr passthrough**: Work directly on Y channel for luminance-based gainmaps
-//! - **Zero-copy**: Borrow input data rather than copying when possible
+//! - **[`RowDecoder`]**: Load gainmap fully, then stream SDR rows. Best when gainmap
+//!   is small (e.g., 1/4 resolution) and can remain in memory.
+//! - **[`StreamDecoder`]**: Stream both SDR and gainmap rows in parallel. Best for
+//!   true parallel decode of MPF primary/secondary images with minimal memory.
 //!
-//! # Example: Streaming HDR Reconstruction (16 rows at a time)
+//! # Choosing an Encoder
+//!
+//! - **[`RowEncoder`]**: Feed synchronized HDR+SDR batches. Best when both inputs
+//!   come from the same decode loop at the same rate.
+//! - **[`StreamEncoder`]**: Feed HDR and SDR rows independently at different rates.
+//!   Best for parallel decode of separate HDR/SDR sources.
+//!
+//! # Example: Streaming HDR Reconstruction
 //!
 //! ```ignore
-//! use ultrahdr_core::gainmap::streaming::StreamingHdrReconstructor;
+//! use ultrahdr_core::gainmap::streaming::{RowDecoder, DecodeInput};
 //!
-//! let mut reconstructor = StreamingHdrReconstructor::new(
-//!     gainmap, metadata, width, height, 4.0, HdrOutputFormat::LinearFloat
+//! let mut decoder = RowDecoder::new(
+//!     gainmap, metadata, width, height, 4.0, HdrOutputFormat::LinearFloat, gamut
 //! )?;
 //!
 //! // Process in 16-row batches (typical JPEG MCU height)
 //! for batch_start in (0..height).step_by(16) {
 //!     let batch_height = 16.min(height - batch_start);
-//!     let sdr_batch = decode_next_rows(batch_height);  // Your decoder
-//!     let hdr_batch = reconstructor.process_rows(&sdr_batch, batch_height)?;
+//!     let sdr_batch = decode_next_rows(batch_height);
+//!     let hdr_batch = decoder.process_rows(&sdr_batch, batch_height)?;
 //!     write_hdr_rows(batch_start, &hdr_batch);
 //! }
 //! ```
@@ -47,15 +61,23 @@ use super::apply::HdrOutputFormat;
 use super::compute::GainMapConfig;
 
 // ============================================================================
-// Streaming HDR Reconstruction (Decode)
+// Row Decoder (full gainmap in memory)
 // ============================================================================
 
-/// Streaming HDR reconstructor for batch row processing.
+/// Row-based HDR decoder that holds the full gainmap in memory.
 ///
-/// Accepts SDR rows in configurable batches and outputs HDR rows.
-/// Memory usage scales with batch size, not image size.
+/// Accepts SDR image rows in configurable batches and outputs reconstructed HDR rows.
+/// The gainmap must be loaded entirely before processing begins—typically acceptable
+/// since gainmaps are often 1/4 resolution or smaller.
+///
+/// # Memory Usage
+///
+/// - Gainmap: `gm_width × gm_height × channels` bytes (e.g., 960×540×1 = ~500KB for 4K)
+/// - Per batch: `width × batch_rows × output_bpp` bytes
+///
+/// For streaming gainmap input, use [`StreamDecoder`] instead.
 #[derive(Debug)]
-pub struct StreamingHdrReconstructor {
+pub struct RowDecoder {
     /// Full gain map (typically small, e.g., 1/4 resolution)
     gainmap: GainMap,
     /// Gain map metadata
@@ -75,66 +97,68 @@ pub struct StreamingHdrReconstructor {
     /// Source gamut
     gamut: ColorGamut,
     /// Input format configuration
-    input_config: InputConfig,
+    input_config: DecodeInput,
 }
 
-/// Configuration for input data format.
+/// Input configuration for streaming decoders ([`RowDecoder`] and [`StreamDecoder`]).
+///
+/// Describes the pixel format, stride, and processing mode for SDR input data.
 #[derive(Debug, Clone)]
-pub struct InputConfig {
-    /// Pixel format of input data
+pub struct DecodeInput {
+    /// Pixel format of SDR input data.
     pub format: PixelFormat,
-    /// Bytes per row (0 = auto-calculate from width)
+    /// Bytes per row. Set to 0 for auto-calculation from width.
     pub stride: u32,
-    /// YCbCr mode: if true, expect Y plane only for luminance-based processing
-    pub ycbcr_y_only: bool,
+    /// If true, expect Y plane only (single channel) for luminance-based processing.
+    pub y_only: bool,
 }
 
-impl Default for InputConfig {
+impl Default for DecodeInput {
     fn default() -> Self {
         Self {
             format: PixelFormat::Rgba8,
             stride: 0,
-            ycbcr_y_only: false,
+            y_only: false,
         }
     }
 }
 
-impl InputConfig {
-    /// Create config for RGBA8 input.
+impl DecodeInput {
+    /// Create config for RGBA8 input with packed stride.
     pub fn rgba8(width: u32) -> Self {
         Self {
             format: PixelFormat::Rgba8,
             stride: width * 4,
-            ycbcr_y_only: false,
+            y_only: false,
         }
     }
 
-    /// Create config for RGB8 input.
+    /// Create config for RGB8 input with packed stride.
     pub fn rgb8(width: u32) -> Self {
         Self {
             format: PixelFormat::Rgb8,
             stride: width * 3,
-            ycbcr_y_only: false,
+            y_only: false,
         }
     }
 
-    /// Create config for Y-only luminance input (8-bit).
+    /// Create config for Y-only luminance input (8-bit grayscale).
     pub fn y_only(width: u32) -> Self {
         Self {
             format: PixelFormat::Gray8,
             stride: width,
-            ycbcr_y_only: true,
+            y_only: true,
         }
     }
 
-    /// Create config with custom stride.
+    /// Builder: set custom stride (for row padding from decoders).
     pub fn with_stride(mut self, stride: u32) -> Self {
         self.stride = stride;
         self
     }
 }
 
-impl StreamingHdrReconstructor {
+impl RowDecoder {
     /// Create a new streaming HDR reconstructor.
     ///
     /// # Arguments
@@ -162,7 +186,7 @@ impl StreamingHdrReconstructor {
             display_boost,
             output_format,
             gamut,
-            InputConfig::rgba8(width),
+            DecodeInput::rgba8(width),
         )
     }
 
@@ -176,7 +200,7 @@ impl StreamingHdrReconstructor {
         display_boost: f32,
         output_format: HdrOutputFormat,
         gamut: ColorGamut,
-        input_config: InputConfig,
+        input_config: DecodeInput,
     ) -> Result<Self> {
         let weight = calculate_weight(display_boost, &metadata);
 
@@ -261,7 +285,7 @@ impl StreamingHdrReconstructor {
     fn process_single_row(&self, y: u32, input_row: &[u8], output_row: &mut [u8]) {
         for x in 0..self.width {
             // Get SDR pixel
-            let sdr_linear = if self.input_config.ycbcr_y_only {
+            let sdr_linear = if self.input_config.y_only {
                 // Y-only mode: treat as grayscale
                 let y_val = input_row[x as usize] as f32 / 255.0;
                 let linear = srgb_eotf(y_val);
@@ -389,25 +413,25 @@ impl StreamingHdrReconstructor {
 }
 
 // ============================================================================
-// Dual Streaming HDR Reconstruction (Decode with streamed gainmap)
+// Stream Decoder (streamed gainmap, minimal memory)
 // ============================================================================
 
-/// Dual-streaming HDR reconstructor that accepts both SDR and gainmap rows.
+/// Streaming HDR decoder that accepts both SDR and gainmap rows independently.
 ///
-/// Unlike `StreamingHdrReconstructor` which requires the full gainmap upfront,
-/// this variant streams both the SDR image and the gainmap simultaneously.
-/// This enables true parallel decode of MPF primary (SDR) and secondary (gainmap)
-/// JPEG images with minimal memory.
+/// Unlike [`RowDecoder`] which loads the full gainmap upfront, this variant
+/// streams both the SDR image and the gainmap simultaneously. This enables
+/// true parallel decode of MPF primary (SDR) and secondary (gainmap) JPEG
+/// images with minimal memory.
 ///
 /// # Memory Model
 ///
-/// Buffers up to 16 gainmap rows for bilinear interpolation. At 4× scale factor
-/// and 4K resolution, this is ~15-46KB depending on channel count.
+/// - Gainmap ring buffer: 16 rows × `gm_width × channels` bytes
+/// - At 4× scale factor (4K → 960px gainmap): ~15-46KB depending on channels
 ///
 /// # Usage Pattern
 ///
 /// ```ignore
-/// let mut reconstructor = DualStreamingReconstructor::new(
+/// let mut decoder = StreamDecoder::new(
 ///     metadata,
 ///     3840, 2160,  // SDR dimensions
 ///     960, 540, 1, // Gainmap dimensions + channels
@@ -420,20 +444,20 @@ impl StreamingHdrReconstructor {
 /// loop {
 ///     // Feed gainmap rows (can be ahead of SDR)
 ///     if let Some(gm_row) = gainmap_decoder.next_row() {
-///         reconstructor.push_gainmap_row(&gm_row)?;
+///         decoder.push_gainmap_row(&gm_row)?;
 ///     }
 ///
 ///     // Process SDR rows when gainmap data is ready
 ///     if let Some(sdr_rows) = sdr_decoder.next_rows(16) {
-///         if reconstructor.can_process(16) {
-///             let hdr = reconstructor.process_sdr_rows(&sdr_rows, 16)?;
+///         if decoder.can_process(16) {
+///             let hdr = decoder.process_sdr_rows(&sdr_rows, 16)?;
 ///             output.write(&hdr);
 ///         }
 ///     }
 /// }
 /// ```
 #[derive(Debug)]
-pub struct DualStreamingReconstructor {
+pub struct StreamDecoder {
     /// Gain map metadata
     metadata: GainMapMetadata,
     /// SDR image width
@@ -459,12 +483,12 @@ pub struct DualStreamingReconstructor {
     /// Source gamut
     gamut: ColorGamut,
     /// Input format configuration
-    input_config: InputConfig,
+    input_config: DecodeInput,
     /// Ring buffer of gainmap rows (up to 16)
     gm_buffer: GainMapRingBuffer,
 }
 
-/// Ring buffer for gainmap rows during dual streaming.
+/// Ring buffer for gainmap rows during streaming decode.
 #[derive(Debug)]
 struct GainMapRingBuffer {
     /// Row data storage
@@ -524,8 +548,8 @@ impl GainMapRingBuffer {
     }
 }
 
-impl DualStreamingReconstructor {
-    /// Create a new dual-streaming HDR reconstructor.
+impl StreamDecoder {
+    /// Create a new streaming decoder.
     ///
     /// # Arguments
     /// * `metadata` - Gain map metadata
@@ -557,7 +581,7 @@ impl DualStreamingReconstructor {
             display_boost,
             output_format,
             gamut,
-            InputConfig::rgba8(sdr_width),
+            DecodeInput::rgba8(sdr_width),
         )
     }
 
@@ -573,7 +597,7 @@ impl DualStreamingReconstructor {
         display_boost: f32,
         output_format: HdrOutputFormat,
         gamut: ColorGamut,
-        input_config: InputConfig,
+        input_config: DecodeInput,
     ) -> Result<Self> {
         let weight = calculate_weight(display_boost, &metadata);
 
@@ -738,7 +762,7 @@ impl DualStreamingReconstructor {
 
     /// Get linear RGB from SDR input.
     fn get_sdr_linear(&self, row: &[u8], x: u32) -> [f32; 3] {
-        if self.input_config.ycbcr_y_only {
+        if self.input_config.y_only {
             let y_val = row.get(x as usize).copied().unwrap_or(128);
             let linear = srgb_eotf(y_val as f32 / 255.0);
             [linear, linear, linear]
@@ -883,15 +907,18 @@ fn apply_gain_dual(sdr_linear: [f32; 3], gain: [f32; 3], metadata: &GainMapMetad
 }
 
 // ============================================================================
-// Streaming Gain Map Computation (Encode)
+// Row Encoder (synchronized HDR+SDR batches)
 // ============================================================================
 
-/// Streaming gain map computer for batch row processing.
+/// Row-based gainmap encoder for synchronized HDR+SDR input.
 ///
-/// Accepts HDR and SDR rows in configurable batches, buffering only
-/// what's needed for block sampling.
+/// Accepts HDR and SDR rows in synchronized batches (same rows at the same time),
+/// buffering only what's needed for block sampling. Best when both inputs come
+/// from the same decode loop.
+///
+/// For independent HDR/SDR streams at different rates, use [`StreamEncoder`].
 #[derive(Debug)]
-pub struct StreamingGainMapComputer {
+pub struct RowEncoder {
     /// Configuration
     config: GainMapConfig,
     /// Image width
@@ -922,28 +949,31 @@ pub struct StreamingGainMapComputer {
     sdr_gamut: ColorGamut,
 }
 
-/// Input configuration for streaming encoder.
+/// Input configuration for streaming encoders ([`RowEncoder`] and [`StreamEncoder`]).
+///
+/// Describes pixel formats, strides, transfer functions, and gamuts for both
+/// HDR and SDR input streams.
 #[derive(Debug, Clone)]
-pub struct EncoderInputConfig {
-    /// HDR pixel format
+pub struct EncodeInput {
+    /// HDR pixel format.
     pub hdr_format: PixelFormat,
-    /// HDR row stride (0 = auto)
+    /// HDR row stride in bytes. Set to 0 for auto-calculation.
     pub hdr_stride: u32,
-    /// HDR transfer function
+    /// HDR transfer function (typically Linear).
     pub hdr_transfer: ColorTransfer,
-    /// HDR gamut
+    /// HDR color gamut.
     pub hdr_gamut: ColorGamut,
-    /// SDR pixel format
+    /// SDR pixel format.
     pub sdr_format: PixelFormat,
-    /// SDR row stride (0 = auto)
+    /// SDR row stride in bytes. Set to 0 for auto-calculation.
     pub sdr_stride: u32,
-    /// SDR gamut
+    /// SDR color gamut.
     pub sdr_gamut: ColorGamut,
-    /// Y-only mode for luminance processing
+    /// If true, use Y-only luminance mode for faster single-channel processing.
     pub y_only: bool,
 }
 
-impl Default for EncoderInputConfig {
+impl Default for EncodeInput {
     fn default() -> Self {
         Self {
             hdr_format: PixelFormat::Rgba16F,
@@ -958,7 +988,7 @@ impl Default for EncoderInputConfig {
     }
 }
 
-impl EncoderInputConfig {
+impl EncodeInput {
     /// Create config for RGBA16F HDR + RGBA8 SDR (common case).
     pub fn hdr16f_sdr8(width: u32) -> Self {
         Self {
@@ -973,7 +1003,7 @@ impl EncoderInputConfig {
         }
     }
 
-    /// Create config for Y-only luminance mode (faster, for luminance gainmaps).
+    /// Create config for Y-only luminance mode (faster single-channel processing).
     pub fn y_only(width: u32) -> Self {
         Self {
             hdr_format: PixelFormat::Gray8,
@@ -1061,13 +1091,13 @@ impl RowBuffer {
     }
 }
 
-impl StreamingGainMapComputer {
-    /// Create a new streaming gain map computer.
+impl RowEncoder {
+    /// Create a new row-based encoder.
     pub fn new(
         width: u32,
         height: u32,
         config: GainMapConfig,
-        input_config: EncoderInputConfig,
+        input_config: EncodeInput,
     ) -> Result<Self> {
         let scale = config.scale_factor.max(1) as u32;
         let gm_width = width.div_ceil(scale);
@@ -1317,14 +1347,8 @@ fn encode_gain(gain: f32, log_min: f32, log_range: f32, config: &GainMapConfig) 
     (gamma_corrected * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
-fn get_pixel_linear(row: &[u8], x: u32, config: &InputConfig) -> [f32; 3] {
-    get_linear_rgb_from_row(
-        row,
-        x,
-        config.format,
-        ColorTransfer::Srgb,
-        config.ycbcr_y_only,
-    )
+fn get_pixel_linear(row: &[u8], x: u32, config: &DecodeInput) -> [f32; 3] {
+    get_linear_rgb_from_row(row, x, config.format, ColorTransfer::Srgb, config.y_only)
 }
 
 fn get_linear_rgb_from_row(
@@ -1390,24 +1414,25 @@ fn get_linear_rgb_from_row(
 }
 
 // ============================================================================
-// Dual Streaming Gain Map Computation (Encode with streamed inputs)
+// Stream Encoder (independent HDR/SDR streams)
 // ============================================================================
 
-/// Dual-streaming gain map encoder that accepts HDR and SDR rows independently.
+/// Streaming gainmap encoder that accepts HDR and SDR rows independently.
 ///
-/// Unlike `StreamingGainMapComputer` which requires synchronized HDR+SDR batches,
+/// Unlike [`RowEncoder`] which requires synchronized HDR+SDR batches,
 /// this variant allows feeding HDR and SDR rows from separate decode streams
 /// at different rates. Outputs gainmap rows as soon as sufficient data is buffered.
 ///
 /// # Memory Model
 ///
-/// Buffers up to 16 rows each of HDR and SDR data. At 4K resolution with RGBA8,
-/// this is ~240KB HDR + ~240KB SDR = ~480KB total buffer.
+/// - HDR ring buffer: 16–32 rows × `width × hdr_bpp` bytes
+/// - SDR ring buffer: 16–32 rows × `width × sdr_bpp` bytes
+/// - At 4K with RGBA8: ~240KB HDR + ~240KB SDR = ~480KB total
 ///
 /// # Usage Pattern
 ///
 /// ```ignore
-/// let mut encoder = DualStreamingEncoder::new(
+/// let mut encoder = StreamEncoder::new(
 ///     3840, 2160,  // Image dimensions
 ///     config,      // GainMapConfig
 ///     input_config,
@@ -1432,7 +1457,7 @@ fn get_linear_rgb_from_row(
 /// let (gainmap, metadata) = encoder.finish()?;
 /// ```
 #[derive(Debug)]
-pub struct DualStreamingEncoder {
+pub struct StreamEncoder {
     /// Configuration
     config: GainMapConfig,
     /// Image width
@@ -1522,13 +1547,13 @@ impl InputRingBuffer {
     }
 }
 
-impl DualStreamingEncoder {
-    /// Create a new dual-streaming encoder.
+impl StreamEncoder {
+    /// Create a new streaming encoder.
     pub fn new(
         width: u32,
         height: u32,
         config: GainMapConfig,
-        input_config: EncoderInputConfig,
+        input_config: EncodeInput,
     ) -> Result<Self> {
         let scale = config.scale_factor.max(1) as u32;
         let gm_width = width.div_ceil(scale);
@@ -1844,7 +1869,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_streaming_reconstructor_multi_row() {
+    fn test_row_decoder_multi_row() {
         let mut gainmap = GainMap::new(2, 2).unwrap();
         for v in &mut gainmap.data {
             *v = 128;
@@ -1861,7 +1886,7 @@ mod tests {
             use_base_color_space: true,
         };
 
-        let mut reconstructor = StreamingHdrReconstructor::new(
+        let mut decoder = RowDecoder::new(
             gainmap,
             metadata,
             16,
@@ -1875,21 +1900,21 @@ mod tests {
         // Process in batches of 4 rows
         let sdr_batch = vec![128u8; 16 * 4 * 4]; // 4 rows, 16 pixels, RGBA
         for _ in 0..4 {
-            let hdr_batch = reconstructor.process_rows(&sdr_batch, 4).unwrap();
+            let hdr_batch = decoder.process_rows(&sdr_batch, 4).unwrap();
             assert_eq!(hdr_batch.len(), 16 * 4 * 4);
         }
 
-        assert!(reconstructor.is_complete());
+        assert!(decoder.is_complete());
     }
 
     #[test]
-    fn test_streaming_computer_multi_row() {
+    fn test_row_encoder_multi_row() {
         let config = GainMapConfig {
             scale_factor: 2,
             ..Default::default()
         };
 
-        let input_config = EncoderInputConfig {
+        let input_config = EncodeInput {
             hdr_format: PixelFormat::Rgba8,
             hdr_stride: 16 * 4,
             hdr_transfer: ColorTransfer::Srgb,
@@ -1900,17 +1925,17 @@ mod tests {
             y_only: false,
         };
 
-        let mut computer = StreamingGainMapComputer::new(16, 16, config, input_config).unwrap();
+        let mut encoder = RowEncoder::new(16, 16, config, input_config).unwrap();
 
         let hdr_batch = vec![180u8; 16 * 4 * 4]; // 4 rows
         let sdr_batch = vec![128u8; 16 * 4 * 4];
 
         // Process in batches of 4
         for _ in 0..4 {
-            let _gm_rows = computer.process_rows(&hdr_batch, &sdr_batch, 4).unwrap();
+            let _gm_rows = encoder.process_rows(&hdr_batch, &sdr_batch, 4).unwrap();
         }
 
-        let (gainmap, metadata) = computer.finish().unwrap();
+        let (gainmap, metadata) = encoder.finish().unwrap();
         assert_eq!(gainmap.width, 8);
         assert_eq!(gainmap.height, 8);
         assert!(metadata.max_content_boost[0] >= 1.0);
@@ -1924,19 +1949,19 @@ mod tests {
             ..Default::default()
         };
 
-        let input_config = EncoderInputConfig::y_only(8);
+        let input_config = EncodeInput::y_only(8);
 
-        let mut computer = StreamingGainMapComputer::new(8, 8, config, input_config).unwrap();
+        let mut encoder = RowEncoder::new(8, 8, config, input_config).unwrap();
 
         // Y-only data (1 byte per pixel)
         let hdr_row = vec![200u8; 8];
         let sdr_row = vec![128u8; 8];
 
         for _ in 0..8 {
-            let _ = computer.process_row(&hdr_row, &sdr_row).unwrap();
+            let _ = encoder.process_row(&hdr_row, &sdr_row).unwrap();
         }
 
-        let (gainmap, _) = computer.finish().unwrap();
+        let (gainmap, _) = encoder.finish().unwrap();
         assert_eq!(gainmap.width, 2);
         assert_eq!(gainmap.height, 2);
     }
