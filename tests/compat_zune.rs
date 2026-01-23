@@ -3,6 +3,8 @@
 //! Tests that our Ultra HDR JPEGs can be read by zune-jpeg as regular JPEGs
 //! (backwards compatibility) and verifies the SDR base image is correct.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 mod common;
 
 use common::{create_hdr_gradient, create_hdr_solid, create_sdr_gradient, create_sdr_solid};
