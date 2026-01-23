@@ -11,7 +11,7 @@ use ultrahdr::{
         compute::{compute_gainmap, GainMapConfig},
     },
     metadata::xmp::{generate_xmp, parse_xmp},
-    ColorGamut, ColorTransfer, GainMap, PixelFormat, RawImage,
+    ColorGamut, ColorTransfer, GainMap, PixelFormat, RawImage, Unstoppable as CoreUnstoppable,
 };
 
 // Re-export jpegli types for tests
@@ -207,7 +207,7 @@ fn test_gainmap_compute_with_jpegli_encode() {
 
     let config = GainMapConfig::default();
     let (gainmap, metadata) =
-        compute_gainmap(&hdr_image, &sdr_image, &config).expect("compute gainmap");
+        compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     // Verify gain map dimensions and data
     assert!(gainmap.width > 0);
@@ -244,7 +244,7 @@ fn test_xmp_roundtrip() {
         ..Default::default()
     };
     let (_gainmap, metadata) =
-        compute_gainmap(&hdr_image, &sdr_image, &config).expect("compute gainmap");
+        compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let xmp = generate_xmp(&metadata, 1000);
     let (parsed, gainmap_len) = parse_xmp(&xmp).expect("parse XMP");
@@ -280,7 +280,7 @@ fn test_gainmap_apply() {
 
     let config = GainMapConfig::default();
     let (gainmap, metadata) =
-        compute_gainmap(&hdr_image, &sdr_image, &config).expect("compute gainmap");
+        compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let reconstructed = apply_gainmap(
         &sdr_image,
@@ -288,6 +288,7 @@ fn test_gainmap_apply() {
         &metadata,
         4.0,
         HdrOutputFormat::LinearFloat,
+        CoreUnstoppable,
     )
     .expect("apply gainmap");
 
@@ -389,7 +390,7 @@ fn test_ultrahdr_encode() {
 
     let config = GainMapConfig::default();
     let (gainmap, metadata) =
-        compute_gainmap(&hdr_image, &sdr_image, &config).expect("compute gainmap");
+        compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
     let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
@@ -430,7 +431,7 @@ fn test_ultrahdr_decode() {
 
     let config = GainMapConfig::default();
     let (gainmap, metadata) =
-        compute_gainmap(&hdr_image, &sdr_image, &config).expect("compute gainmap");
+        compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
     let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
@@ -472,7 +473,7 @@ fn test_ultrahdr_roundtrip() {
     // Encode UltraHDR
     let config = GainMapConfig::default();
     let (gainmap, metadata) =
-        compute_gainmap(&hdr_image, &sdr_image, &config).expect("compute gainmap");
+        compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
     let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
@@ -507,6 +508,7 @@ fn test_ultrahdr_roundtrip() {
         &parsed_metadata,
         4.0,
         HdrOutputFormat::LinearFloat,
+        CoreUnstoppable,
     )
     .expect("apply gainmap");
 
@@ -538,7 +540,7 @@ fn test_roundtrip_edit_sdr_keep_gainmap() {
 
     let config = GainMapConfig::default();
     let (gainmap, metadata) =
-        compute_gainmap(&hdr_image, &sdr_image, &config).expect("compute gainmap");
+        compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
     let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
@@ -584,4 +586,246 @@ fn test_roundtrip_edit_sdr_keep_gainmap() {
         &decoded.data[..100],
         "SDR pixels should be different"
     );
+}
+
+// =============================================================================
+// README workflow example test
+// =============================================================================
+
+/// This test exercises the exact workflow documented in README.md
+/// for using ultrahdr-core with jpegli-rs directly.
+#[test]
+fn test_readme_workflow_encode_decode() {
+    // === ENCODING (as documented in README) ===
+
+    let width = 64u32;
+    let height = 64u32;
+
+    // Create test HDR and SDR images
+    let hdr_image = create_test_hdr_image(width, height);
+    let sdr_image = create_sdr_from_hdr(&hdr_image);
+    let sdr_rgb = rgba8_to_rgb8(&sdr_image);
+
+    // 1. Compute gain map from HDR + SDR
+    let config = GainMapConfig::default();
+    let (gainmap, metadata) =
+        compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
+
+    // 2. Encode gain map to JPEG
+    let gainmap_jpeg = {
+        let cfg = EncoderConfig::grayscale(75.0);
+        let mut enc = cfg
+            .encode_from_bytes(gainmap.width, gainmap.height, PixelLayout::Gray8Srgb)
+            .expect("create gainmap encoder");
+        enc.push_packed(&gainmap.data, Unstoppable)
+            .expect("push gainmap");
+        enc.finish().expect("finish gainmap")
+    };
+
+    // 3. Generate XMP metadata
+    let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
+    assert!(xmp.contains("hdrgm:Version"));
+    assert!(xmp.contains("hdrgm:GainMapMax"));
+
+    // 4. Encode UltraHDR with embedded gain map
+    let ultrahdr_jpeg = {
+        let cfg = EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter)
+            .xmp(xmp.as_bytes().to_vec())
+            .add_gainmap(gainmap_jpeg);
+        let mut enc = cfg
+            .encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)
+            .expect("create ultrahdr encoder");
+        enc.push_packed(&sdr_rgb, Unstoppable).expect("push sdr");
+        enc.finish().expect("finish ultrahdr")
+    };
+
+    // Verify UltraHDR structure
+    assert!(!ultrahdr_jpeg.is_empty());
+    assert_eq!(&ultrahdr_jpeg[..2], &[0xFF, 0xD8], "Should start with JPEG SOI");
+
+    // === DECODING (as documented in README) ===
+
+    // 1. Decode with metadata preservation
+    let decoded = Decoder::new()
+        .preserve(PreserveConfig::default())
+        .decode(&ultrahdr_jpeg)
+        .expect("decode ultrahdr");
+
+    let extras = decoded.extras().expect("should have extras");
+
+    // 2. Parse XMP metadata
+    let xmp_str = extras.xmp().expect("should have XMP");
+    let (parsed_metadata, gainmap_len) = parse_xmp(xmp_str).expect("parse XMP");
+
+    assert!(gainmap_len.is_some(), "XMP should contain gainmap length");
+    assert!(
+        parsed_metadata.hdr_capacity_max > 1.0,
+        "HDR capacity should be > 1.0"
+    );
+
+    // 3. Decode gain map JPEG
+    let gainmap_data = extras.gainmap().expect("should have gainmap");
+    let gainmap_decoded = Decoder::new()
+        .decode(gainmap_data)
+        .expect("decode gainmap jpeg");
+
+    // 4. Build RawImage and GainMap structs
+    let sdr_raw = rgb8_to_raw_image(&decoded.data, decoded.width, decoded.height);
+    let gainmap_raw = GainMap {
+        width: gainmap_decoded.width,
+        height: gainmap_decoded.height,
+        channels: 1,
+        data: gainmap_decoded.data,
+    };
+
+    // 5. Apply gain map to reconstruct HDR
+    let hdr_reconstructed = apply_gainmap(
+        &sdr_raw,
+        &gainmap_raw,
+        &parsed_metadata,
+        4.0, // display boost
+        HdrOutputFormat::LinearFloat,
+        CoreUnstoppable,
+    )
+    .expect("apply gainmap");
+
+    // Verify HDR reconstruction
+    assert_eq!(hdr_reconstructed.width, width);
+    assert_eq!(hdr_reconstructed.height, height);
+    assert_eq!(hdr_reconstructed.format, PixelFormat::Rgba32F);
+
+    // Verify HDR values exceed SDR range (> 1.0)
+    let hdr_data = &hdr_reconstructed.data;
+    let mut max_value = 0.0f32;
+    for i in 0..(width * height) as usize {
+        let idx = i * 16; // 4 floats × 4 bytes
+        let r = f32::from_le_bytes([
+            hdr_data[idx],
+            hdr_data[idx + 1],
+            hdr_data[idx + 2],
+            hdr_data[idx + 3],
+        ]);
+        let g = f32::from_le_bytes([
+            hdr_data[idx + 4],
+            hdr_data[idx + 5],
+            hdr_data[idx + 6],
+            hdr_data[idx + 7],
+        ]);
+        let b = f32::from_le_bytes([
+            hdr_data[idx + 8],
+            hdr_data[idx + 9],
+            hdr_data[idx + 10],
+            hdr_data[idx + 11],
+        ]);
+        max_value = max_value.max(r).max(g).max(b);
+    }
+
+    assert!(
+        max_value > 1.0,
+        "Reconstructed HDR should have values > 1.0, got max={}",
+        max_value
+    );
+
+    println!(
+        "README workflow test passed: max HDR value = {:.2}, gainmap {}x{}",
+        max_value, gainmap_raw.width, gainmap_raw.height
+    );
+}
+
+/// Test the lossless round-trip workflow from README
+#[test]
+fn test_readme_workflow_lossless_roundtrip() {
+    let width = 64u32;
+    let height = 64u32;
+
+    // Create and encode original UltraHDR
+    let hdr_image = create_test_hdr_image(width, height);
+    let sdr_image = create_sdr_from_hdr(&hdr_image);
+    let sdr_rgb = rgba8_to_rgb8(&sdr_image);
+
+    let config = GainMapConfig::default();
+    let (gainmap, metadata) =
+        compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
+
+    let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
+    let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
+    let original = encode_ultrahdr(&sdr_rgb, width, height, 90.0, &xmp, gainmap_jpeg);
+
+    // === LOSSLESS ROUND-TRIP (as documented in README) ===
+
+    // Decode
+    let decoded = Decoder::new()
+        .preserve(PreserveConfig::default())
+        .decode(&original)
+        .expect("decode");
+    let extras = decoded.extras().unwrap();
+
+    // Edit SDR pixels (simple brightness adjustment)
+    let edited_sdr: Vec<u8> = decoded.data.iter().map(|v| v.saturating_add(20)).collect();
+
+    // Re-encode preserving XMP + gainmap
+    let encoder_segments = extras.to_encoder_segments();
+    let cfg =
+        EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter).with_segments(encoder_segments);
+    let mut enc = cfg
+        .encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)
+        .expect("create encoder");
+    enc.push_packed(&edited_sdr, Unstoppable).expect("push");
+    let re_encoded = enc.finish().expect("finish");
+
+    // Verify round-trip preserved metadata
+    let re_decoded = Decoder::new()
+        .preserve(PreserveConfig::default())
+        .decode(&re_encoded)
+        .expect("decode re-encoded");
+
+    let re_extras = re_decoded.extras().expect("should have extras");
+
+    // XMP should be preserved
+    let re_xmp = re_extras.xmp().expect("XMP preserved");
+    assert!(re_xmp.contains("hdrgm:"), "XMP should contain hdrgm namespace");
+
+    // Gainmap should be preserved
+    let re_gainmap = re_extras.gainmap().expect("gainmap preserved");
+    assert_eq!(
+        &re_gainmap[..2],
+        &[0xFF, 0xD8],
+        "Preserved gainmap should be valid JPEG"
+    );
+
+    // Pixels should be different (we edited them)
+    let pixel_diff: i32 = decoded
+        .data
+        .iter()
+        .zip(re_decoded.data.iter())
+        .map(|(&a, &b)| (a as i32 - b as i32).abs())
+        .sum();
+    assert!(pixel_diff > 0, "Pixels should have changed after edit");
+
+    // HDR reconstruction should still work with edited SDR + preserved gainmap
+    let (parsed_metadata, _) = parse_xmp(re_xmp).expect("parse XMP");
+    let gainmap_decoded = Decoder::new().decode(re_gainmap).expect("decode gainmap");
+
+    let sdr_raw = rgb8_to_raw_image(&re_decoded.data, re_decoded.width, re_decoded.height);
+    let gainmap_raw = GainMap {
+        width: gainmap_decoded.width,
+        height: gainmap_decoded.height,
+        channels: 1,
+        data: gainmap_decoded.data,
+    };
+
+    let hdr = apply_gainmap(
+        &sdr_raw,
+        &gainmap_raw,
+        &parsed_metadata,
+        4.0,
+        HdrOutputFormat::LinearFloat,
+        CoreUnstoppable,
+    )
+    .expect("apply gainmap after round-trip");
+
+    assert_eq!(hdr.width, width);
+    assert_eq!(hdr.height, height);
+
+    println!("README lossless round-trip test passed");
 }

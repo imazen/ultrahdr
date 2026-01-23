@@ -97,6 +97,107 @@ Both XMP and ISO 21496-1 metadata are supported for maximum compatibility:
 - Display P3
 - BT.2100/BT.2020
 
+## Using ultrahdr-core with jpegli-rs Directly
+
+For more control, use `ultrahdr-core` (math + metadata only) with `jpegli-rs` for JPEG operations:
+
+### Encoding UltraHDR
+
+```rust
+use ultrahdr_core::{
+    gainmap::compute::{compute_gainmap, GainMapConfig},
+    metadata::xmp::generate_xmp,
+    RawImage, PixelFormat, ColorGamut, ColorTransfer, Unstoppable,
+};
+use jpegli::encoder::{EncoderConfig, PixelLayout, ChromaSubsampling, Unstoppable as JpegliStop};
+
+// 1. Compute gain map from HDR + SDR
+let config = GainMapConfig::default();
+let (gainmap, metadata) = compute_gainmap(&hdr_image, &sdr_image, &config, Unstoppable)?;
+
+// 2. Encode gain map to JPEG
+let gainmap_jpeg = {
+    let cfg = EncoderConfig::grayscale(75.0);
+    let mut enc = cfg.encode_from_bytes(gainmap.width, gainmap.height, PixelLayout::Gray8Srgb)?;
+    enc.push_packed(&gainmap.data, JpegliStop)?;
+    enc.finish()?
+};
+
+// 3. Generate XMP metadata
+let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
+
+// 4. Encode UltraHDR with embedded gain map
+let ultrahdr = {
+    let cfg = EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter)
+        .xmp(xmp.as_bytes().to_vec())
+        .add_gainmap(gainmap_jpeg);
+    let mut enc = cfg.encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)?;
+    enc.push_packed(&sdr_rgb, JpegliStop)?;
+    enc.finish()?
+};
+```
+
+### Decoding UltraHDR
+
+```rust
+use ultrahdr_core::{
+    gainmap::apply::{apply_gainmap, HdrOutputFormat},
+    metadata::xmp::parse_xmp,
+    GainMap, RawImage, Unstoppable,
+};
+use jpegli::decoder::{Decoder, PreserveConfig};
+
+// 1. Decode with metadata preservation
+let decoded = Decoder::new()
+    .preserve(PreserveConfig::default())
+    .decode(&ultrahdr_jpeg)?;
+
+let extras = decoded.extras().expect("extras");
+
+// 2. Parse XMP metadata
+let xmp_str = extras.xmp().expect("XMP");
+let (metadata, _) = parse_xmp(xmp_str)?;
+
+// 3. Decode gain map JPEG
+let gainmap_jpeg = extras.gainmap().expect("gainmap");
+let gainmap_decoded = Decoder::new().decode(gainmap_jpeg)?;
+
+// 4. Build RawImage and GainMap structs
+let sdr = RawImage::from_data(
+    decoded.width, decoded.height,
+    PixelFormat::Rgba8, ColorGamut::Bt709, ColorTransfer::Srgb,
+    rgba_pixels,
+)?;
+let gainmap = GainMap {
+    width: gainmap_decoded.width,
+    height: gainmap_decoded.height,
+    channels: 1,
+    data: gainmap_decoded.data,
+};
+
+// 5. Apply gain map to reconstruct HDR
+let hdr = apply_gainmap(&sdr, &gainmap, &metadata, 4.0, HdrOutputFormat::LinearFloat, Unstoppable)?;
+```
+
+### Lossless Round-Trip (Edit SDR, Preserve Gain Map)
+
+```rust
+// Decode
+let decoded = Decoder::new().preserve(PreserveConfig::default()).decode(&ultrahdr)?;
+let extras = decoded.extras().unwrap();
+
+// Edit SDR pixels...
+let edited_sdr: Vec<u8> = /* your edits */;
+
+// Re-encode preserving XMP + gainmap
+let encoder_segments = extras.to_encoder_segments();
+let cfg = EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter)
+    .with_segments(encoder_segments);  // Preserves XMP + gainmap
+let mut enc = cfg.encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)?;
+enc.push_packed(&edited_sdr, JpegliStop)?;
+let re_encoded = enc.finish()?;
+```
+
 ## License
 
 MIT OR Apache-2.0
