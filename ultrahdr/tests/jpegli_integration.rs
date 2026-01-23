@@ -641,7 +641,11 @@ fn test_readme_workflow_encode_decode() {
 
     // Verify UltraHDR structure
     assert!(!ultrahdr_jpeg.is_empty());
-    assert_eq!(&ultrahdr_jpeg[..2], &[0xFF, 0xD8], "Should start with JPEG SOI");
+    assert_eq!(
+        &ultrahdr_jpeg[..2],
+        &[0xFF, 0xD8],
+        "Should start with JPEG SOI"
+    );
 
     // === DECODING (as documented in README) ===
 
@@ -783,7 +787,10 @@ fn test_readme_workflow_lossless_roundtrip() {
 
     // XMP should be preserved
     let re_xmp = re_extras.xmp().expect("XMP preserved");
-    assert!(re_xmp.contains("hdrgm:"), "XMP should contain hdrgm namespace");
+    assert!(
+        re_xmp.contains("hdrgm:"),
+        "XMP should contain hdrgm namespace"
+    );
 
     // Gainmap should be preserved
     let re_gainmap = re_extras.gainmap().expect("gainmap preserved");

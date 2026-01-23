@@ -330,7 +330,15 @@ mod tests {
             use_base_color_space: true,
         };
 
-        let result = apply_gainmap(&sdr, &gainmap, &metadata, 4.0, HdrOutputFormat::Srgb8, enough::Unstoppable).unwrap();
+        let result = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            4.0,
+            HdrOutputFormat::Srgb8,
+            enough::Unstoppable,
+        )
+        .unwrap();
 
         assert_eq!(result.width, 4);
         assert_eq!(result.height, 4);

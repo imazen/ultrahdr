@@ -28,8 +28,8 @@
 //! let output = assemble(&primary_jpeg, &[&gainmap_jpeg], &[MpfImageType::GainMap]);
 //! ```
 
-use ultrahdr_core::{Error, Result};
 use std::ops::Range;
+use ultrahdr_core::{Error, Result};
 
 /// MPF (Multi-Picture Format) directory parsed from APP2 segment.
 #[derive(Debug, Clone)]

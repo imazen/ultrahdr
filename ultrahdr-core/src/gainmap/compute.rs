@@ -433,7 +433,8 @@ mod tests {
             ..Default::default()
         };
 
-        let (gainmap, metadata) = compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
+        let (gainmap, metadata) =
+            compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
 
         // Check dimensions
         assert_eq!(gainmap.width, 4);

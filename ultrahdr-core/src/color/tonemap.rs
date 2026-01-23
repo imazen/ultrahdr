@@ -300,9 +300,12 @@ impl AdaptiveTonemapper {
 
                 // Apply sRGB OETF and write
                 let out_idx = (y * output.stride + x * 4) as usize;
-                output.data[out_idx] = (srgb_oetf(sdr_linear[0]) * 255.0).round().clamp(0.0, 255.0) as u8;
-                output.data[out_idx + 1] = (srgb_oetf(sdr_linear[1]) * 255.0).round().clamp(0.0, 255.0) as u8;
-                output.data[out_idx + 2] = (srgb_oetf(sdr_linear[2]) * 255.0).round().clamp(0.0, 255.0) as u8;
+                output.data[out_idx] =
+                    (srgb_oetf(sdr_linear[0]) * 255.0).round().clamp(0.0, 255.0) as u8;
+                output.data[out_idx + 1] =
+                    (srgb_oetf(sdr_linear[1]) * 255.0).round().clamp(0.0, 255.0) as u8;
+                output.data[out_idx + 2] =
+                    (srgb_oetf(sdr_linear[2]) * 255.0).round().clamp(0.0, 255.0) as u8;
                 output.data[out_idx + 3] = 255;
             }
         }
@@ -342,9 +345,12 @@ impl AdaptiveTonemapper {
 
                 // Clamp and apply sRGB OETF
                 let out_idx = (y * output.stride + x * 4) as usize;
-                output.data[out_idx] = (srgb_oetf(sdr_linear[0].clamp(0.0, 1.0)) * 255.0).round() as u8;
-                output.data[out_idx + 1] = (srgb_oetf(sdr_linear[1].clamp(0.0, 1.0)) * 255.0).round() as u8;
-                output.data[out_idx + 2] = (srgb_oetf(sdr_linear[2].clamp(0.0, 1.0)) * 255.0).round() as u8;
+                output.data[out_idx] =
+                    (srgb_oetf(sdr_linear[0].clamp(0.0, 1.0)) * 255.0).round() as u8;
+                output.data[out_idx + 1] =
+                    (srgb_oetf(sdr_linear[1].clamp(0.0, 1.0)) * 255.0).round() as u8;
+                output.data[out_idx + 2] =
+                    (srgb_oetf(sdr_linear[2].clamp(0.0, 1.0)) * 255.0).round() as u8;
                 output.data[out_idx + 3] = 255;
             }
         }
@@ -430,7 +436,9 @@ impl AdaptiveTonemapper {
         }
 
         if pairs.is_empty() {
-            return Err(Error::InvalidPixelData("no valid pixel pairs for fitting".into()));
+            return Err(Error::InvalidPixelData(
+                "no valid pixel pairs for fitting".into(),
+            ));
         }
 
         // Sort by HDR luminance
@@ -518,9 +526,15 @@ impl AdaptiveTonemapper {
             let hdr_rgb = get_linear_rgb(hdr, x, y);
             let sdr_rgb = get_sdr_linear(sdr, x, y);
 
-            if hdr_rgb[0] > 0.001 { pairs_r.push((hdr_rgb[0], sdr_rgb[0])); }
-            if hdr_rgb[1] > 0.001 { pairs_g.push((hdr_rgb[1], sdr_rgb[1])); }
-            if hdr_rgb[2] > 0.001 { pairs_b.push((hdr_rgb[2], sdr_rgb[2])); }
+            if hdr_rgb[0] > 0.001 {
+                pairs_r.push((hdr_rgb[0], sdr_rgb[0]));
+            }
+            if hdr_rgb[1] > 0.001 {
+                pairs_g.push((hdr_rgb[1], sdr_rgb[1]));
+            }
+            if hdr_rgb[2] > 0.001 {
+                pairs_b.push((hdr_rgb[2], sdr_rgb[2]));
+            }
 
             max_hdr = max_hdr.max(hdr_rgb[0]).max(hdr_rgb[1]).max(hdr_rgb[2]);
         }
@@ -645,10 +659,14 @@ pub fn scale_gainmap(gainmap: &GainMap, new_width: u32, new_height: u32) -> Resu
             let fy = src_y - src_y.floor();
 
             for c in 0..gainmap.channels as usize {
-                let v00 = gainmap.data[(y0 * gainmap.width + x0) as usize * gainmap.channels as usize + c];
-                let v10 = gainmap.data[(y0 * gainmap.width + x1) as usize * gainmap.channels as usize + c];
-                let v01 = gainmap.data[(y1 * gainmap.width + x0) as usize * gainmap.channels as usize + c];
-                let v11 = gainmap.data[(y1 * gainmap.width + x1) as usize * gainmap.channels as usize + c];
+                let v00 = gainmap.data
+                    [(y0 * gainmap.width + x0) as usize * gainmap.channels as usize + c];
+                let v10 = gainmap.data
+                    [(y0 * gainmap.width + x1) as usize * gainmap.channels as usize + c];
+                let v01 = gainmap.data
+                    [(y1 * gainmap.width + x0) as usize * gainmap.channels as usize + c];
+                let v11 = gainmap.data
+                    [(y1 * gainmap.width + x1) as usize * gainmap.channels as usize + c];
 
                 let top = v00 as f32 * (1.0 - fx) + v10 as f32 * fx;
                 let bottom = v01 as f32 * (1.0 - fx) + v11 as f32 * fx;
@@ -692,7 +710,8 @@ pub fn crop_gainmap(
 
     for y in 0..gm_h {
         for x in 0..gm_w {
-            let src_idx = ((gm_y + y) * gainmap.width + (gm_x + x)) as usize * gainmap.channels as usize;
+            let src_idx =
+                ((gm_y + y) * gainmap.width + (gm_x + x)) as usize * gainmap.channels as usize;
             let dst_idx = (y * gm_w + x) as usize * gainmap.channels as usize;
 
             for c in 0..gainmap.channels as usize {
@@ -896,7 +915,11 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
 
     match img.format {
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
-            let bpp = if img.format == PixelFormat::Rgba8 { 4 } else { 3 };
+            let bpp = if img.format == PixelFormat::Rgba8 {
+                4
+            } else {
+                3
+            };
             let idx = (y * img.stride + x * bpp as u32) as usize;
             let r = img.data[idx] as f32 / 255.0;
             let g = img.data[idx + 1] as f32 / 255.0;
@@ -909,9 +932,24 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         }
         PixelFormat::Rgba32F => {
             let idx = (y * img.stride + x * 16) as usize;
-            let r = f32::from_le_bytes([img.data[idx], img.data[idx + 1], img.data[idx + 2], img.data[idx + 3]]);
-            let g = f32::from_le_bytes([img.data[idx + 4], img.data[idx + 5], img.data[idx + 6], img.data[idx + 7]]);
-            let b = f32::from_le_bytes([img.data[idx + 8], img.data[idx + 9], img.data[idx + 10], img.data[idx + 11]]);
+            let r = f32::from_le_bytes([
+                img.data[idx],
+                img.data[idx + 1],
+                img.data[idx + 2],
+                img.data[idx + 3],
+            ]);
+            let g = f32::from_le_bytes([
+                img.data[idx + 4],
+                img.data[idx + 5],
+                img.data[idx + 6],
+                img.data[idx + 7],
+            ]);
+            let b = f32::from_le_bytes([
+                img.data[idx + 8],
+                img.data[idx + 9],
+                img.data[idx + 10],
+                img.data[idx + 11],
+            ]);
             [r, g, b]
         }
         PixelFormat::Rgba16F => {
@@ -923,7 +961,12 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         }
         PixelFormat::Rgba1010102Pq => {
             let idx = (y * img.stride + x * 4) as usize;
-            let packed = u32::from_le_bytes([img.data[idx], img.data[idx + 1], img.data[idx + 2], img.data[idx + 3]]);
+            let packed = u32::from_le_bytes([
+                img.data[idx],
+                img.data[idx + 1],
+                img.data[idx + 2],
+                img.data[idx + 3],
+            ]);
             let r = (packed & 0x3FF) as f32 / 1023.0;
             let g = ((packed >> 10) & 0x3FF) as f32 / 1023.0;
             let b = ((packed >> 20) & 0x3FF) as f32 / 1023.0;
@@ -931,7 +974,12 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         }
         PixelFormat::Rgba1010102Hlg => {
             let idx = (y * img.stride + x * 4) as usize;
-            let packed = u32::from_le_bytes([img.data[idx], img.data[idx + 1], img.data[idx + 2], img.data[idx + 3]]);
+            let packed = u32::from_le_bytes([
+                img.data[idx],
+                img.data[idx + 1],
+                img.data[idx + 2],
+                img.data[idx + 3],
+            ]);
             let r = (packed & 0x3FF) as f32 / 1023.0;
             let g = ((packed >> 10) & 0x3FF) as f32 / 1023.0;
             let b = ((packed >> 20) & 0x3FF) as f32 / 1023.0;
@@ -947,7 +995,11 @@ fn get_sdr_linear(sdr: &RawImage, x: u32, y: u32) -> [f32; 3] {
 
     match sdr.format {
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
-            let bpp = if sdr.format == PixelFormat::Rgba8 { 4 } else { 3 };
+            let bpp = if sdr.format == PixelFormat::Rgba8 {
+                4
+            } else {
+                3
+            };
             let idx = (y * sdr.stride + x * bpp as u32) as usize;
             let r = sdr.data[idx] as f32 / 255.0;
             let g = sdr.data[idx + 1] as f32 / 255.0;
@@ -1213,20 +1265,24 @@ mod tests {
         }
 
         let hdr = RawImage::from_data(
-            width, height,
+            width,
+            height,
             PixelFormat::Rgba16F,
             ColorGamut::Bt709,
             ColorTransfer::Linear,
             hdr_data,
-        ).unwrap();
+        )
+        .unwrap();
 
         let sdr = RawImage::from_data(
-            width, height,
+            width,
+            height,
             PixelFormat::Rgba8,
             ColorGamut::Bt709,
             ColorTransfer::Srgb,
             sdr_data,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Fit tonemapper
         let tm = AdaptiveTonemapper::fit(&hdr, &sdr).unwrap();

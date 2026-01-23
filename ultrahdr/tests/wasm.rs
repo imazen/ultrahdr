@@ -199,7 +199,8 @@ fn create_grayscale_jpeg(width: u32, height: u32) -> Vec<u8> {
     let mut enc = config
         .encode_from_bytes(width, height, PixelLayout::Gray8Srgb)
         .expect("encoder setup");
-    enc.push_packed(&gray_data, enough::Unstoppable).expect("push");
+    enc.push_packed(&gray_data, enough::Unstoppable)
+        .expect("push");
     enc.finish().expect("finish encode")
 }
 
@@ -241,8 +242,8 @@ fn test_jpegli_grayscale_decode_direct() {
 fn test_jpegli_rgb_decode_direct() {
     setup();
 
-    use jpegli::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout};
     use jpegli::decoder::Decoder;
+    use jpegli::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout};
 
     // Create a simple RGB JPEG
     let config = EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter);
@@ -256,7 +257,9 @@ fn test_jpegli_rgb_decode_direct() {
 
     // Decode RGB - this works in both Node.js and browser WASM
     let decoder = Decoder::new();
-    let decoded = decoder.decode(&jpeg_data).expect("RGB decode should work in WASM");
+    let decoded = decoder
+        .decode(&jpeg_data)
+        .expect("RGB decode should work in WASM");
 
     assert_eq!(decoded.width, 8);
     assert_eq!(decoded.height, 8);
