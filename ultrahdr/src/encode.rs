@@ -28,6 +28,8 @@ pub struct Encoder {
     compressed_sdr: Option<Vec<u8>>,
     existing_gainmap: Option<GainMap>,
     existing_metadata: Option<GainMapMetadata>,
+    /// Raw gain map JPEG bytes (skips re-encode when set)
+    existing_gainmap_jpeg: Option<Vec<u8>>,
     base_quality: u8,
     gainmap_quality: u8,
     gainmap_scale: u8,
@@ -51,6 +53,7 @@ impl Encoder {
             compressed_sdr: None,
             existing_gainmap: None,
             existing_metadata: None,
+            existing_gainmap_jpeg: None,
             base_quality: 90,
             gainmap_quality: 85,
             gainmap_scale: 4,
@@ -106,6 +109,24 @@ impl Encoder {
     pub fn clear_existing_gainmap(&mut self) -> &mut Self {
         self.existing_gainmap = None;
         self.existing_metadata = None;
+        self.existing_gainmap_jpeg = None;
+        self
+    }
+
+    /// Set an existing gain map as raw JPEG bytes and metadata (optional).
+    ///
+    /// This is an alternative to `set_existing_gainmap` that skips the
+    /// JPEG re-encoding step entirely. Useful when the original gain map
+    /// JPEG is available (e.g., from a decoded UltraHDR image).
+    ///
+    /// When set, this takes precedence over `existing_gainmap`.
+    pub fn set_existing_gainmap_jpeg(
+        &mut self,
+        jpeg: Vec<u8>,
+        metadata: GainMapMetadata,
+    ) -> &mut Self {
+        self.existing_gainmap_jpeg = Some(jpeg);
+        self.existing_metadata = Some(metadata);
         self
     }
 
@@ -159,6 +180,37 @@ impl Encoder {
 
     /// Encode to Ultra HDR JPEG.
     pub fn encode(&self) -> Result<Vec<u8>> {
+        // Fast path: if we have raw gain map JPEG bytes, skip gain map processing entirely
+        if let (Some(ref gainmap_jpeg), Some(ref metadata)) =
+            (&self.existing_gainmap_jpeg, &self.existing_metadata)
+        {
+            // We still need base JPEG - use compressed_sdr or generate from SDR/HDR
+            let (base_jpeg, gamut) = if let Some(ref compressed) = self.compressed_sdr {
+                (compressed.clone(), ColorGamut::Bt709)
+            } else if let Some(ref sdr_img) = self.sdr_image {
+                (self.encode_base_jpeg(sdr_img)?, sdr_img.gamut)
+            } else if let Some(ref hdr) = self.hdr_image {
+                // Generate SDR via tone mapping
+                let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorGamut::Bt709);
+                let sdr = RawImage {
+                    width: hdr.width,
+                    height: hdr.height,
+                    stride: hdr.width * 4,
+                    data: sdr_pixels,
+                    format: PixelFormat::Rgba8,
+                    gamut: ColorGamut::Bt709,
+                    transfer: ColorTransfer::Srgb,
+                };
+                (self.encode_base_jpeg(&sdr)?, sdr.gamut)
+            } else {
+                return Err(Error::EncodeError(
+                    "Either HDR image, SDR image, or compressed SDR is required".into(),
+                ));
+            };
+
+            return self.create_ultrahdr_jpeg(&base_jpeg, gainmap_jpeg, metadata, gamut);
+        }
+
         // Validate inputs
         let hdr = self
             .hdr_image
