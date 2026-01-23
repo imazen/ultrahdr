@@ -127,6 +127,48 @@ Both XMP and ISO 21496-1 metadata are supported for maximum compatibility:
 - Display P3
 - BT.2100/BT.2020
 
+## Streaming APIs (Low Memory)
+
+For memory-constrained environments, `ultrahdr-core` provides streaming APIs that process images row-by-row:
+
+```rust
+use ultrahdr_core::gainmap::streaming::{RowDecoder, RowEncoder, DecodeInput, EncodeInput};
+```
+
+| Type | Direction | Memory | Use Case |
+|------|-----------|--------|----------|
+| `RowDecoder` | SDR+gainmap→HDR | Full gainmap in RAM | Gainmap fits in memory |
+| `StreamDecoder` | SDR+gainmap→HDR | 16-row ring buffer | Parallel JPEG decode |
+| `RowEncoder` | HDR+SDR→gainmap | Synchronized batches | Same-rate inputs |
+| `StreamEncoder` | HDR+SDR→gainmap | Independent buffers | Parallel decode sources |
+
+### Streaming Decode Example
+
+```rust
+use ultrahdr_core::gainmap::streaming::{RowDecoder, DecodeInput};
+use ultrahdr_core::{HdrOutputFormat, ColorGamut};
+
+// Load gainmap fully, then stream SDR rows
+let mut decoder = RowDecoder::new(
+    gainmap, metadata, width, height, 4.0, HdrOutputFormat::LinearFloat, ColorGamut::Bt709
+)?;
+
+// Process in 16-row batches (JPEG MCU alignment)
+for batch_start in (0..height).step_by(16) {
+    let batch_height = 16.min(height - batch_start);
+    let sdr_batch = jpeg_decoder.next_rows(batch_height);
+    let hdr_batch = decoder.process_rows(&sdr_batch, batch_height)?;
+    write_output(&hdr_batch);
+}
+```
+
+### Memory Savings (4K image)
+
+| API | Peak Memory |
+|-----|-------------|
+| Full decode | ~166 MB |
+| Streaming (16 rows) | ~2 MB |
+
 ## Using ultrahdr-core with jpegli-rs Directly
 
 For more control, use `ultrahdr-core` (math + metadata only) with `jpegli-rs` for JPEG operations:

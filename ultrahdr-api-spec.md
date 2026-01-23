@@ -184,6 +184,60 @@ pub fn merge_xmp(existing: &str, gainmap_xmp: &str) -> String;
 pub fn strip_gainmap_xmp(xmp: &str) -> String;
 ```
 
+## Streaming APIs
+
+For memory-constrained environments, streaming APIs process images row-by-row:
+
+```rust
+// === Streaming Decode (SDR + Gain Map → HDR) ===
+
+/// Row-based decoder with full gainmap in memory.
+/// Best when gainmap is small (e.g., 1/4 resolution).
+pub struct RowDecoder { /* ... */ }
+
+/// Streaming decoder with ring buffer for gainmap.
+/// Best for parallel JPEG decode with minimal memory.
+pub struct StreamDecoder { /* ... */ }
+
+/// Input configuration for decoders.
+pub struct DecodeInput {
+    pub format: PixelFormat,
+    pub stride: u32,
+    pub y_only: bool,
+}
+
+// === Streaming Encode (HDR + SDR → Gain Map) ===
+
+/// Row-based encoder for synchronized HDR+SDR input.
+/// Best when both inputs come from the same decode loop.
+pub struct RowEncoder { /* ... */ }
+
+/// Streaming encoder for independent HDR/SDR streams.
+/// Best for parallel decode of separate sources.
+pub struct StreamEncoder { /* ... */ }
+
+/// Input configuration for encoders.
+pub struct EncodeInput {
+    pub hdr_format: PixelFormat,
+    pub hdr_stride: u32,
+    pub hdr_transfer: ColorTransfer,
+    pub hdr_gamut: ColorGamut,
+    pub sdr_format: PixelFormat,
+    pub sdr_stride: u32,
+    pub sdr_gamut: ColorGamut,
+    pub y_only: bool,
+}
+```
+
+### Memory Comparison (4K image, 3840×2160)
+
+| API | Peak Memory |
+|-----|-------------|
+| Full decode | ~166 MB |
+| Streaming decode (16 rows) | ~2 MB |
+| Full encode | ~170 MB |
+| Streaming encode (16 rows) | ~4 MB |
+
 ## Pixel Math
 
 ```rust
