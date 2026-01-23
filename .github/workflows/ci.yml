@@ -58,6 +58,31 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
+  wasm:
+    name: WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Check WASM build
+        run: cargo check --target wasm32-unknown-unknown
+
+      - name: Run WASM tests
+        run: wasm-pack test --node
+
   docs:
     name: Documentation
     runs-on: ubuntu-latest
