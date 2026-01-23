@@ -836,3 +836,139 @@ fn test_readme_workflow_lossless_roundtrip() {
 
     println!("README lossless round-trip test passed");
 }
+
+/// Test set_existing_gainmap_jpeg() API - bypasses gain map encode entirely.
+///
+/// This tests the raw JPEG passthrough path used when we want to avoid
+/// re-encoding the gain map (e.g., WASM where grayscale decode/encode crashes).
+#[test]
+fn test_set_existing_gainmap_jpeg() {
+    use ultrahdr::Encoder;
+
+    let width = 64;
+    let height = 64;
+
+    // Create test HDR image
+    let hdr_image = create_test_hdr_image(width, height);
+
+    // Create SDR via tone mapping
+    let sdr_image = create_sdr_from_hdr(&hdr_image);
+
+    // Compute gain map to get metadata and JPEG bytes
+    let config = GainMapConfig::default();
+    let (gainmap, metadata) =
+        compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
+
+    // Encode gain map to JPEG bytes
+    let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
+    assert!(!gainmap_jpeg.is_empty());
+    assert_eq!(&gainmap_jpeg[..2], &[0xFF, 0xD8], "valid JPEG header");
+
+    // Test 1: Encode using set_existing_gainmap_jpeg()
+    let result_1 = Encoder::new()
+        .set_hdr_image(hdr_image.clone())
+        .set_sdr_image(sdr_image.clone())
+        .set_existing_gainmap_jpeg(gainmap_jpeg.clone(), metadata.clone())
+        .encode()
+        .expect("encode with raw JPEG passthrough");
+
+    // Test 2: Encode using set_existing_gainmap() (normal path)
+    let result_2 = Encoder::new()
+        .set_hdr_image(hdr_image.clone())
+        .set_sdr_image(sdr_image.clone())
+        .set_existing_gainmap(gainmap.clone(), metadata.clone())
+        .encode()
+        .expect("encode with GainMap struct");
+
+    // Both should produce valid UltraHDR JPEGs
+    assert_eq!(&result_1[..2], &[0xFF, 0xD8], "result 1 valid JPEG");
+    assert_eq!(&result_2[..2], &[0xFF, 0xD8], "result 2 valid JPEG");
+
+    // Sizes should be similar (raw passthrough may differ due to re-encode)
+    let size_diff = (result_1.len() as i64 - result_2.len() as i64).abs();
+    assert!(
+        size_diff < 1000,
+        "Size difference too large: {} vs {} (diff: {})",
+        result_1.len(),
+        result_2.len(),
+        size_diff
+    );
+
+    // Both should be decodable
+    let decoder_1 = ultrahdr::Decoder::new(&result_1).expect("create decoder 1");
+    let decoder_2 = ultrahdr::Decoder::new(&result_2).expect("create decoder 2");
+
+    assert!(decoder_1.is_ultrahdr(), "result 1 is UltraHDR");
+    assert!(decoder_2.is_ultrahdr(), "result 2 is UltraHDR");
+
+    // Both should have metadata
+    let meta_1 = decoder_1.metadata().expect("metadata 1");
+    let meta_2 = decoder_2.metadata().expect("metadata 2");
+
+    assert!(
+        (meta_1.hdr_capacity_max - meta_2.hdr_capacity_max).abs() < 0.01,
+        "metadata should match: {} vs {}",
+        meta_1.hdr_capacity_max,
+        meta_2.hdr_capacity_max
+    );
+
+    println!("set_existing_gainmap_jpeg test passed");
+}
+
+/// Test that set_existing_gainmap_jpeg() works without HDR image
+/// when SDR + compressed SDR + raw gain map JPEG are provided.
+#[test]
+fn test_set_existing_gainmap_jpeg_sdr_only() {
+    use ultrahdr::Encoder;
+
+    let width = 64;
+    let height = 64;
+
+    // Create HDR and derive SDR from it
+    let hdr_image = create_test_hdr_image(width, height);
+    let sdr_image = create_sdr_from_hdr(&hdr_image);
+    let sdr_rgb = rgba8_to_rgb8(&sdr_image);
+
+    // Create dummy gain map (all 0.5 = neutral)
+    let gainmap_data: Vec<u8> = vec![128; (width * height / 16) as usize]; // 1/4 scale
+    let gm_width = width / 4;
+    let gm_height = height / 4;
+    let gainmap_jpeg = encode_grayscale(&gainmap_data, gm_width, gm_height, 75.0);
+
+    // Create metadata using proper struct fields
+    let metadata = ultrahdr::GainMapMetadata {
+        max_content_boost: [4.0, 4.0, 4.0],
+        min_content_boost: [1.0, 1.0, 1.0],
+        gamma: [1.0, 1.0, 1.0],
+        offset_sdr: [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0],
+        offset_hdr: [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0],
+        hdr_capacity_min: 1.0,
+        hdr_capacity_max: 4.0,
+        use_base_color_space: false,
+    };
+
+    // Encode compressed SDR JPEG
+    let sdr_jpeg = {
+        let cfg = EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter);
+        let mut enc = cfg
+            .encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)
+            .expect("create encoder");
+        enc.push_packed(&sdr_rgb, Unstoppable).expect("push");
+        enc.finish().expect("finish")
+    };
+
+    // Use the fast path: compressed SDR + raw gain map JPEG
+    let result = Encoder::new()
+        .set_compressed_sdr(sdr_jpeg)
+        .set_existing_gainmap_jpeg(gainmap_jpeg, metadata)
+        .encode()
+        .expect("encode with SDR + raw JPEG");
+
+    // Should produce valid UltraHDR
+    assert_eq!(&result[..2], &[0xFF, 0xD8], "valid JPEG");
+
+    let decoder = ultrahdr::Decoder::new(&result).expect("create decoder");
+    assert!(decoder.is_ultrahdr(), "should be UltraHDR");
+
+    println!("set_existing_gainmap_jpeg SDR-only test passed");
+}
