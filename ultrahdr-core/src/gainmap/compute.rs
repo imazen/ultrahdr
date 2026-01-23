@@ -443,4 +443,29 @@ mod tests {
         // Check metadata is populated
         assert!(metadata.max_content_boost[0] >= 1.0);
     }
+
+    #[test]
+    fn test_compute_gainmap_cancellation() {
+        /// A Stop implementation that cancels immediately
+        struct ImmediateCancel;
+
+        impl enough::Stop for ImmediateCancel {
+            fn check(&self) -> std::result::Result<(), enough::StopReason> {
+                Err(enough::StopReason::Cancelled)
+            }
+        }
+
+        // Create minimal images
+        let hdr = RawImage::new(8, 8, PixelFormat::Rgba8).unwrap();
+        let sdr = RawImage::new(8, 8, PixelFormat::Rgba8).unwrap();
+        let config = GainMapConfig::default();
+
+        // Should return Stopped error due to cancellation
+        let result = compute_gainmap(&hdr, &sdr, &config, ImmediateCancel);
+
+        assert!(matches!(
+            result,
+            Err(crate::Error::Stopped(enough::StopReason::Cancelled))
+        ));
+    }
 }

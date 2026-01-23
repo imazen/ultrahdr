@@ -336,4 +336,36 @@ mod tests {
         assert_eq!(result.height, 4);
         assert_eq!(result.format, PixelFormat::Rgba8);
     }
+
+    #[test]
+    fn test_apply_gainmap_cancellation() {
+        /// A Stop implementation that cancels immediately
+        struct ImmediateCancel;
+
+        impl enough::Stop for ImmediateCancel {
+            fn check(&self) -> std::result::Result<(), enough::StopReason> {
+                Err(enough::StopReason::Cancelled)
+            }
+        }
+
+        // Create minimal images
+        let sdr = RawImage::new(4, 4, PixelFormat::Rgba8).unwrap();
+        let gainmap = GainMap::new(2, 2).unwrap();
+        let metadata = GainMapMetadata::new();
+
+        // Should return Stopped error due to cancellation
+        let result = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            4.0,
+            HdrOutputFormat::Srgb8,
+            ImmediateCancel,
+        );
+
+        assert!(matches!(
+            result,
+            Err(crate::Error::Stopped(enough::StopReason::Cancelled))
+        ));
+    }
 }
