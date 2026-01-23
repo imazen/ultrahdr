@@ -1,6 +1,6 @@
 //! JPEG marker handling utilities.
 
-use crate::types::{Error, Result};
+use ultrahdr_core::{Error, Result};
 
 /// JPEG marker types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

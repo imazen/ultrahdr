@@ -1,16 +1,17 @@
 //! Ultra HDR encoder.
 
-use crate::color::tonemap::tonemap_image_to_srgb8;
-use crate::gainmap::compute::{compute_gainmap, GainMapConfig};
-use crate::jpeg::{
-    create_icc_markers, get_icc_profile_for_gamut, insert_segment_after_soi, JpegSegment,
-};
-use crate::metadata::{
+use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8;
+use ultrahdr_core::gainmap::compute::{compute_gainmap, GainMapConfig};
+use ultrahdr_core::metadata::{
     mpf::create_mpf_header,
     xmp::{create_xmp_app1_marker, generate_xmp},
 };
-use crate::types::{
+use ultrahdr_core::{
     ColorGamut, ColorTransfer, Error, GainMap, GainMapMetadata, PixelFormat, RawImage, Result,
+};
+
+use crate::jpeg::{
+    create_icc_markers, get_icc_profile_for_gamut, insert_segment_after_soi, JpegSegment,
 };
 
 /// Ultra HDR encoder.
@@ -389,7 +390,7 @@ mod tests {
         assert!(!encoder.has_existing_gainmap());
 
         // Set existing gain map
-        let gainmap = GainMap::new(100, 100);
+        let gainmap = GainMap::new(100, 100).unwrap();
         let metadata = GainMapMetadata::new();
         encoder.set_existing_gainmap(gainmap, metadata);
         assert!(encoder.has_existing_gainmap());

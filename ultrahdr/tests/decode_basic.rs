@@ -4,7 +4,7 @@
 
 use ultrahdr::{Decoder, PixelFormat};
 
-const TEST_ULTRAHDR: &[u8] = include_bytes!("../test_ultrahdr.jpg");
+const TEST_ULTRAHDR: &[u8] = include_bytes!("../../test_ultrahdr.jpg");
 
 /// Test that the decoder recognizes a valid Ultra HDR file.
 #[test]

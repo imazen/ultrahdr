@@ -1,14 +1,15 @@
 //! Ultra HDR decoder.
 
-use crate::gainmap::apply::{apply_gainmap, HdrOutputFormat};
-use crate::jpeg::{extract_icc_profile, find_xmp_data};
-use crate::metadata::{
+use ultrahdr_core::gainmap::apply::{apply_gainmap, HdrOutputFormat};
+use ultrahdr_core::metadata::{
     mpf::{find_jpeg_boundaries, parse_mpf},
     xmp::parse_xmp,
 };
-use crate::types::{
+use ultrahdr_core::{
     ColorGamut, ColorTransfer, Error, GainMap, GainMapMetadata, PixelFormat, RawImage, Result,
 };
+
+use crate::jpeg::{extract_icc_profile, find_xmp_data};
 
 /// Ultra HDR decoder.
 ///

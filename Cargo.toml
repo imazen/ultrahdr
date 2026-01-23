@@ -1,64 +1,44 @@
-[package]
-name = "ultrahdr"
+[workspace]
+resolver = "2"
+members = [
+    "ultrahdr-core",
+    "ultrahdr",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Pure Rust Ultra HDR (JPEG with gain map) encoder/decoder"
 repository = "https://github.com/imazen/ultrahdr"
-keywords = ["hdr", "jpeg", "gainmap", "ultrahdr", "image"]
-categories = ["multimedia::images", "encoding"]
 
-[dependencies]
-# JPEG codec (optional, for convenience APIs)
-jpegli-rs = { version = "0.9.1", features = ["decoder"], optional = true }
+[workspace.dependencies]
+# Core crate
+ultrahdr-core = { path = "ultrahdr-core", version = "0.1" }
+
+# Cooperative cancellation
+enough = "0.3"
+
+# Math
+wide = "1.1"
+half = "2.4"
+
+# Types
+bytemuck = { version = "1.14", features = ["derive"] }
+
+# Error handling
+thiserror = "2.0"
+
+# JPEG codec
+jpegli-rs = { version = "0.10", features = ["decoder"] }
 
 # Color management
 moxcms = "0.8"
 
-# Half-precision float
-half = "2.4"
-
 # Image buffer abstractions
 imgref = "1.10"
 rgb = { version = "0.8", features = ["as-bytes"] }
-bytemuck = { version = "1.14", features = ["derive"] }
 
-# SIMD
-wide = "1.1"
-multiversion = "0.8"
-
-# Error handling
-thiserror = "2.0.18"
-
-# Reference implementation comparison (optional, for FFI parity tests)
-# Aliased to avoid name conflict with our crate
-libultrahdr = { package = "ultrahdr", version = "0.1", optional = true }
-
-[dev-dependencies]
-# Testing (WASM-compatible)
-fast-ssim2 = "0.6"
-
-# WASM testing
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen = "0.2.108"
-wasm-bindgen-test = "0.3.58"
-console_error_panic_hook = "0.1.7"
-getrandom = { version = "0.3", features = ["wasm_js"] }
-
-# Native-only testing (these don't compile for WASM)
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-criterion = "0.8"
+# Testing
 proptest = "1.4"
-zune-image = { path = "../zune-image/crates/zune-image" }
-zune-core = { path = "../zune-image/crates/zune-core" }
-zune-jpeg = { path = "../zune-image/crates/zune-jpeg" }
-
-# [[bench]]
-# name = "gainmap"
-# harness = false
-
-[features]
-default = ["jpegli"]
-jpegli = ["jpegli-rs"]  # Convenience APIs with bundled codec
-simd = []  # Enable explicit SIMD optimizations
-ffi-tests = ["libultrahdr"]  # Enable FFI parity tests with libultrahdr C++
+fast-ssim2 = "0.6"
+criterion = "0.8"

@@ -81,7 +81,7 @@ pub fn compute_gainmap(
             config,
             &mut actual_min_boost,
             &mut actual_max_boost,
-        )
+        )?
     } else {
         compute_luminance_gainmap(
             hdr,
@@ -92,7 +92,7 @@ pub fn compute_gainmap(
             config,
             &mut actual_min_boost,
             &mut actual_max_boost,
-        )
+        )?
     };
 
     // Clamp actual values to configured range
@@ -125,8 +125,8 @@ fn compute_luminance_gainmap(
     config: &GainMapConfig,
     actual_min_boost: &mut f32,
     actual_max_boost: &mut f32,
-) -> GainMap {
-    let mut gainmap = GainMap::new(gm_width, gm_height);
+) -> Result<GainMap> {
+    let mut gainmap = GainMap::new(gm_width, gm_height)?;
 
     let log_min = config.min_content_boost.ln();
     let log_max = config.max_content_boost.ln();
@@ -172,7 +172,7 @@ fn compute_luminance_gainmap(
         }
     }
 
-    gainmap
+    Ok(gainmap)
 }
 
 /// Compute multi-channel (RGB) gain map.
@@ -186,8 +186,8 @@ fn compute_multichannel_gainmap(
     config: &GainMapConfig,
     actual_min_boost: &mut f32,
     actual_max_boost: &mut f32,
-) -> GainMap {
-    let mut gainmap = GainMap::new_multichannel(gm_width, gm_height);
+) -> Result<GainMap> {
+    let mut gainmap = GainMap::new_multichannel(gm_width, gm_height)?;
 
     let log_min = config.min_content_boost.ln();
     let log_max = config.max_content_boost.ln();
@@ -226,7 +226,7 @@ fn compute_multichannel_gainmap(
         }
     }
 
-    gainmap
+    Ok(gainmap)
 }
 
 /// Extract linear RGB `[0,1]` from a raw image at the given pixel position.
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn test_compute_gainmap_basic() {
         // Create simple test images
-        let mut hdr = RawImage::new(8, 8, PixelFormat::Rgba8);
+        let mut hdr = RawImage::new(8, 8, PixelFormat::Rgba8).unwrap();
         hdr.gamut = ColorGamut::Bt709;
         hdr.transfer = ColorTransfer::Srgb;
         // Fill with mid-gray
@@ -402,7 +402,7 @@ mod tests {
             hdr.data[i * 4 + 3] = 255; // A
         }
 
-        let mut sdr = RawImage::new(8, 8, PixelFormat::Rgba8);
+        let mut sdr = RawImage::new(8, 8, PixelFormat::Rgba8).unwrap();
         sdr.gamut = ColorGamut::Bt709;
         sdr.transfer = ColorTransfer::Srgb;
         // Fill with darker gray

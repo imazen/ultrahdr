@@ -101,16 +101,16 @@ pub fn parse_xmp(xmp_data: &str) -> Result<(GainMapMetadata, Option<usize>)> {
     // Parse hdrgm:GainMapMin
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:GainMapMin") {
         let values = parse_xmp_values(&val);
-        for i in 0..3 {
-            metadata.min_content_boost[i] = 2.0f32.powf(values[i]); // Convert from log2
+        for (i, &v) in values.iter().enumerate() {
+            metadata.min_content_boost[i] = 2.0f32.powf(v); // Convert from log2
         }
     }
 
     // Parse hdrgm:GainMapMax
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:GainMapMax") {
         let values = parse_xmp_values(&val);
-        for i in 0..3 {
-            metadata.max_content_boost[i] = 2.0f32.powf(values[i]); // Convert from log2
+        for (i, &v) in values.iter().enumerate() {
+            metadata.max_content_boost[i] = 2.0f32.powf(v); // Convert from log2
         }
     }
 

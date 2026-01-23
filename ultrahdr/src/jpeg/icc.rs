@@ -1,6 +1,6 @@
 //! ICC profile handling for JPEG images.
 
-use crate::types::ColorGamut;
+use ultrahdr_core::ColorGamut;
 
 /// ICC profile APP2 identifier.
 pub const ICC_IDENTIFIER: &[u8] = b"ICC_PROFILE\0";

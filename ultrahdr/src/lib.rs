@@ -5,6 +5,11 @@
 //! Dynamic Range) base image, while HDR-capable displays can reconstruct the
 //! full HDR content using an embedded gain map.
 //!
+//! # Crate Structure
+//!
+//! - [`ultrahdr_core`] - Core gain map math and metadata (no codec dependency)
+//! - `ultrahdr` (this crate) - Full encoder/decoder with jpegli integration
+//!
 //! # Format Overview
 //!
 //! An Ultra HDR JPEG contains:
@@ -47,25 +52,24 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
-pub mod color;
+// Re-export everything from ultrahdr-core
+pub use ultrahdr_core::color;
+pub use ultrahdr_core::gainmap;
+pub use ultrahdr_core::metadata;
+
+// Re-export core types at crate root
+pub use ultrahdr_core::{
+    limits, luminance, ColorGamut, ColorTransfer, Error, Fraction, GainMap, GainMapMetadata,
+    GainMapConfig, HdrOutputFormat, PixelFormat, RawImage, Result, Stop, StopReason, Unstoppable,
+};
+
+// This crate's additional modules
 pub mod container;
-pub mod gainmap;
 pub mod jpeg;
-pub mod metadata;
-pub mod types;
 
 mod decode;
 mod encode;
 
-// Re-export main types
-pub use types::{
-    ColorGamut, ColorTransfer, Error, Fraction, GainMap, GainMapMetadata, PixelFormat, RawImage,
-    Result,
-};
-
 // Re-export encoder/decoder
 pub use decode::Decoder;
 pub use encode::Encoder;
-
-// Re-export useful gain map types
-pub use gainmap::{apply::HdrOutputFormat, compute::GainMapConfig};

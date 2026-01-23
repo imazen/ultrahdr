@@ -36,19 +36,19 @@ pub fn apply_gainmap(
     // Create output image
     let mut output = match output_format {
         HdrOutputFormat::LinearFloat => {
-            let mut img = RawImage::new(width, height, PixelFormat::Rgba32F);
+            let mut img = RawImage::new(width, height, PixelFormat::Rgba32F)?;
             img.transfer = ColorTransfer::Linear;
             img.gamut = sdr.gamut;
             img
         }
         HdrOutputFormat::Pq1010102 => {
-            let mut img = RawImage::new(width, height, PixelFormat::Rgba1010102Pq);
+            let mut img = RawImage::new(width, height, PixelFormat::Rgba1010102Pq)?;
             img.transfer = ColorTransfer::Pq;
             img.gamut = sdr.gamut;
             img
         }
         HdrOutputFormat::Srgb8 => {
-            let mut img = RawImage::new(width, height, PixelFormat::Rgba8);
+            let mut img = RawImage::new(width, height, PixelFormat::Rgba8)?;
             img.transfer = ColorTransfer::Srgb;
             img.gamut = sdr.gamut;
             img
@@ -295,7 +295,7 @@ mod tests {
     #[test]
     fn test_apply_gainmap_basic() {
         // Create SDR image
-        let mut sdr = RawImage::new(4, 4, PixelFormat::Rgba8);
+        let mut sdr = RawImage::new(4, 4, PixelFormat::Rgba8).unwrap();
         sdr.gamut = ColorGamut::Bt709;
         sdr.transfer = ColorTransfer::Srgb;
         for i in 0..sdr.data.len() / 4 {
@@ -306,7 +306,7 @@ mod tests {
         }
 
         // Create gain map (all same boost)
-        let mut gainmap = GainMap::new(2, 2);
+        let mut gainmap = GainMap::new(2, 2).unwrap();
         for v in &mut gainmap.data {
             *v = 200; // High gain
         }

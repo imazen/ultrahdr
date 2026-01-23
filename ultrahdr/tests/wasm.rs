@@ -20,7 +20,7 @@ fn setup() {
 // Basic Decode Tests
 // ============================================================================
 
-const TEST_ULTRAHDR: &[u8] = include_bytes!("../test_ultrahdr.jpg");
+const TEST_ULTRAHDR: &[u8] = include_bytes!("../../test_ultrahdr.jpg");
 
 #[wasm_bindgen_test]
 fn test_wasm_decoder_creation() {
