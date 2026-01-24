@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "ultrahdr-core",
     "ultrahdr",
+    "wasm-bench",
 ]
 
 [workspace.package]

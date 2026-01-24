@@ -1,0 +1,12 @@
+[package]
+name = "wasm-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ultrahdr-core = { path = "../ultrahdr-core", default-features = false }
+
+[profile.release]
+lto = true
+opt-level = 3
