@@ -1,5 +1,5 @@
 [package]
-name = "ultrahdr"
+name = "ultrahdr-rs"
 version.workspace = true
 edition.workspace = true
 rust-version = "1.92"

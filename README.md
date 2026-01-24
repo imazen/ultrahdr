@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/imazen/ultrahdr/actions/workflows/ci.yml/badge.svg)](https://github.com/imazen/ultrahdr/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/imazen/ultrahdr/graph/badge.svg)](https://codecov.io/gh/imazen/ultrahdr)
-[![crates.io](https://img.shields.io/crates/v/ultrahdr.svg)](https://crates.io/crates/ultrahdr)
-[![docs.rs](https://docs.rs/ultrahdr/badge.svg)](https://docs.rs/ultrahdr)
+[![crates.io](https://img.shields.io/crates/v/ultrahdr-rs.svg)](https://crates.io/crates/ultrahdr-rs)
+[![docs.rs](https://docs.rs/ultrahdr-rs/badge.svg)](https://docs.rs/ultrahdr-rs)
 [![MSRV](https://img.shields.io/badge/MSRV-1.92-blue)](https://blog.rust-lang.org/2025/07/03/Rust-1.92.0.html)
 [![License](https://img.shields.io/crates/l/ultrahdr.svg)](LICENSE)
 
@@ -15,7 +15,7 @@ Ultra HDR is a backward-compatible HDR image format that embeds a gain map in a 
 
 | Crate | Description |
 |-------|-------------|
-| [`ultrahdr`](ultrahdr/) | Full encoder/decoder with jpegli-rs JPEG codec |
+| [`ultrahdr-rs`](ultrahdr/) | Full encoder/decoder with jpegli-rs JPEG codec |
 | [`ultrahdr-core`](ultrahdr-core/) | Pure math and metadata - no codec dependency, WASM-compatible |
 
 ## Features
@@ -33,7 +33,7 @@ Ultra HDR is a backward-compatible HDR image format that embeds a gain map in a 
 ### Encoding
 
 ```rust
-use ultrahdr::{Encoder, RawImage, PixelFormat, ColorGamut, ColorTransfer};
+use ultrahdr_rs::{Encoder, RawImage, PixelFormat, ColorGamut, ColorTransfer};
 
 // Create HDR image (linear float RGB, BT.2020 gamut)
 let hdr_image = RawImage {
@@ -60,7 +60,7 @@ std::fs::write("output.jpg", &ultrahdr_jpeg)?;
 ### Decoding
 
 ```rust
-use ultrahdr::{Decoder, HdrOutputFormat};
+use ultrahdr_rs::{Decoder, HdrOutputFormat};
 
 let data = std::fs::read("ultrahdr.jpg")?;
 let decoder = Decoder::new(&data)?;
