@@ -18,6 +18,10 @@ enough = "0.3"
 wide = "1.1"
 half = "2.4"
 
+# SIMD (optional - for explicit SIMD optimizations)
+archmage = { version = "0.2", default-features = false, features = ["macros"], optional = true }
+magetypes = { version = "0.1", default-features = false, optional = true }
+
 # Types
 bytemuck = { version = "1.14", features = ["derive"] }
 
@@ -36,9 +40,14 @@ criterion = "0.8"
 name = "gainmap"
 harness = false
 
+[[bench]]
+name = "simd_xplat"
+harness = false
+required-features = ["simd"]
+
 [features]
 default = ["std"]
-std = ["enough/std"]
-simd = []  # Enable explicit SIMD optimizations
+std = ["enough/std", "archmage?/std", "magetypes?/std"]
+simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
 # Future: alloc-only support
 # alloc = ["enough/alloc"]
