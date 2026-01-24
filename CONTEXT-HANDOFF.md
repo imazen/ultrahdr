@@ -1,111 +1,84 @@
 # Context Handoff: WASM SIMD & Performance Testing
 
-## Completed This Session
+## Session Summary
 
-### 1. no_std Support for ultrahdr-core
-- Added `#![cfg_attr(not(feature = "std"), no_std)]` to lib.rs
-- Replaced std imports with alloc/core equivalents in all modules
-- Fixed `#[from]` attribute on StopReason (requires std::error::Error)
+This session completed WASM SIMD support, performance testing, and cross-platform SIMD investigation.
+
+## Completed
+
+### 1. no_std Support
+- Added `#![cfg_attr(not(feature = "std"), no_std)]` to ultrahdr-core
 - All tests pass in both std and no_std configurations
 
-### 2. WASM SIMD128 Build Support
-- `.cargo/config.toml` enables `+simd128` for all wasm32 targets
-- Builds successfully for wasm32-unknown-unknown and wasm32-wasip1
-
-### 3. WASM Runtime Testing with wasmtime
-Successfully tested with wasmtime. Results (1920x1080):
-
-| Benchmark | Native (x86_64) | WASM (wasmtime) | % of Native |
-|-----------|-----------------|-----------------|-------------|
-| compute_gainmap/luminance | 8.0ms (257 Melem/s) | 9.7ms (213 Melem/s) | 83% |
-| compute_gainmap/multichannel | 9.6ms (215 Melem/s) | ~10ms (213 Melem/s) | ~99% |
-| apply_gainmap/srgb8 | **99ms (21 Melem/s)** | **121ms (17 Melem/s)** | 87% |
-
-**Excellent WASM performance - 83-99% of native!**
-
-### 4. GainMapLut Performance Optimization
-Added precomputed lookup table that eliminates per-pixel `powf()` and `exp()` calls:
+### 2. GainMapLut Performance Optimization
+Precomputed LUT eliminates per-pixel `powf()` and `exp()` calls:
 
 | Target | Before | After | Speedup |
 |--------|--------|-------|---------|
-| Native sRGB | 175ms (11.8 Mp/s) | 99ms (21 Mp/s) | **32%** |
-| Native PQ | 200ms (10.2 Mp/s) | 153ms (13 Mp/s) | **25%** |
-| WASM sRGB | 193ms (10.7 Mp/s) | 121ms (17 Mp/s) | **37%** |
+| Native sRGB | 175ms | 99ms | **32%** |
+| Native PQ | 200ms | 153ms | **25%** |
+| WASM sRGB | 193ms | 121ms | **37%** |
 
-### 5. WASM Binary Size
-- wasm-bench.wasm: **127KB** (release, LTO enabled)
-- Size is identical with/without SIMD128 flag (no explicit SIMD intrinsics yet)
+### 3. WASM Runtime Testing (wasmtime)
+| Benchmark | Native | WASM | % of Native |
+|-----------|--------|------|-------------|
+| compute_gainmap | 8.0ms | 9.7ms | 83% |
+| apply_gainmap | 99ms | 121ms | 87% |
+
+Binary size: **127KB**
+
+### 4. MSRV Bump to 1.91
+Enables use of archmage/magetypes crates for explicit SIMD.
+
+### 5. Cross-Platform SIMD Investigation
+Added `simd` feature with archmage/magetypes dependencies.
+Created benchmark comparing:
+
+| Approach | 1920x1080 | Throughput |
+|----------|-----------|------------|
+| scalar_lut | 3.0ms | 677 Melem/s |
+| simd_lut (AVX2) | 3.2ms | 645 Melem/s |
+| simd_exp (AVX2) | 3.0ms | 690 Melem/s |
+
+**Key Finding**: AoS (Array of Structs) memory layout hurts SIMD due to gather/scatter overhead. Would need SoA layout to benefit from explicit SIMD.
 
 ### 6. CI Updates
-- Added wasm32-wasip1 target to WASM build job
-- Added wasmtime smoke test for wasm-bench
-- Reports binary size in CI output
+- WASI benchmark testing with wasmtime
+- MSRV check updated to 1.91
 
-### 7. ARM Cross-Compilation
-- Verified aarch64-unknown-linux-gnu builds successfully
-- Native ARM testing already in CI (ubuntu-24.04-arm)
+## Cross-Platform Build Verification
+All targets build successfully with `--features simd`:
+- x86_64-unknown-linux-gnu ✓
+- aarch64-unknown-linux-gnu ✓
+- wasm32-unknown-unknown ✓
 
-## Investigation: magetypes Crate
+## Commits Pushed
+1. feat: add no_std support to ultrahdr-core
+2. ci: add WASI benchmark testing with wasmtime
+3. perf: add GainMapLut for 32-37% faster apply_gainmap
+4. chore: bump MSRV to 1.91
+5. feat: add cross-platform SIMD benchmark with archmage/magetypes
 
-Found promising SIMD crate for hot path optimization:
-- **magetypes** v0.1.0: Token-gated SIMD types with natural operators
-- Cross-platform: AVX2, AVX-512, NEON, WASM SIMD128
-- no_std compatible
-- **Requires Rust 1.89+** (ultrahdr-core MSRV is 1.75)
+## Future Optimization Path
+To benefit from explicit SIMD:
+1. Convert hot paths from AoS to SoA layout
+2. Process pixels in planar format (separate R, G, B arrays)
+3. Use magetypes `f32x8` directly on contiguous data
 
-### Recommended Approach
-Add optional `simd` feature that:
-1. Requires Rust 1.89+
-2. Depends on `magetypes` and `archmage`
-3. Provides optimized implementations of hot paths:
-   - `apply_gainmap` (currently 11 Melem/s - slow due to pow/exp)
-   - Transfer functions (sRGB, PQ, HLG EOTF/OETF)
-   - Color space conversions
-
-### Hot Paths (by impact)
-
-1. **apply_gainmap** - bottleneck is `powf()` in gain application
-   - Current: pixel-by-pixel scalar f32 with powf
-   - Needs: LUT-based pow approximation or polynomial SIMD
-
-2. **Transfer functions** - already have LUT implementations
-   - `SrgbLut`, `SrgbInverseLut` exist but aren't used in hot paths
-   - Could SIMD-ify the interpolation
-
-3. **compute_gainmap** - already fast (200+ Melem/s)
-   - Lower priority for optimization
-
-## Remaining Tasks
-
-1. **Investigate wasmer** - network issues prevented installation
-2. **wasm-opt optimization** - measure size reduction with binaryen
-3. **Explicit SIMD** - magetypes requires Rust 1.89+ (current MSRV is 1.75)
-4. **Streaming API LUT** - streaming.rs still uses per-pixel decode_gain
-
-## Key Files
-
-- `ultrahdr-core/src/lib.rs` - no_std gate
-- `ultrahdr-core/src/types.rs` - Error type without #[from]
-- `.cargo/config.toml` - WASM SIMD rustflags
-- `.github/workflows/ci.yml` - WASI testing
-- `wasm-bench/` - WASI benchmark binary
-- `ultrahdr-core/benches/gainmap.rs` - Criterion benchmarks
+The current scalar LUT is already very fast (677 Melem/s) because:
+- LUT eliminates transcendentals
+- Memory access pattern is sequential
+- Auto-vectorization handles simple multiply-accumulate
 
 ## Commands
-
 ```bash
-# Build WASM with SIMD
-cargo build --package wasm-bench --target wasm32-wasip1 --release
+# Run SIMD benchmark
+cargo bench --package ultrahdr-core --bench simd_xplat --features simd
 
 # Run WASM benchmark
+cargo build --package wasm-bench --target wasm32-wasip1 --release
 wasmtime target/wasm32-wasip1/release/wasm-bench.wasm
 
-# Run native benchmarks
-cargo bench --package ultrahdr-core --bench gainmap
-
-# Test no_std build
-cargo build --package ultrahdr-core --target wasm32-wasip1 --no-default-features
-
-# Run all CI checks
-just ci
+# Cross-compile for ARM
+cargo build --package ultrahdr-core --features simd --target aarch64-unknown-linux-gnu
 ```
