@@ -4,7 +4,7 @@
 [![codecov](https://codecov.io/gh/imazen/ultrahdr/graph/badge.svg)](https://codecov.io/gh/imazen/ultrahdr)
 [![crates.io](https://img.shields.io/crates/v/ultrahdr.svg)](https://crates.io/crates/ultrahdr)
 [![docs.rs](https://docs.rs/ultrahdr/badge.svg)](https://docs.rs/ultrahdr)
-[![MSRV](https://img.shields.io/badge/MSRV-1.75-blue)](https://blog.rust-lang.org/2023/12/28/Rust-1.75.0.html)
+[![MSRV](https://img.shields.io/badge/MSRV-1.92-blue)](https://blog.rust-lang.org/2025/07/03/Rust-1.92.0.html)
 [![License](https://img.shields.io/crates/l/ultrahdr.svg)](LICENSE)
 
 Pure Rust implementation of [Ultra HDR](https://developer.android.com/media/platform/hdr-image-format) (gain map HDR) encoding and decoding.
