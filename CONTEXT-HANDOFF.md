@@ -1,89 +1,102 @@
 # Context Handoff: WASM SIMD & Performance Testing
 
-## Current State
+## Completed This Session
 
-Working on adding WASM SIMD128 support, benchmarking, and multi-runtime testing.
+### 1. no_std Support for ultrahdr-core
+- Added `#![cfg_attr(not(feature = "std"), no_std)]` to lib.rs
+- Replaced std imports with alloc/core equivalents in all modules
+- Fixed `#[from]` attribute on StopReason (requires std::error::Error)
+- All tests pass in both std and no_std configurations
 
-## Completed
+### 2. WASM SIMD128 Build Support
+- `.cargo/config.toml` enables `+simd128` for all wasm32 targets
+- Builds successfully for wasm32-unknown-unknown and wasm32-wasip1
 
-1. **WASM SIMD128 build support** - Added `.cargo/config.toml` with `target-feature=+simd128` for wasm32 targets
-2. **Justfile** - Common commands for development (wasm-build, wasm-test, ci, etc.)
-3. **Criterion benchmarks** - `ultrahdr-core/benches/gainmap.rs` benchmarks apply_gainmap and compute_gainmap
+### 3. WASM Runtime Testing with wasmtime
+Successfully tested with wasmtime. Results (1920x1080):
 
-### Baseline Native Performance (x86_64)
-```
-apply_gainmap/srgb8/1920x1080: ~175ms (11.8 Melem/s)
-apply_gainmap/pq1010102/1920x1080: ~200ms (10.2 Melem/s)
-compute_gainmap/luminance/1920x1080: ~8ms (265 Melem/s)
-compute_gainmap/multichannel/1920x1080: ~10ms (212 Melem/s)
-```
+| Benchmark | Native (x86_64) | WASM (wasmtime) | % of Native |
+|-----------|-----------------|-----------------|-------------|
+| compute_gainmap/luminance | 8.0ms (257 Melem/s) | 9.7ms (213 Melem/s) | 83% |
+| compute_gainmap/multichannel | 9.6ms (215 Melem/s) | ~10ms (213 Melem/s) | ~99% |
+| apply_gainmap/srgb8 | ~175ms (11.8 Melem/s) | 193ms (10.7 Melem/s) | 91% |
 
-## In Progress
+**Excellent WASM performance - 83-99% of native!**
 
-### Task 3: WASM Runtime Testing (wasmtime + wasmer)
-- Created `wasm-bench/` crate - standalone WASI benchmark binary
-- **NOT YET TESTED** - needs to be compiled to wasm32-wasip1 and run
+### 4. WASM Binary Size
+- wasm-bench.wasm: **127KB** (release, LTO enabled)
+- Size is identical with/without SIMD128 flag (no explicit SIMD intrinsics yet)
 
-To test:
-```bash
-rustup target add wasm32-wasip1
-cargo build --package wasm-bench --target wasm32-wasip1 --release
-wasmtime target/wasm32-wasip1/release/wasm-bench.wasm
-wasmer target/wasm32-wasip1/release/wasm-bench.wasm
-```
+### 5. CI Updates
+- Added wasm32-wasip1 target to WASM build job
+- Added wasmtime smoke test for wasm-bench
+- Reports binary size in CI output
+
+### 6. ARM Cross-Compilation
+- Verified aarch64-unknown-linux-gnu builds successfully
+- Native ARM testing already in CI (ubuntu-24.04-arm)
+
+## Investigation: magetypes Crate
+
+Found promising SIMD crate for hot path optimization:
+- **magetypes** v0.1.0: Token-gated SIMD types with natural operators
+- Cross-platform: AVX2, AVX-512, NEON, WASM SIMD128
+- no_std compatible
+- **Requires Rust 1.89+** (ultrahdr-core MSRV is 1.75)
+
+### Recommended Approach
+Add optional `simd` feature that:
+1. Requires Rust 1.89+
+2. Depends on `magetypes` and `archmage`
+3. Provides optimized implementations of hot paths:
+   - `apply_gainmap` (currently 11 Melem/s - slow due to pow/exp)
+   - Transfer functions (sRGB, PQ, HLG EOTF/OETF)
+   - Color space conversions
+
+### Hot Paths (by impact)
+
+1. **apply_gainmap** - bottleneck is `powf()` in gain application
+   - Current: pixel-by-pixel scalar f32 with powf
+   - Needs: LUT-based pow approximation or polynomial SIMD
+
+2. **Transfer functions** - already have LUT implementations
+   - `SrgbLut`, `SrgbInverseLut` exist but aren't used in hot paths
+   - Could SIMD-ify the interpolation
+
+3. **compute_gainmap** - already fast (200+ Melem/s)
+   - Lower priority for optimization
 
 ## Remaining Tasks
 
-1. **Task 3** - Complete WASM runtime testing (wasmtime + wasmer)
-2. **Task 4** - Measure WASM binary size (with/without SIMD, with/without wasm-opt)
-3. **Task 5** - Add WASM SIMD CI testing (update .github/workflows/ci.yml)
-4. **Task 6** - Test ARM (NEON) performance
-
-## New Task: Investigate magetypes crate
-
-The `magetypes` crate may provide accelerated color/pixel operations that could improve performance of the hot paths:
-- `ultrahdr-core/src/gainmap/apply.rs` - apply_gainmap (11 Melem/s currently)
-- `ultrahdr-core/src/gainmap/compute.rs` - compute_gainmap (265 Melem/s currently)
-- `ultrahdr-core/src/color/convert.rs` - RGB↔YUV conversions
-- `ultrahdr-core/src/color/transfer.rs` - sRGB EOTF/OETF, PQ EOTF/OETF
-
-Research needed:
-- Check if magetypes supports no_std
-- Check WASM compatibility
-- Evaluate API fit for ultrahdr-core use cases
-- Compare performance with current scalar/wide implementations
+1. **Investigate wasmer** - network issues prevented installation
+2. **wasm-opt optimization** - measure size reduction with binaryen
+3. **Add SIMD hot paths** - requires architecture decision on MSRV
+4. **Benchmark with explicit SIMD** - once magetypes integrated
 
 ## Key Files
 
+- `ultrahdr-core/src/lib.rs` - no_std gate
+- `ultrahdr-core/src/types.rs` - Error type without #[from]
 - `.cargo/config.toml` - WASM SIMD rustflags
-- `justfile` - Common commands
+- `.github/workflows/ci.yml` - WASI testing
+- `wasm-bench/` - WASI benchmark binary
 - `ultrahdr-core/benches/gainmap.rs` - Criterion benchmarks
-- `wasm-bench/` - WASI benchmark binary (WIP)
-- `.github/workflows/ci.yml` - CI config (needs WASM SIMD updates)
-
-## Hot Paths for Optimization
-
-The `wide` crate (v1.1.1) is declared as a dependency but **not currently used** in computation. The hot paths use scalar f32 operations:
-
-1. `apply_gainmap` in `ultrahdr-core/src/gainmap/apply.rs:64-81` - pixel-by-pixel loop
-2. `compute_gainmap` in `ultrahdr-core/src/gainmap/compute.rs:143-184` - gain computation loop
-3. `srgb_eotf`/`srgb_oetf` in `ultrahdr-core/src/color/transfer.rs` - transfer functions
-4. `pq_oetf`/`pq_eotf` in `ultrahdr-core/src/color/transfer.rs` - PQ functions
-
-All these could benefit from SIMD vectorization using `wide` types like `f32x4` or `f32x8`.
 
 ## Commands
 
 ```bash
 # Build WASM with SIMD
-just wasm-build
-
-# Run native benchmarks
-cargo bench --package ultrahdr-core
-
-# Test WASM build
 cargo build --package wasm-bench --target wasm32-wasip1 --release
 
-# Run all CI checks locally
+# Run WASM benchmark
+wasmtime target/wasm32-wasip1/release/wasm-bench.wasm
+
+# Run native benchmarks
+cargo bench --package ultrahdr-core --bench gainmap
+
+# Test no_std build
+cargo build --package ultrahdr-core --target wasm32-wasip1 --no-default-features
+
+# Run all CI checks
 just ci
 ```
