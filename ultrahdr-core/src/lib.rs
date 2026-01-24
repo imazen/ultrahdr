@@ -9,6 +9,13 @@
 //! This crate has **no JPEG codec dependency**. For full Ultra HDR encode/decode,
 //! use the `ultrahdr` crate which provides codec integration.
 //!
+//! # no_std Support
+//!
+//! This crate is `no_std` compatible with alloc. Disable default features:
+//! ```toml
+//! ultrahdr-core = { version = "0.1", default-features = false }
+//! ```
+//!
 //! # Cooperative Cancellation
 //!
 //! Long-running operations accept an `impl Stop` parameter from the `enough` crate
@@ -35,8 +42,11 @@
 //! let hdr_output = apply_gainmap(&sdr, &gainmap, &metadata, 4.0, HdrOutputFormat::LinearFloat, Unstoppable)?;
 //! ```
 
+#![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
 #![warn(clippy::all)]
+
+extern crate alloc;
 
 pub mod color;
 pub mod gainmap;

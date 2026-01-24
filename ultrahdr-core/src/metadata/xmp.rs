@@ -2,6 +2,10 @@
 //!
 //! Uses the Adobe HDR Gain Map namespace (hdrgm).
 
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+
 use crate::types::{Error, GainMapMetadata, Result};
 
 /// XMP namespace for HDR gain map metadata.

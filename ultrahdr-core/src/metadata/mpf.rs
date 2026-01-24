@@ -3,6 +3,8 @@
 //! MPF is defined by CIPA DC-007 and allows multiple images to be stored
 //! in a single JPEG file.
 
+use alloc::vec::Vec;
+
 use crate::types::{Error, Result};
 
 /// MPF marker identifier.

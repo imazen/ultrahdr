@@ -1,5 +1,9 @@
 //! Core types for Ultra HDR encoding/decoding.
 
+use alloc::format;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
 use enough::StopReason;
 use thiserror::Error;
 
@@ -11,7 +15,7 @@ use crate::limits;
 pub enum Error {
     /// Operation was stopped via cooperative cancellation.
     #[error("operation stopped: {0}")]
-    Stopped(#[from] StopReason),
+    Stopped(StopReason),
 
     /// Image dimensions are invalid (zero or too large).
     #[error("invalid image dimensions: {0}x{1}")]
@@ -88,7 +92,13 @@ pub enum Error {
 }
 
 /// Result type for Ultra HDR operations.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Error>;
+
+impl From<StopReason> for Error {
+    fn from(reason: StopReason) -> Self {
+        Error::Stopped(reason)
+    }
+}
 
 /// Color gamut / color space primaries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

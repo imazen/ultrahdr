@@ -23,7 +23,7 @@
 //!
 //! - **[`RowDecoder`]**: Load gainmap fully, then stream SDR rows. Best when gainmap
 //!   is small (e.g., 1/4 resolution) and can remain in memory.
-//! - **[`StreamDecoder`]**: Stream both SDR and gainmap rows in parallel. Best for
+//! - **[`StreamDecoder`]**: Stream both SDR and gamut rows in parallel. Best for
 //!   true parallel decode of MPF primary/secondary images with minimal memory.
 //!
 //! # Choosing an Encoder
@@ -50,6 +50,10 @@
 //!     write_hdr_rows(batch_start, &hdr_batch);
 //! }
 //! ```
+
+use alloc::format;
+use alloc::vec;
+use alloc::vec::Vec;
 
 use crate::color::gamut::rgb_to_luminance;
 use crate::color::transfer::{pq_oetf, srgb_eotf, srgb_oetf};

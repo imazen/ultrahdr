@@ -20,6 +20,11 @@
 //! let sdr_new = tonemapper.apply(&hdr_edited)?;
 //! ```
 
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::cmp::Ordering;
+
 use crate::color::gamut::{convert_gamut, rgb_to_luminance, soft_clip_gamut};
 use crate::color::transfer::{hlg_eotf, pq_eotf, srgb_eotf, srgb_oetf};
 use crate::types::{ColorGamut, ColorTransfer, Error, GainMap, GainMapMetadata, Result};
@@ -442,7 +447,7 @@ impl AdaptiveTonemapper {
         }
 
         // Sort by HDR luminance
-        pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
 
         // Build LUT by bucketing
         let mut lut = Box::new([0.0f32; LUT_SIZE]);
@@ -1144,7 +1149,7 @@ fn build_channel_lut(pairs: &mut [(f32, f32)], max_hdr: f32) -> Result<Box<[f32;
         return Ok(lut);
     }
 
-    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
 
     let mut lut = Box::new([0.0f32; LUT_SIZE]);
     let mut counts = [0u32; LUT_SIZE];

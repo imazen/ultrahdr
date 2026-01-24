@@ -13,6 +13,8 @@
 
 #![allow(clippy::excessive_precision)]
 
+use alloc::boxed::Box;
+
 use crate::types::ColorTransfer;
 
 // ============================================================================

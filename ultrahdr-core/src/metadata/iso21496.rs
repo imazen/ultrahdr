@@ -3,6 +3,10 @@
 //! This is the standardized binary format for gain map metadata,
 //! as an alternative to XMP.
 
+use alloc::format;
+use alloc::vec::Vec;
+use core::mem;
+
 use crate::types::{Error, Fraction, GainMapMetadata, Result};
 
 /// ISO 21496-1 metadata version.
@@ -169,7 +173,7 @@ pub fn deserialize_iso21496(data: &[u8]) -> Result<GainMapMetadata> {
 
     // Handle backward direction (swap SDR/HDR interpretation)
     if backward_dir {
-        std::mem::swap(&mut metadata.offset_sdr, &mut metadata.offset_hdr);
+        mem::swap(&mut metadata.offset_sdr, &mut metadata.offset_hdr);
     }
 
     Ok(metadata)
