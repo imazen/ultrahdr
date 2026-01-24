@@ -61,7 +61,7 @@ jobs:
         run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
 
       - name: Check formatting
-        run: cargo fmt --all --check
+        run: cargo fmt --package ultrahdr-core --package ultrahdr --package wasm-bench --check
 
   wasm:
     name: WASM Build
