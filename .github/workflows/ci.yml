@@ -171,13 +171,13 @@ jobs:
           fail_ci_if_error: false
 
   msrv:
-    name: MSRV (1.75)
+    name: MSRV (1.91)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust 1.75
-        uses: dtolnay/rust-toolchain@1.75
+      - name: Install Rust 1.91
+        uses: dtolnay/rust-toolchain@1.91
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
