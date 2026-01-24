@@ -57,6 +57,9 @@ jobs:
         with:
           components: rustfmt
 
+      - name: Clone zune-image (workspace dependency)
+        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
+
       - name: Check formatting
         run: cargo fmt --all --check
 
@@ -75,6 +78,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Clone zune-image (workspace dependency)
+        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
 
       - name: Check ultrahdr-core WASM build
         run: cargo build --package ultrahdr-core --target wasm32-unknown-unknown
@@ -171,13 +177,13 @@ jobs:
           fail_ci_if_error: false
 
   msrv:
-    name: MSRV (1.91)
+    name: MSRV (1.92)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust 1.91
-        uses: dtolnay/rust-toolchain@1.91
+      - name: Install Rust 1.92
+        uses: dtolnay/rust-toolchain@1.92
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2

@@ -2,7 +2,7 @@
 name = "ultrahdr"
 version.workspace = true
 edition.workspace = true
-rust-version = "1.91"
+rust-version = "1.92"
 license.workspace = true
 repository.workspace = true
 description = "Pure Rust Ultra HDR (JPEG with gain map) encoder/decoder"
