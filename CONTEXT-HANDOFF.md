@@ -19,20 +19,29 @@ Successfully tested with wasmtime. Results (1920x1080):
 |-----------|-----------------|-----------------|-------------|
 | compute_gainmap/luminance | 8.0ms (257 Melem/s) | 9.7ms (213 Melem/s) | 83% |
 | compute_gainmap/multichannel | 9.6ms (215 Melem/s) | ~10ms (213 Melem/s) | ~99% |
-| apply_gainmap/srgb8 | ~175ms (11.8 Melem/s) | 193ms (10.7 Melem/s) | 91% |
+| apply_gainmap/srgb8 | **99ms (21 Melem/s)** | **121ms (17 Melem/s)** | 87% |
 
 **Excellent WASM performance - 83-99% of native!**
 
-### 4. WASM Binary Size
+### 4. GainMapLut Performance Optimization
+Added precomputed lookup table that eliminates per-pixel `powf()` and `exp()` calls:
+
+| Target | Before | After | Speedup |
+|--------|--------|-------|---------|
+| Native sRGB | 175ms (11.8 Mp/s) | 99ms (21 Mp/s) | **32%** |
+| Native PQ | 200ms (10.2 Mp/s) | 153ms (13 Mp/s) | **25%** |
+| WASM sRGB | 193ms (10.7 Mp/s) | 121ms (17 Mp/s) | **37%** |
+
+### 5. WASM Binary Size
 - wasm-bench.wasm: **127KB** (release, LTO enabled)
 - Size is identical with/without SIMD128 flag (no explicit SIMD intrinsics yet)
 
-### 5. CI Updates
+### 6. CI Updates
 - Added wasm32-wasip1 target to WASM build job
 - Added wasmtime smoke test for wasm-bench
 - Reports binary size in CI output
 
-### 6. ARM Cross-Compilation
+### 7. ARM Cross-Compilation
 - Verified aarch64-unknown-linux-gnu builds successfully
 - Native ARM testing already in CI (ubuntu-24.04-arm)
 
@@ -70,8 +79,8 @@ Add optional `simd` feature that:
 
 1. **Investigate wasmer** - network issues prevented installation
 2. **wasm-opt optimization** - measure size reduction with binaryen
-3. **Add SIMD hot paths** - requires architecture decision on MSRV
-4. **Benchmark with explicit SIMD** - once magetypes integrated
+3. **Explicit SIMD** - magetypes requires Rust 1.89+ (current MSRV is 1.75)
+4. **Streaming API LUT** - streaming.rs still uses per-pixel decode_gain
 
 ## Key Files
 
