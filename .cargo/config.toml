@@ -1,0 +1,11 @@
+# Cargo configuration for ultrahdr
+
+# Enable WASM SIMD128 for wasm32 targets
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]
+
+[target.wasm32-wasip1]
+rustflags = ["-C", "target-feature=+simd128"]
+
+[target.wasm32-wasip2]
+rustflags = ["-C", "target-feature=+simd128"]
