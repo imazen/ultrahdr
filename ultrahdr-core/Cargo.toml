@@ -28,6 +28,14 @@ thiserror = "2.0"
 # Property testing
 proptest = "1.4"
 
+# Native-only benchmarking
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+criterion = "0.8"
+
+[[bench]]
+name = "gainmap"
+harness = false
+
 [features]
 default = ["std"]
 std = ["enough/std"]
