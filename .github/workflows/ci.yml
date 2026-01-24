@@ -69,7 +69,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown,wasm32-wasip1
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -81,6 +81,20 @@ jobs:
 
       - name: Check ultrahdr-core WASM (no default features)
         run: cargo build --package ultrahdr-core --target wasm32-unknown-unknown --no-default-features
+
+      - name: Build WASI benchmark
+        run: cargo build --package wasm-bench --target wasm32-wasip1 --release
+
+      - name: Install wasmtime
+        uses: bytecodealliance/actions/wasmtime/setup@v1
+
+      - name: Run WASI benchmark (smoke test)
+        run: wasmtime target/wasm32-wasip1/release/wasm-bench.wasm
+
+      - name: Report WASM binary size
+        run: |
+          ls -lh target/wasm32-wasip1/release/wasm-bench.wasm
+          echo "WASM_SIZE=$(stat -c%s target/wasm32-wasip1/release/wasm-bench.wasm)" >> $GITHUB_ENV
 
   wasm-test:
     name: WASM Tests
