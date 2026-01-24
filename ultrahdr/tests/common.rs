@@ -125,7 +125,7 @@ pub fn create_hdr_checkerboard(width: u32, height: u32, low: f32, high: f32) -> 
 
     for y in 0..height {
         for x in 0..width {
-            let checker = ((x / block_size) + (y / block_size)) % 2 == 0;
+            let checker = ((x / block_size) + (y / block_size)).is_multiple_of(2);
             let value = if checker { high } else { low };
 
             data.extend_from_slice(&value.to_le_bytes());
@@ -153,7 +153,7 @@ pub fn create_sdr_checkerboard(width: u32, height: u32, low: u8, high: u8) -> Ra
 
     for y in 0..height {
         for x in 0..width {
-            let checker = ((x / block_size) + (y / block_size)) % 2 == 0;
+            let checker = ((x / block_size) + (y / block_size)).is_multiple_of(2);
             let value = if checker { high } else { low };
 
             data.push(value);
