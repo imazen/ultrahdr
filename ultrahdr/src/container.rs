@@ -5,7 +5,7 @@
 //!
 //! # API Levels
 //!
-//! - **Level 1**: Full codec support (like jpegli-rs) - use `DecodedExtras`/`EncoderSegments`
+//! - **Level 1**: Full codec support (like zenjpeg) - use `DecodedExtras`/`EncoderSegments`
 //! - **Level 2**: Codec provides APP segments - use these functions with segment data
 //! - **Level 3**: Codec blind to segments - use `scan_segments` to extract them
 //!

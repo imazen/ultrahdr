@@ -7,7 +7,7 @@ Pure Rust implementation of Ultra HDR (gain map HDR) computations. This crate ha
 2. Pixel math for applying/computing gain maps
 3. Tone mapping
 
-**Not handled** (delegated to JPEG codec like jpegli-rs):
+**Not handled** (delegated to JPEG codec like zenjpeg):
 - JPEG decode/encode
 - APP segment extraction/injection
 - MPF assembly/extraction
@@ -28,7 +28,7 @@ half = "2.4"           # f16 support
 bytemuck = "1.14"
 
 [dev-dependencies]
-jpegli-rs = "0.9"      # For tests/examples only
+zenjpeg = "0.9"      # For tests/examples only
 ```
 
 ## Core Types
@@ -353,12 +353,12 @@ pub fn inverse_tonemap(
 
 ## Usage Examples
 
-### Decode UltraHDR (with jpegli-rs)
+### Decode UltraHDR (with zenjpeg)
 
 ```rust
-use jpegli::decoder::{Decoder, PixelFormat};
+use zenjpeg::decoder::{Decoder, PixelFormat};
 
-// jpegli decodes JPEG and preserves metadata
+// zenjpeg decodes JPEG and preserves metadata
 let decoded = Decoder::new()
     .output_format(PixelFormat::Rgb)
     .decode(&ultrahdr_bytes)?;
@@ -368,7 +368,7 @@ let extras = decoded.extras().unwrap();
 // ultrahdr parses XMP
 let metadata = ultrahdr::parse_xmp(extras.xmp().unwrap())?;
 
-// jpegli decodes gain map
+// zenjpeg decodes gain map
 let gm_jpeg = extras.gainmap().unwrap();
 let gainmap = Decoder::new()
     .output_format(PixelFormat::Gray)
@@ -383,10 +383,10 @@ let hdr = ultrahdr::apply_gainmap(
 );
 ```
 
-### Encode UltraHDR (with jpegli-rs)
+### Encode UltraHDR (with zenjpeg)
 
 ```rust
-use jpegli::encoder::{EncoderConfig, ChromaSubsampling, PixelLayout};
+use zenjpeg::encoder::{EncoderConfig, ChromaSubsampling, PixelLayout};
 
 // ultrahdr computes gain map
 let (gm_pixels, gm_w, gm_h, metadata) = ultrahdr::compute_gainmap(
@@ -397,11 +397,11 @@ let (gm_pixels, gm_w, gm_h, metadata) = ultrahdr::compute_gainmap(
 // ultrahdr generates XMP
 let xmp = ultrahdr::generate_xmp_container(&metadata, estimated_gm_size);
 
-// jpegli encodes gain map
+// zenjpeg encodes gain map
 let gm_jpeg = EncoderConfig::grayscale(75.0)
     .encode_oneshot(&gm_pixels, gm_w, gm_h, PixelLayout::Gray8Srgb)?;
 
-// jpegli encodes primary with metadata and MPF
+// zenjpeg encodes primary with metadata and MPF
 let ultrahdr_jpeg = EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter)
     .with_xmp(&xmp)
     .with_icc(srgb_icc)
@@ -504,8 +504,8 @@ simd = []
 # f16 pixel format support
 f16 = ["half"]
 
-# Include jpegli convenience wrappers (adds jpegli-rs dependency)
-jpegli = ["jpegli-rs"]
+# Include zenjpeg convenience wrappers (adds zenjpeg dependency)
+zenjpeg = ["dep:zenjpeg"]
 ```
 
 ## No-std Support
@@ -523,14 +523,14 @@ std = []
 
 | Responsibility | Handled By |
 |---------------|------------|
-| JPEG decode | jpegli-rs or user's codec |
-| JPEG encode | jpegli-rs or user's codec |
-| APP segment extraction | jpegli-rs `DecodedExtras` |
-| APP segment injection | jpegli-rs `EncoderSegments` |
-| MPF parsing | jpegli-rs |
-| MPF assembly | jpegli-rs |
-| ICC profile handling | jpegli-rs or user |
-| Container structure | jpegli-rs |
+| JPEG decode | zenjpeg or user's codec |
+| JPEG encode | zenjpeg or user's codec |
+| APP segment extraction | zenjpeg `DecodedExtras` |
+| APP segment injection | zenjpeg `EncoderSegments` |
+| MPF parsing | zenjpeg |
+| MPF assembly | zenjpeg |
+| ICC profile handling | zenjpeg or user |
+| Container structure | zenjpeg |
 | XMP beyond hdrgm | User's XMP library |
 | EXIF handling | User's EXIF library |
 

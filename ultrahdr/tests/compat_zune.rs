@@ -244,7 +244,7 @@ fn test_roundtrip_with_zune() {
         max_diff = max_diff.max(diff);
     }
 
-    // Different JPEG decoders (jpegli vs zune-jpeg) may produce slightly different results
+    // Different JPEG decoders (zenjpeg vs zune-jpeg) may produce slightly different results
     // due to different IDCT implementations and rounding
     assert!(
         max_diff < 60,

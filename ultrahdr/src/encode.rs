@@ -179,6 +179,7 @@ impl Encoder {
     }
 
     /// Encode to Ultra HDR JPEG.
+    #[cfg(feature = "zenjpeg")]
     pub fn encode(&self) -> Result<Vec<u8>> {
         // Fast path: if we have raw gain map JPEG bytes, skip gain map processing entirely
         if let (Some(ref gainmap_jpeg), Some(ref metadata)) =
@@ -275,6 +276,12 @@ impl Encoder {
         self.create_ultrahdr_jpeg(&base_jpeg, &gainmap_jpeg, &metadata, sdr.gamut)
     }
 
+    /// Encode to Ultra HDR JPEG.
+    #[cfg(not(feature = "zenjpeg"))]
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        Err(Error::EncodeError("zenjpeg feature not enabled".into()))
+    }
+
     /// Compute a new gain map from HDR and SDR images.
     fn compute_new_gainmap(
         &self,
@@ -297,8 +304,9 @@ impl Encoder {
     }
 
     /// Encode base SDR image to JPEG.
+    #[cfg(feature = "zenjpeg")]
     fn encode_base_jpeg(&self, sdr: &RawImage) -> Result<Vec<u8>> {
-        use jpegli::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
+        use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 
         let (pixel_layout, data): (PixelLayout, std::borrow::Cow<[u8]>) = match sdr.format {
             PixelFormat::Rgba8 => {
@@ -332,8 +340,9 @@ impl Encoder {
     }
 
     /// Encode gain map to JPEG.
+    #[cfg(feature = "zenjpeg")]
     fn encode_gainmap_jpeg(&self, gainmap: &crate::GainMap) -> Result<Vec<u8>> {
-        use jpegli::encoder::{EncoderConfig, PixelLayout, Unstoppable};
+        use zenjpeg::encoder::{EncoderConfig, PixelLayout, Unstoppable};
 
         let config = EncoderConfig::grayscale(self.gainmap_quality as f32);
         let mut enc = config
@@ -386,7 +395,11 @@ impl Encoder {
 
         // Create MPF header with correct offset calculation
         // Per CIPA DC-007, secondary image offsets are relative to the TIFF header
-        let mpf_header = create_mpf_header(primary_with_mpf_len, gainmap_jpeg.len(), Some(mpf_insert_pos));
+        let mpf_header = create_mpf_header(
+            primary_with_mpf_len,
+            gainmap_jpeg.len(),
+            Some(mpf_insert_pos),
+        );
 
         // Insert MPF header
         let mpf_segment = JpegSegment {

@@ -8,7 +8,7 @@
 //! # Crate Structure
 //!
 //! - [`ultrahdr_core`] - Core gain map math and metadata (no codec dependency)
-//! - `ultrahdr` (this crate) - Full encoder/decoder with jpegli integration
+//! - `ultrahdr` (this crate) - Full encoder/decoder with zenjpeg integration
 //!
 //! # Format Overview
 //!

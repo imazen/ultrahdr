@@ -333,7 +333,7 @@ fn test_roundtrip_quality_affects_size() {
         );
     }
 
-    // Note: jpegli uses perceptual optimization, so higher quality doesn't
+    // Note: zenjpeg uses perceptual optimization, so higher quality doesn't
     // always mean larger files for simple synthetic images like gradients.
     // The important thing is that all quality levels produce valid outputs.
     // For complex real-world images, higher quality typically does produce

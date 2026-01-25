@@ -31,7 +31,7 @@ bytemuck = { version = "1.14", features = ["derive"] }
 thiserror = "2.0"
 
 # JPEG codec
-jpegli-rs = { version = "0.10.1", features = ["decoder"] }
+zenjpeg = { path = "../zenjpeg/zenjpeg", features = ["decoder"] }
 
 # Color management
 moxcms = "0.8"

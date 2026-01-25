@@ -15,7 +15,7 @@ Ultra HDR is a backward-compatible HDR image format that embeds a gain map in a 
 
 | Crate | Description |
 |-------|-------------|
-| [`ultrahdr-rs`](ultrahdr/) | Full encoder/decoder with jpegli-rs JPEG codec |
+| [`ultrahdr-rs`](ultrahdr/) | Full encoder/decoder with zenjpeg JPEG codec |
 | [`ultrahdr-core`](ultrahdr-core/) | Pure math and metadata - no codec dependency, WASM-compatible |
 
 ## Features
@@ -25,7 +25,7 @@ Ultra HDR is a backward-compatible HDR image format that embeds a gain map in a 
 - **Tone mapping**: Automatic SDR generation from HDR-only input
 - **Adaptive tonemapping**: Learn tone curves from existing HDR/SDR pairs
 - **Metadata**: Full XMP (hdrgm namespace) and ISO 21496-1 support
-- **Pure Rust**: No C dependencies, uses [jpegli-rs](https://github.com/imazen/jpegli-rs) for JPEG
+- **Pure Rust**: No C dependencies, uses [zenjpeg](https://github.com/imazen/zenjpeg) for JPEG
 - **WASM**: `ultrahdr-core` compiles to WebAssembly
 
 ## Usage
@@ -381,16 +381,16 @@ Understanding the correct sequencing is critical for both quality and memory eff
 │  5. Compute gain map (both in linear!)     ← ultrahdr-core            │
 │  6. Convert SDR gamut to output space      ← moxcms                   │
 │  7. Apply OETF (Linear → sRGB)             ← moxcms                   │
-│  8. Encode SDR JPEG                        ← jpegli-rs/zenjpeg        │
-│  9. Encode gain map JPEG                   ← jpegli-rs/zenjpeg        │
+│  8. Encode SDR JPEG                        ← zenjpeg                  │
+│  9. Encode gain map JPEG                   ← zenjpeg                  │
 │  10. Assemble MPF container + XMP          ← ultrahdr-core            │
 │                                                                        │
 │  DECODE:                                                               │
 │  ═══════                                                               │
 │  1. Parse MPF, extract SDR + gain map JPEGs                            │
 │  2. Parse XMP/ISO metadata                  ← ultrahdr-core           │
-│  3. Decode SDR JPEG                         ← jpegli-rs               │
-│  4. Decode gain map JPEG                    ← jpegli-rs               │
+│  3. Decode SDR JPEG                         ← zenjpeg                 │
+│  4. Decode gain map JPEG                    ← zenjpeg                 │
 │  5. Apply EOTF to SDR (sRGB → Linear)      ← moxcms                   │
 │  6. Apply gain map (in linear space!)       ← ultrahdr-core           │
 │  7. Convert gamut if needed                 ← moxcms                   │
@@ -558,9 +558,9 @@ for out in tm.push_rows(&data, stride, rows)? {
 
 Compare to full-frame tonemapping: 132 MB for 4K (entire image in RAM).
 
-## Using ultrahdr-core with jpegli-rs Directly
+## Using ultrahdr-core with zenjpeg Directly
 
-For more control, use `ultrahdr-core` (math + metadata only) with `jpegli-rs` for JPEG operations:
+For more control, use `ultrahdr-core` (math + metadata only) with `zenjpeg` for JPEG operations:
 
 ### Encoding UltraHDR
 
@@ -570,7 +570,7 @@ use ultrahdr_core::{
     metadata::xmp::generate_xmp,
     RawImage, PixelFormat, ColorGamut, ColorTransfer, Unstoppable,
 };
-use jpegli::encoder::{EncoderConfig, PixelLayout, ChromaSubsampling, Unstoppable as JpegliStop};
+use zenjpeg::encoder::{EncoderConfig, PixelLayout, ChromaSubsampling, Unstoppable as ZenjpegStop};
 
 // 1. Compute gain map from HDR + SDR
 let config = GainMapConfig::default();
@@ -580,7 +580,7 @@ let (gainmap, metadata) = compute_gainmap(&hdr_image, &sdr_image, &config, Unsto
 let gainmap_jpeg = {
     let cfg = EncoderConfig::grayscale(75.0);
     let mut enc = cfg.encode_from_bytes(gainmap.width, gainmap.height, PixelLayout::Gray8Srgb)?;
-    enc.push_packed(&gainmap.data, JpegliStop)?;
+    enc.push_packed(&gainmap.data, ZenjpegStop)?;
     enc.finish()?
 };
 
@@ -593,7 +593,7 @@ let ultrahdr = {
         .xmp(xmp.as_bytes().to_vec())
         .add_gainmap(gainmap_jpeg);
     let mut enc = cfg.encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)?;
-    enc.push_packed(&sdr_rgb, JpegliStop)?;
+    enc.push_packed(&sdr_rgb, ZenjpegStop)?;
     enc.finish()?
 };
 ```
@@ -606,7 +606,7 @@ use ultrahdr_core::{
     metadata::xmp::parse_xmp,
     GainMap, RawImage, Unstoppable,
 };
-use jpegli::decoder::{Decoder, PreserveConfig};
+use zenjpeg::decoder::{Decoder, PreserveConfig};
 
 // 1. Decode with metadata preservation
 let decoded = Decoder::new()
@@ -655,7 +655,7 @@ let encoder_segments = extras.to_encoder_segments();
 let cfg = EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter)
     .with_segments(encoder_segments);  // Preserves XMP + gainmap
 let mut enc = cfg.encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)?;
-enc.push_packed(&edited_sdr, JpegliStop)?;
+enc.push_packed(&edited_sdr, ZenjpegStop)?;
 let re_encoded = enc.finish()?;
 ```
 

@@ -184,7 +184,7 @@ fn test_wasm_roundtrip() {
 
 /// Create a grayscale JPEG programmatically for testing.
 fn create_grayscale_jpeg(width: u32, height: u32) -> Vec<u8> {
-    use jpegli::encoder::{EncoderConfig, PixelLayout};
+    use zenjpeg::encoder::{EncoderConfig, PixelLayout};
 
     // Create simple grayscale gradient
     let mut gray_data = vec![0u8; (width * height) as usize];
@@ -204,19 +204,19 @@ fn create_grayscale_jpeg(width: u32, height: u32) -> Vec<u8> {
     enc.finish().expect("finish encode")
 }
 
-/// Test direct jpegli grayscale decode - THIS CRASHES IN BROWSER WASM.
+/// Test direct zenjpeg grayscale decode - THIS CRASHES IN BROWSER WASM.
 ///
-/// This test isolates the jpegli grayscale decode issue from ultrahdr.
+/// This test isolates the zenjpeg grayscale decode issue from ultrahdr.
 /// - Node.js WASM: PASS
 /// - Browser WASM: CRASH ("RuntimeError: unreachable")
 ///
-/// The crash occurs in jpegli's decoder when decoding grayscale JPEGs.
+/// The crash occurs in zenjpeg's decoder when decoding grayscale JPEGs.
 /// RGB decode works fine; only grayscale decode crashes.
 #[wasm_bindgen_test]
-fn test_jpegli_grayscale_decode_direct() {
+fn test_zenjpeg_grayscale_decode_direct() {
     setup();
 
-    use jpegli::decoder::Decoder;
+    use zenjpeg::decoder::Decoder;
 
     // Create a 64x64 grayscale JPEG (similar size to gain maps)
     let jpeg_data = create_grayscale_jpeg(64, 64);
@@ -237,13 +237,13 @@ fn test_jpegli_grayscale_decode_direct() {
     }
 }
 
-/// Test jpegli RGB decode for comparison - this should always work.
+/// Test zenjpeg RGB decode for comparison - this should always work.
 #[wasm_bindgen_test]
-fn test_jpegli_rgb_decode_direct() {
+fn test_zenjpeg_rgb_decode_direct() {
     setup();
 
-    use jpegli::decoder::Decoder;
-    use jpegli::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout};
+    use zenjpeg::decoder::Decoder;
+    use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout};
 
     // Create a simple RGB JPEG
     let config = EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter);

@@ -13,12 +13,12 @@
 
 mod common;
 
-use jpegli::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 use ultrahdr_rs::gainmap::streaming::{EncodeInput, RowEncoder};
 use ultrahdr_rs::{
     color::tonemap::filmic_tonemap, color::transfer::srgb_oetf, ColorGamut, ColorTransfer,
     GainMapConfig, PixelFormat,
 };
+use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 
 /// Tonemap a single linear HDR RGB value to linear SDR RGB.
 fn tonemap_pixel(hdr_linear: [f32; 3]) -> [f32; 3] {

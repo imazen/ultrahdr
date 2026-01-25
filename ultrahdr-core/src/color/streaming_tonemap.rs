@@ -211,7 +211,11 @@ impl AdaptationGrid {
             return;
         }
 
-        for (x, pixel) in row_data.chunks(channels).enumerate().take(image_width as usize) {
+        for (x, pixel) in row_data
+            .chunks(channels)
+            .enumerate()
+            .take(image_width as usize)
+        {
             let lum = luminance_bt709(pixel[0], pixel[1], pixel[2]);
 
             // Update global stats
@@ -533,10 +537,7 @@ impl StreamingTonemapper {
             };
 
             // Apply tonemapping
-            let rgb = self.tonemap_pixel(
-                [hdr_pixel[0], hdr_pixel[1], hdr_pixel[2]],
-                &params,
-            );
+            let rgb = self.tonemap_pixel([hdr_pixel[0], hdr_pixel[1], hdr_pixel[2]], &params);
 
             sdr_pixel[0] = rgb[0];
             sdr_pixel[1] = rgb[1];
@@ -786,17 +787,38 @@ mod tests {
         let dark_val = mid_row.sdr_linear[width as usize * 3 / 4 * 4];
 
         // Both values should be in valid SDR range
-        assert!(bright_val >= 0.0 && bright_val <= 1.0, "Bright val out of range: {}", bright_val);
-        assert!(dark_val >= 0.0 && dark_val <= 1.0, "Dark val out of range: {}", dark_val);
+        assert!(
+            bright_val >= 0.0 && bright_val <= 1.0,
+            "Bright val out of range: {}",
+            bright_val
+        );
+        assert!(
+            dark_val >= 0.0 && dark_val <= 1.0,
+            "Dark val out of range: {}",
+            dark_val
+        );
 
         // Bright should map to a reasonable SDR value (tonemapped down from 4.0)
-        assert!(bright_val > 0.1, "Bright region should not be too dark: {}", bright_val);
+        assert!(
+            bright_val > 0.1,
+            "Bright region should not be too dark: {}",
+            bright_val
+        );
 
         // Dark region should be visible (lifted from potential black crush)
-        assert!(dark_val > 0.02, "Dark region should be lifted: {}", dark_val);
+        assert!(
+            dark_val > 0.02,
+            "Dark region should be lifted: {}",
+            dark_val
+        );
 
         // Bright should be brighter than dark (basic sanity check)
-        assert!(dark_val < bright_val, "Bright ({}) should be brighter than dark ({})", bright_val, dark_val);
+        assert!(
+            dark_val < bright_val,
+            "Bright ({}) should be brighter than dark ({})",
+            bright_val,
+            dark_val
+        );
     }
 
     #[test]
@@ -833,13 +855,33 @@ mod tests {
         // Original input had r-g = 3.5, r-b = 3.5
         // After tonemapping and desaturation, differences should be reduced
         // (but not eliminated - we're just testing that desaturation is working)
-        assert!(r_g_diff < 0.8, "Red-green diff should be reduced: {}", r_g_diff);
-        assert!(r_b_diff < 0.8, "Red-blue diff should be reduced: {}", r_b_diff);
+        assert!(
+            r_g_diff < 0.8,
+            "Red-green diff should be reduced: {}",
+            r_g_diff
+        );
+        assert!(
+            r_b_diff < 0.8,
+            "Red-blue diff should be reduced: {}",
+            r_b_diff
+        );
 
         // Also verify all channels are in valid range
-        assert!(result[0] >= 0.0 && result[0] <= 1.0, "R out of range: {}", result[0]);
-        assert!(result[1] >= 0.0 && result[1] <= 1.0, "G out of range: {}", result[1]);
-        assert!(result[2] >= 0.0 && result[2] <= 1.0, "B out of range: {}", result[2]);
+        assert!(
+            result[0] >= 0.0 && result[0] <= 1.0,
+            "R out of range: {}",
+            result[0]
+        );
+        assert!(
+            result[1] >= 0.0 && result[1] <= 1.0,
+            "G out of range: {}",
+            result[1]
+        );
+        assert!(
+            result[2] >= 0.0 && result[2] <= 1.0,
+            "B out of range: {}",
+            result[2]
+        );
     }
 
     #[test]
@@ -950,7 +992,9 @@ mod tests {
         }
 
         // Push all rows at once using stride-based API
-        let mut all_outputs = tonemapper.push_rows(&buffer, stride, height as usize).unwrap();
+        let mut all_outputs = tonemapper
+            .push_rows(&buffer, stride, height as usize)
+            .unwrap();
         all_outputs.extend(tonemapper.finish().unwrap());
         all_outputs.sort_by_key(|o| o.row_index);
 
@@ -981,7 +1025,9 @@ mod tests {
             // Padding pixels (64-60=4 pixels) are left as zeros
         }
 
-        let mut all_outputs = tonemapper.push_rows(&buffer, stride, height as usize).unwrap();
+        let mut all_outputs = tonemapper
+            .push_rows(&buffer, stride, height as usize)
+            .unwrap();
         all_outputs.extend(tonemapper.finish().unwrap());
 
         assert_eq!(all_outputs.len(), height as usize);

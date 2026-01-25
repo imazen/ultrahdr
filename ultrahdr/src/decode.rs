@@ -56,6 +56,7 @@ impl Decoder {
     }
 
     /// Decode the SDR base image.
+    #[cfg(feature = "zenjpeg")]
     pub fn decode_sdr(&self) -> Result<RawImage> {
         let (start, end) = self
             .primary_jpeg
@@ -65,7 +66,14 @@ impl Decoder {
         decode_jpeg_to_rgb(primary_data)
     }
 
+    /// Decode the SDR base image.
+    #[cfg(not(feature = "zenjpeg"))]
+    pub fn decode_sdr(&self) -> Result<RawImage> {
+        Err(Error::DecodeError("zenjpeg feature not enabled".into()))
+    }
+
     /// Decode the gain map.
+    #[cfg(feature = "zenjpeg")]
     pub fn decode_gainmap(&self) -> Result<GainMap> {
         let (start, end) = self
             .gainmap_jpeg
@@ -80,6 +88,12 @@ impl Decoder {
             channels: 1,
             data: decoded.data,
         })
+    }
+
+    /// Decode the gain map.
+    #[cfg(not(feature = "zenjpeg"))]
+    pub fn decode_gainmap(&self) -> Result<GainMap> {
+        Err(Error::DecodeError("zenjpeg feature not enabled".into()))
     }
 
     /// Decode to HDR at the specified display boost level.
@@ -171,8 +185,9 @@ impl Decoder {
 }
 
 /// Decode JPEG to RGB.
+#[cfg(feature = "zenjpeg")]
 fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<RawImage> {
-    use jpegli::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
+    use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
     let decoded = JpegDecoder::new()
         .output_format(JpegPixelFormat::Rgb)
         .decode(jpeg_data)
@@ -225,8 +240,9 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<RawImage> {
 }
 
 /// Decode JPEG to grayscale.
+#[cfg(feature = "zenjpeg")]
 fn decode_jpeg_to_grayscale(jpeg_data: &[u8]) -> Result<RawImage> {
-    use jpegli::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
+    use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
     let decoded = JpegDecoder::new()
         .output_format(JpegPixelFormat::Gray)
         .decode(jpeg_data)

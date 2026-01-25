@@ -102,7 +102,7 @@ fn test_encode_quality_settings() {
     let high_result = encoder_high.encode().unwrap();
 
     // Both should produce valid outputs
-    // Note: jpegli uses perceptual optimization, so higher quality doesn't
+    // Note: zenjpeg uses perceptual optimization, so higher quality doesn't
     // always mean larger files for simple synthetic images like gradients.
     // The important thing is that both encode successfully and produce valid JPEGs.
     assert!(low_result.len() > 100, "Low quality output too small");

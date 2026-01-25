@@ -57,7 +57,8 @@ pub fn create_mpf_header(
     //   (TIFF header is at mpf_insert_offset + 4 (marker+length) + 4 ("MPF\0"))
     let primary_offset = 0u32;
     let tiff_header_pos = mpf_insert_offset.unwrap_or(0) + 4 + MPF_IDENTIFIER.len();
-    let gainmap_offset = (primary_length - tiff_header_pos) as u32;
+    // Use saturating_sub to handle the case where primary_length is 0 (size estimation calls)
+    let gainmap_offset = primary_length.saturating_sub(tiff_header_pos) as u32;
 
     // Build MPF data
     // Endianness marker (big-endian: MM)
@@ -76,7 +77,12 @@ pub fn create_mpf_header(
 
     // Entry 1: Version tag (value "0100" stored inline in the 4-byte value field)
     // For TYPE_UNDEFINED with count<=4, value is stored inline as big-endian bytes
-    let version_value = u32::from_be_bytes([MPF_VERSION[0], MPF_VERSION[1], MPF_VERSION[2], MPF_VERSION[3]]);
+    let version_value = u32::from_be_bytes([
+        MPF_VERSION[0],
+        MPF_VERSION[1],
+        MPF_VERSION[2],
+        MPF_VERSION[3],
+    ]);
     write_ifd_entry(&mut mpf, TAG_VERSION, TYPE_UNDEFINED, 4, version_value);
 
     // Entry 2: Number of images
@@ -321,11 +327,7 @@ fn parse_mpf_data(mpf_data: &[u8], tiff_header_pos: usize) -> Result<Vec<(usize,
             // First image offset is 0 (primary image starts at file offset 0)
             // Subsequent image offsets are relative to the TIFF header position
             // (per CIPA DC-007 spec)
-            let start = if i == 0 {
-                0
-            } else {
-                tiff_header_pos + offset
-            };
+            let start = if i == 0 { 0 } else { tiff_header_pos + offset };
             let end = start + size;
 
             images.push((start, end));

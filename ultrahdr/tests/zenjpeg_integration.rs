@@ -1,9 +1,9 @@
-//! Integration tests demonstrating ultrahdr + jpegli-rs 0.10 workflow.
+//! Integration tests demonstrating ultrahdr + zenjpeg workflow.
 //!
 //! These tests show the recommended usage patterns for UltraHDR encode/decode
-//! using jpegli-rs for JPEG codec operations and ultrahdr for gain map math.
+//! using zenjpeg for JPEG codec operations and ultrahdr for gain map math.
 
-#![cfg(feature = "jpegli")]
+#![cfg(feature = "zenjpeg")]
 
 use ultrahdr_rs::{
     gainmap::{
@@ -14,9 +14,9 @@ use ultrahdr_rs::{
     ColorGamut, ColorTransfer, GainMap, PixelFormat, RawImage, Unstoppable as CoreUnstoppable,
 };
 
-// Re-export jpegli types for tests
-use jpegli::decoder::{Decoder, PreserveConfig};
-use jpegli::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
+// Re-export zenjpeg types for tests
+use zenjpeg::decoder::{Decoder, PreserveConfig};
+use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 
 /// Create test HDR RawImage (gradient with bright highlights).
 fn create_test_hdr_image(width: u32, height: u32) -> RawImage {
@@ -109,7 +109,7 @@ fn linear_to_srgb_u8(linear: f32) -> u8 {
     (srgb * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
-/// Convert RGBA8 RawImage to RGB8 bytes for jpegli encoding.
+/// Convert RGBA8 RawImage to RGB8 bytes for zenjpeg encoding.
 fn rgba8_to_rgb8(img: &RawImage) -> Vec<u8> {
     let mut rgb = Vec::with_capacity((img.width * img.height * 3) as usize);
     for i in 0..(img.width * img.height) as usize {
@@ -121,7 +121,7 @@ fn rgba8_to_rgb8(img: &RawImage) -> Vec<u8> {
     rgb
 }
 
-/// Convert jpegli RGB output to RawImage.
+/// Convert zenjpeg RGB output to RawImage.
 fn rgb8_to_raw_image(data: &[u8], width: u32, height: u32) -> RawImage {
     let mut rgba = Vec::with_capacity((width * height * 4) as usize);
     for i in 0..(width * height) as usize {
@@ -143,7 +143,7 @@ fn rgb8_to_raw_image(data: &[u8], width: u32, height: u32) -> RawImage {
     .expect("create raw image")
 }
 
-/// Convert jpegli grayscale output to GainMap.
+/// Convert zenjpeg grayscale output to GainMap.
 fn gray8_to_gainmap(data: &[u8], width: u32, height: u32) -> GainMap {
     GainMap {
         width,
@@ -153,7 +153,7 @@ fn gray8_to_gainmap(data: &[u8], width: u32, height: u32) -> GainMap {
     }
 }
 
-/// Encode grayscale data to JPEG using jpegli.
+/// Encode grayscale data to JPEG using zenjpeg.
 fn encode_grayscale(data: &[u8], width: u32, height: u32, quality: f32) -> Vec<u8> {
     let config = EncoderConfig::grayscale(quality);
     let mut enc = config
@@ -163,7 +163,7 @@ fn encode_grayscale(data: &[u8], width: u32, height: u32, quality: f32) -> Vec<u
     enc.finish().expect("finish encoding")
 }
 
-/// Encode RGB data to JPEG using jpegli.
+/// Encode RGB data to JPEG using zenjpeg.
 fn encode_rgb(data: &[u8], width: u32, height: u32, quality: f32) -> Vec<u8> {
     let config = EncoderConfig::ycbcr(quality, ChromaSubsampling::Quarter);
     let mut enc = config
@@ -198,7 +198,7 @@ fn encode_ultrahdr(
 // =============================================================================
 
 #[test]
-fn test_gainmap_compute_with_jpegli_encode() {
+fn test_gainmap_compute_with_zenjpeg_encode() {
     let width = 64u32;
     let height = 64u32;
 
@@ -219,7 +219,7 @@ fn test_gainmap_compute_with_jpegli_encode() {
     assert!(metadata.hdr_capacity_max > 1.0);
     assert!(metadata.max_content_boost.iter().any(|&v| v > 1.0));
 
-    // Encode gain map with jpegli
+    // Encode gain map with zenjpeg
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
     assert!(!gainmap_jpeg.is_empty());
     assert_eq!(&gainmap_jpeg[..2], &[0xFF, 0xD8]);
@@ -311,11 +311,11 @@ fn test_gainmap_apply() {
 }
 
 // =============================================================================
-// jpegli encode/decode tests
+// zenjpeg encode/decode tests
 // =============================================================================
 
 #[test]
-fn test_jpegli_encode_decode_sdr() {
+fn test_zenjpeg_encode_decode_sdr() {
     let width = 64u32;
     let height = 64u32;
 
@@ -345,7 +345,7 @@ fn test_jpegli_encode_decode_sdr() {
 }
 
 #[test]
-fn test_jpegli_xmp_preservation() {
+fn test_zenjpeg_xmp_preservation() {
     let width = 32u32;
     let height = 32u32;
 
@@ -593,7 +593,7 @@ fn test_roundtrip_edit_sdr_keep_gainmap() {
 // =============================================================================
 
 /// This test exercises the exact workflow documented in README.md
-/// for using ultrahdr-core with jpegli-rs directly.
+/// for using ultrahdr-core with zenjpeg directly.
 #[test]
 fn test_readme_workflow_encode_decode() {
     // === ENCODING (as documented in README) ===
