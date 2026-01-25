@@ -379,12 +379,14 @@ impl Encoder {
         }
 
         // Calculate sizes for MPF
-        // MPF header will be inserted, so we need to account for it
-        let mpf_estimate = create_mpf_header(0, 0).len();
+        // MPF header will be inserted at position 2 (right after SOI)
+        let mpf_insert_pos = 2;
+        let mpf_estimate = create_mpf_header(0, 0, Some(mpf_insert_pos)).len();
         let primary_with_mpf_len = primary.len() + mpf_estimate;
 
-        // Create MPF header
-        let mpf_header = create_mpf_header(primary_with_mpf_len, gainmap_jpeg.len());
+        // Create MPF header with correct offset calculation
+        // Per CIPA DC-007, secondary image offsets are relative to the TIFF header
+        let mpf_header = create_mpf_header(primary_with_mpf_len, gainmap_jpeg.len(), Some(mpf_insert_pos));
 
         // Insert MPF header
         let mpf_segment = JpegSegment {

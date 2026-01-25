@@ -37,14 +37,27 @@ pub enum MpImageType {
 /// The primary JPEG should already have the XMP metadata inserted.
 /// This function creates the MPF header that goes after the primary JPEG's
 /// SOI and metadata markers.
-pub fn create_mpf_header(primary_length: usize, gainmap_length: usize) -> Vec<u8> {
+///
+/// # Arguments
+/// * `primary_length` - Total length of the primary JPEG in bytes
+/// * `gainmap_length` - Total length of the gain map JPEG in bytes
+/// * `mpf_insert_offset` - File offset where this MPF segment will be inserted.
+///   The TIFF header will be at `mpf_insert_offset + 8` (after marker, length, and "MPF\0").
+///   If `None`, assumes MPF is at the very start of file (offset 0).
+pub fn create_mpf_header(
+    primary_length: usize,
+    gainmap_length: usize,
+    mpf_insert_offset: Option<usize>,
+) -> Vec<u8> {
     let mut mpf = Vec::with_capacity(128);
 
-    // Calculate offsets
-    // Primary image offset is always 0 (from start of file)
-    // Gain map offset is primary_length
+    // Calculate offsets per CIPA DC-007:
+    // - Primary image offset is always 0 (from start of file)
+    // - Secondary image offsets are relative to the TIFF header position
+    //   (TIFF header is at mpf_insert_offset + 4 (marker+length) + 4 ("MPF\0"))
     let primary_offset = 0u32;
-    let gainmap_offset = primary_length as u32;
+    let tiff_header_pos = mpf_insert_offset.unwrap_or(0) + 4 + MPF_IDENTIFIER.len();
+    let gainmap_offset = (primary_length - tiff_header_pos) as u32;
 
     // Build MPF data
     // Endianness marker (big-endian: MM)
@@ -61,9 +74,10 @@ pub fn create_mpf_header(primary_length: usize, gainmap_length: usize) -> Vec<u8
     // Number of entries: 3
     mpf.extend_from_slice(&3u16.to_be_bytes());
 
-    // Entry 1: Version tag
-    write_ifd_entry(&mut mpf, TAG_VERSION, TYPE_UNDEFINED, 4, 0); // Value inline
-    mpf.extend_from_slice(MPF_VERSION);
+    // Entry 1: Version tag (value "0100" stored inline in the 4-byte value field)
+    // For TYPE_UNDEFINED with count<=4, value is stored inline as big-endian bytes
+    let version_value = u32::from_be_bytes([MPF_VERSION[0], MPF_VERSION[1], MPF_VERSION[2], MPF_VERSION[3]]);
+    write_ifd_entry(&mut mpf, TAG_VERSION, TYPE_UNDEFINED, 4, version_value);
 
     // Entry 2: Number of images
     write_ifd_entry(&mut mpf, TAG_NUMBER_OF_IMAGES, TYPE_LONG, 1, 2);
@@ -71,7 +85,8 @@ pub fn create_mpf_header(primary_length: usize, gainmap_length: usize) -> Vec<u8
     // Entry 3: MP Entry (array of image entries)
     // Each MP Entry is 16 bytes, we have 2 images
     let mp_entry_size = 32u32;
-    let mp_entry_offset = mpf.len() as u32 + 4 + 4; // After IFD end + next IFD pointer
+    // MP entry data follows: this entry (12 bytes) + next IFD pointer (4 bytes)
+    let mp_entry_offset = mpf.len() as u32 + 12 + 4;
     write_ifd_entry(
         &mut mpf,
         TAG_MP_ENTRY,
@@ -131,8 +146,8 @@ fn write_mp_entry(buf: &mut Vec<u8>, image_type: MpImageType, size: u32, offset:
     // Size (4 bytes)
     buf.extend_from_slice(&size.to_be_bytes());
 
-    // Data offset (4 bytes) - relative to start of file for first image,
-    // relative to MPF marker for subsequent images
+    // Data offset (4 bytes) - 0 for primary image,
+    // relative to TIFF header for secondary images (per CIPA DC-007)
     buf.extend_from_slice(&offset.to_be_bytes());
 
     // Dependent image 1 entry number (2 bytes) - 0 if none
@@ -142,9 +157,10 @@ fn write_mp_entry(buf: &mut Vec<u8>, image_type: MpImageType, size: u32, offset:
     buf.extend_from_slice(&0u16.to_be_bytes());
 }
 
-/// Parse MPF header to find gain map location.
+/// Parse MPF header to find image locations.
 ///
-/// Returns (offset, length) of the gain map image.
+/// Returns `(start, end)` byte ranges for each image in the file.
+/// The first entry is the primary image, subsequent entries are secondary images (gain maps, etc.).
 pub fn parse_mpf(data: &[u8]) -> Result<Vec<(usize, usize)>> {
     // Find APP2 marker with MPF identifier
     let mut pos = 0;
@@ -154,7 +170,9 @@ pub fn parse_mpf(data: &[u8]) -> Result<Vec<(usize, usize)>> {
             if pos + 4 + length <= data.len() {
                 let marker_data = &data[pos + 4..pos + 2 + length];
                 if marker_data.starts_with(MPF_IDENTIFIER) {
-                    return parse_mpf_data(&marker_data[4..], pos);
+                    // TIFF header starts after marker (2) + length (2) + "MPF\0" (4)
+                    let tiff_header_pos = pos + 4 + MPF_IDENTIFIER.len();
+                    return parse_mpf_data(&marker_data[4..], tiff_header_pos);
                 }
             }
         }
@@ -165,7 +183,10 @@ pub fn parse_mpf(data: &[u8]) -> Result<Vec<(usize, usize)>> {
 }
 
 /// Parse MPF data to extract image entries.
-fn parse_mpf_data(mpf_data: &[u8], mpf_marker_offset: usize) -> Result<Vec<(usize, usize)>> {
+///
+/// `tiff_header_pos` is the absolute file position of the TIFF header (after "MPF\0").
+/// Per CIPA DC-007, secondary image offsets are relative to this position.
+fn parse_mpf_data(mpf_data: &[u8], tiff_header_pos: usize) -> Result<Vec<(usize, usize)>> {
     if mpf_data.len() < 8 {
         return Err(Error::MpfParse("MPF data too short".into()));
     }
@@ -297,15 +318,17 @@ fn parse_mpf_data(mpf_data: &[u8], mpf_marker_offset: usize) -> Result<Vec<(usiz
                 ])
             } as usize;
 
-            // First image offset is relative to start of file
-            // Subsequent images are relative to MPF marker
-            let actual_offset = if i == 0 {
+            // First image offset is 0 (primary image starts at file offset 0)
+            // Subsequent image offsets are relative to the TIFF header position
+            // (per CIPA DC-007 spec)
+            let start = if i == 0 {
                 0
             } else {
-                mpf_marker_offset + offset
+                tiff_header_pos + offset
             };
+            let end = start + size;
 
-            images.push((actual_offset, size));
+            images.push((start, end));
         }
     }
 
@@ -350,7 +373,8 @@ mod tests {
 
     #[test]
     fn test_create_mpf_header() {
-        let header = create_mpf_header(50000, 10000);
+        // Test with MPF at file start (legacy behavior)
+        let header = create_mpf_header(50000, 10000, None);
 
         // Should start with APP2 marker
         assert_eq!(header[0], 0xFF);
@@ -358,6 +382,53 @@ mod tests {
 
         // Should contain MPF identifier
         assert!(header.windows(4).any(|w| w == MPF_IDENTIFIER));
+    }
+
+    #[test]
+    fn test_mpf_roundtrip() {
+        // Create a fake file structure:
+        // [0..2]: SOI
+        // [2..mpf_insert_pos]: other metadata
+        // [mpf_insert_pos..mpf_insert_pos+header_len]: MPF header
+        // [mpf_insert_pos+header_len..primary_total]: rest of primary + EOI
+        // [primary_total..]: gain map
+
+        let mpf_insert_pos = 100;
+        let gainmap_length = 10000;
+
+        // First, calculate the MPF header size
+        let header_estimate = create_mpf_header(0, 0, Some(mpf_insert_pos)).len();
+
+        // Primary length = content before MPF + MPF header + content after MPF
+        // For simplicity, use: 100 (before) + header_len + 49900 (after) = ~50000
+        let primary_without_header = 50000;
+        let primary_length = primary_without_header + header_estimate;
+
+        let header = create_mpf_header(primary_length, gainmap_length, Some(mpf_insert_pos));
+        let header_len = header.len();
+
+        // Build fake file
+        let total_size = primary_length + gainmap_length;
+        let mut file = vec![0u8; total_size];
+
+        // SOI at start
+        file[0] = 0xFF;
+        file[1] = 0xD8;
+
+        // Insert MPF header at the insertion position
+        file[mpf_insert_pos..mpf_insert_pos + header_len].copy_from_slice(&header);
+
+        // Gain map SOI at primary_length
+        file[primary_length] = 0xFF;
+        file[primary_length + 1] = 0xD8;
+
+        // Parse it back
+        let images = parse_mpf(&file).expect("should parse");
+        assert_eq!(images.len(), 2);
+        // Primary: start=0, end=primary_length
+        assert_eq!(images[0], (0, primary_length));
+        // Gain map: start=primary_length, end=primary_length+gainmap_length
+        assert_eq!(images[1], (primary_length, primary_length + gainmap_length));
     }
 
     #[test]

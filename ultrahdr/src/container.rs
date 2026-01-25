@@ -470,14 +470,14 @@ pub fn assemble(primary: &[u8], secondaries: &[&[u8]], types: &[MpfImageType]) -
     // Primary entry
     entries.push((MpfImageType::Primary, primary_with_mpf_size as u32, 0u32));
 
-    // Secondary entries - offsets are relative to MPF marker position
-    // But actually, they're from start of file for the calculation, then we adjust
+    // Secondary entries - offsets are relative to TIFF header position (per CIPA DC-007)
+    // TIFF header is at: insert_pos + 4 (marker+length) + 4 ("MPF\0") = insert_pos + 8
+    let tiff_header_pos = insert_pos + 8;
     let mut offset = primary_with_mpf_size as u32;
     for (i, secondary) in secondaries.iter().enumerate() {
         let img_type = types.get(i).copied().unwrap_or(MpfImageType::GainMap);
-        // Offset is relative to MPF marker, not start of file
-        // MPF marker will be at insert_pos
-        let relative_offset = offset - insert_pos as u32;
+        // Offset is relative to TIFF header, not MPF marker
+        let relative_offset = offset - tiff_header_pos as u32;
         entries.push((img_type, secondary.len() as u32, relative_offset));
         offset += secondary.len() as u32;
     }
@@ -528,11 +528,13 @@ pub fn generate_mpf(
     // Primary entry
     entries.push((MpfImageType::Primary, primary_size as u32, 0u32));
 
-    // Secondary entries
+    // Secondary entries - offsets are relative to TIFF header (per CIPA DC-007)
+    // TIFF header is at: mpf_offset + 4 (marker+length) + 4 ("MPF\0") = mpf_offset + 8
+    let tiff_header_pos = mpf_offset + 8;
     let mut offset = primary_size as u32;
     for (i, &size) in secondary_sizes.iter().enumerate() {
         let img_type = types.get(i).copied().unwrap_or(MpfImageType::GainMap);
-        let relative_offset = offset - mpf_offset as u32;
+        let relative_offset = offset - tiff_header_pos as u32;
         entries.push((img_type, size as u32, relative_offset));
         offset += size as u32;
     }
