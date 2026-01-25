@@ -441,6 +441,123 @@ for batch_start in (0..height).step_by(16) {
 | Full decode | ~166 MB |
 | Streaming (16 rows) | ~2 MB |
 
+## Streaming Tonemapper
+
+`StreamingTonemapper` provides high-quality HDR→SDR tonemapping in a single streaming pass with local adaptation.
+
+### Semantics
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                    STREAMING TONEMAPPER FLOW                           │
+│                                                                         │
+│   Input                    Internal                      Output         │
+│   ──────                   ────────                      ──────         │
+│                                                                         │
+│   Row 0  ─────┐                                                        │
+│   Row 1  ─────┤       ┌─────────────────────┐                          │
+│   Row 2  ─────┼──────▶│   Lookahead Buffer  │                          │
+│    ...   ─────┤       │   (ring buffer)     │                          │
+│   Row N  ─────┘       │   Default: 64 rows  │                          │
+│                       └──────────┬──────────┘                          │
+│                                  │                                     │
+│                                  ▼                                     │
+│                       ┌─────────────────────┐                          │
+│                       │  Local Adaptation   │                          │
+│                       │  Grid (1/8 res)     │                          │
+│                       │  • Per-cell stats   │                          │
+│                       │  • Key (geo mean)   │                          │
+│                       │  • White point      │                          │
+│                       └──────────┬──────────┘                          │
+│                                  │                                     │
+│   ⚠️ OUTPUT LAG                  │                                     │
+│   ═════════════                  ▼                                     │
+│                       ┌─────────────────────┐       Row 0 ────▶       │
+│   After pushing       │    Tonemap with     │       Row 1 ────▶       │
+│   row 32, you get     │  local adaptation   │       Row 2 ────▶       │
+│   row 0 out           │  • AgX highlights   │        ...              │
+│                       │  • Shadow lift      │                          │
+│   Lag = lookahead/2   └─────────────────────┘                          │
+│       = 32 rows                                                        │
+│                                                                         │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key points:**
+- **Output lag**: Rows come out `lookahead_rows / 2` behind input (default: 32 rows)
+- **Row order preserved**: Output row indices match input, just delayed
+- **Call `finish()`**: Required to flush remaining rows after all input is pushed
+- **Memory**: ~6 MB for 4K (grid + row buffer)
+
+### API
+
+```rust
+use ultrahdr_core::color::{StreamingTonemapper, StreamingTonemapConfig};
+
+// Configure (defaults shown)
+let config = StreamingTonemapConfig {
+    channels: 4,          // 3 for RGB, 4 for RGBA
+    lookahead_rows: 64,   // Buffer size (affects quality & lag)
+    cell_size: 8,         // Local adaptation grid: image_size / cell_size
+    target_key: 0.18,     // Target mid-gray
+    contrast: 1.1,        // Subtle contrast boost
+    saturation: 0.95,     // Slight highlight desaturation
+    shadow_lift: 0.02,    // Lift shadows slightly
+    desat_threshold: 0.5, // Start desaturating at 50% of white
+};
+
+let mut tm = StreamingTonemapper::new(width, height, config)?;
+
+// Push rows: (data, stride, num_rows)
+// stride = elements between row starts (>= width * channels)
+let outputs = tm.push_rows(&hdr_buffer, stride, num_rows)?;
+
+// Process outputs as they become ready
+for out in outputs {
+    // out.row_index: which row this is (may not be sequential!)
+    // out.sdr_linear: linear f32 SDR data, ready for OETF
+    let srgb = tm.linear_to_srgb8(&out.sdr_linear);
+    jpeg_encoder.push_row(&srgb)?;
+}
+
+// Flush remaining rows (REQUIRED!)
+for out in tm.finish()? {
+    let srgb = tm.linear_to_srgb8(&out.sdr_linear);
+    jpeg_encoder.push_row(&srgb)?;
+}
+```
+
+### Output Ordering
+
+Because of the lookahead buffer, outputs may not arrive in order during streaming.
+The `row_index` field tells you which row each output corresponds to.
+
+```rust
+// If you need sequential output (e.g., for JPEG encoder), buffer and sort:
+let mut pending: BTreeMap<u32, Vec<f32>> = BTreeMap::new();
+let mut next_to_emit = 0u32;
+
+for out in tm.push_rows(&data, stride, rows)? {
+    pending.insert(out.row_index, out.sdr_linear);
+
+    // Emit any consecutive rows starting from next_to_emit
+    while let Some(row) = pending.remove(&next_to_emit) {
+        jpeg_encoder.push_row(&tm.linear_to_srgb8(&row))?;
+        next_to_emit += 1;
+    }
+}
+```
+
+### Memory Usage
+
+| Image Size | Lookahead | Grid | Buffers | Total |
+|------------|-----------|------|---------|-------|
+| 1920×1080  | 64 rows   | 0.5 MB | 2 MB  | ~2.5 MB |
+| 3840×2160  | 64 rows   | 2 MB   | 4 MB  | ~6 MB   |
+| 7680×4320  | 64 rows   | 8 MB   | 8 MB  | ~16 MB  |
+
+Compare to full-frame tonemapping: 132 MB for 4K (entire image in RAM).
+
 ## Using ultrahdr-core with jpegli-rs Directly
 
 For more control, use `ultrahdr-core` (math + metadata only) with `jpegli-rs` for JPEG operations:
