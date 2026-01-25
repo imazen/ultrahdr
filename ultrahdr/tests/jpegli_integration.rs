@@ -5,7 +5,7 @@
 
 #![cfg(feature = "jpegli")]
 
-use ultrahdr::{
+use ultrahdr_rs::{
     gainmap::{
         apply::{apply_gainmap, HdrOutputFormat},
         compute::{compute_gainmap, GainMapConfig},
@@ -843,7 +843,7 @@ fn test_readme_workflow_lossless_roundtrip() {
 /// re-encoding the gain map (e.g., WASM where grayscale decode/encode crashes).
 #[test]
 fn test_set_existing_gainmap_jpeg() {
-    use ultrahdr::Encoder;
+    use ultrahdr_rs::Encoder;
 
     let width = 64;
     let height = 64;
@@ -895,8 +895,8 @@ fn test_set_existing_gainmap_jpeg() {
     );
 
     // Both should be decodable
-    let decoder_1 = ultrahdr::Decoder::new(&result_1).expect("create decoder 1");
-    let decoder_2 = ultrahdr::Decoder::new(&result_2).expect("create decoder 2");
+    let decoder_1 = ultrahdr_rs::Decoder::new(&result_1).expect("create decoder 1");
+    let decoder_2 = ultrahdr_rs::Decoder::new(&result_2).expect("create decoder 2");
 
     assert!(decoder_1.is_ultrahdr(), "result 1 is UltraHDR");
     assert!(decoder_2.is_ultrahdr(), "result 2 is UltraHDR");
@@ -919,7 +919,7 @@ fn test_set_existing_gainmap_jpeg() {
 /// when SDR + compressed SDR + raw gain map JPEG are provided.
 #[test]
 fn test_set_existing_gainmap_jpeg_sdr_only() {
-    use ultrahdr::Encoder;
+    use ultrahdr_rs::Encoder;
 
     let width = 64;
     let height = 64;
@@ -936,7 +936,7 @@ fn test_set_existing_gainmap_jpeg_sdr_only() {
     let gainmap_jpeg = encode_grayscale(&gainmap_data, gm_width, gm_height, 75.0);
 
     // Create metadata using proper struct fields
-    let metadata = ultrahdr::GainMapMetadata {
+    let metadata = ultrahdr_rs::GainMapMetadata {
         max_content_boost: [4.0, 4.0, 4.0],
         min_content_boost: [1.0, 1.0, 1.0],
         gamma: [1.0, 1.0, 1.0],
@@ -967,7 +967,7 @@ fn test_set_existing_gainmap_jpeg_sdr_only() {
     // Should produce valid UltraHDR
     assert_eq!(&result[..2], &[0xFF, 0xD8], "valid JPEG");
 
-    let decoder = ultrahdr::Decoder::new(&result).expect("create decoder");
+    let decoder = ultrahdr_rs::Decoder::new(&result).expect("create decoder");
     assert!(decoder.is_ultrahdr(), "should be UltraHDR");
 
     println!("set_existing_gainmap_jpeg SDR-only test passed");

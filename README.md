@@ -127,6 +127,278 @@ Both XMP and ISO 21496-1 metadata are supported for maximum compatibility:
 - Display P3
 - BT.2100/BT.2020
 
+## Pipeline Architecture
+
+Understanding the correct sequencing is critical for both quality and memory efficiency.
+
+### Streaming Encode Pipeline (Recommended)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         STREAMING ENCODE PIPELINE                           │
+│                        (4 MB peak vs 165 MB batch)                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  HDR Source                                              Output Files
+  (AVIF/JXL/                                              ┌──────────────┐
+   EXR/etc)                                               │ Ultra HDR    │
+      │                                                   │ JPEG         │
+      ▼                                                   │ ┌──────────┐ │
+┌───────────┐     ┌─────────────────────────────────┐     │ │ SDR JPEG │ │
+│ Streaming │     │      COLOR MANAGEMENT           │     │ │ (primary)│ │
+│ Decoder   │────▶│  ┌─────────────────────────┐    │     │ ├──────────┤ │
+│ (rows)    │     │  │ 1. Input Transform      │    │     │ │ Gain Map │ │
+└───────────┘     │  │    PQ/HLG → Linear      │    │     │ │ (APP15)  │ │
+                  │  │    BT.2100 → Working    │    │     │ ├──────────┤ │
+   16 rows        │  │    (use moxcms)         │    │     │ │ XMP      │ │
+   at a time      │  └───────────┬─────────────┘    │     │ │ Metadata │ │
+                  │              │                  │     │ └──────────┘ │
+                  │              ▼                  │     └──────────────┘
+                  │  ┌─────────────────────────┐    │
+                  │  │ 2. Linear Working Space │    │
+                  │  │    (HDR, scene-referred)│    │
+                  │  └───────────┬─────────────┘    │
+                  │              │                  │
+                  │      ┌───────┴───────┐         │
+                  │      │               │         │
+                  │      ▼               ▼         │
+                  │  ┌───────┐    ┌────────────┐   │
+                  │  │ Keep  │    │ 3. Tonemap │   │
+                  │  │ HDR   │    │ HDR → SDR  │   │
+                  │  │ Linear│    │ (filmic/   │   │
+                  │  └───┬───┘    │  adaptive) │   │
+                  │      │        └─────┬──────┘   │
+                  │      │              │          │
+                  │      │              ▼          │
+                  │      │    ┌─────────────────┐  │
+                  │      │    │ 4. Output OETF  │  │
+                  │      │    │    Linear→sRGB  │  │
+                  │      │    │    (use moxcms) │  │
+                  │      │    └────────┬────────┘  │
+                  └──────│─────────────│───────────┘
+                         │             │
+                         ▼             ▼
+               ┌─────────────────────────────────┐
+               │        GAIN MAP ENCODER         │
+               │  (RowEncoder / StreamEncoder)   │
+               │                                 │
+               │  Computes: gain = HDR/SDR       │
+               │  Per-block, streaming output    │
+               └────────────────┬────────────────┘
+                                │
+                    ┌───────────┴───────────┐
+                    │                       │
+                    ▼                       ▼
+          ┌─────────────────┐    ┌─────────────────┐
+          │  SDR JPEG       │    │  Gain Map JPEG  │
+          │  Encoder        │    │  Encoder        │
+          │  (streaming)    │    │  (streaming)    │
+          │                 │    │                 │
+          │  push_row()     │    │  push_row()     │
+          └────────┬────────┘    └────────┬────────┘
+                   │                      │
+                   └──────────┬───────────┘
+                              │
+                              ▼
+                   ┌─────────────────────┐
+                   │   MPF Container     │
+                   │   Assembly          │
+                   │   + XMP Metadata    │
+                   └─────────────────────┘
+```
+
+### Color Management: Where moxcms Fits
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                    COLOR MANAGEMENT STAGES                              │
+│                                                                         │
+│  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐            │
+│  │   INPUT     │      │   WORKING   │      │   OUTPUT    │            │
+│  │   SPACE     │ ───▶ │   SPACE     │ ───▶ │   SPACE     │            │
+│  └─────────────┘      └─────────────┘      └─────────────┘            │
+│                                                                         │
+│  Examples:            Always:               Examples:                   │
+│  • PQ BT.2100        • Linear              • sRGB (SDR output)        │
+│  • HLG BT.2100       • Scene-referred      • Display P3               │
+│  • Linear BT.2020    • Wide gamut          • PQ (HDR output)          │
+│                        (BT.2020 or         • Linear (gain map)        │
+│                         AP0/ACES)                                      │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                         moxcms handles:                          │  │
+│  │  • EOTF/OETF (PQ, HLG, sRGB transfer functions)                 │  │
+│  │  • Chromatic adaptation (D65 ↔ D50)                              │  │
+│  │  • Gamut mapping (BT.2100 → sRGB with perceptual intent)        │  │
+│  │  • ICC profile generation and parsing                            │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+│                                                                         │
+│  ⚠️  CRITICAL: Tonemapping happens in LINEAR WORKING SPACE            │
+│      Never tonemap PQ-encoded or sRGB-encoded values!                  │
+│                                                                         │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Streaming Decode Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        STREAMING DECODE PIPELINE                        │
+│                         (2 MB peak vs 166 MB)                           │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  Ultra HDR JPEG
+        │
+        ▼
+┌───────────────────┐
+│ Parse MPF Header  │──────────────────────────────────────┐
+│ Extract offsets   │                                      │
+└────────┬──────────┘                                      │
+         │                                                 │
+    ┌────┴────┐                                           │
+    │         │                                           │
+    ▼         ▼                                           ▼
+┌────────┐  ┌────────────┐                        ┌─────────────┐
+│ SDR    │  │ Gain Map   │                        │ XMP/ISO     │
+│ JPEG   │  │ JPEG       │                        │ Metadata    │
+│ Decode │  │ Decode     │                        │ Parse       │
+│(stream)│  │ (full or   │                        └──────┬──────┘
+└───┬────┘  │  stream)   │                               │
+    │       └─────┬──────┘                               │
+    │             │                                      │
+    │    ┌────────┴─────────────────────────────────────┐│
+    │    │         GainMapMetadata                      ││
+    │    │  • min/max_content_boost                     ││
+    │    │  • gamma, offsets                            ││
+    │    │  • hdr_capacity_min/max                      ││
+    │    └────────┬─────────────────────────────────────┘│
+    │             │                                      │
+    ▼             ▼                                      │
+┌─────────────────────────────────────┐                  │
+│        HDR RECONSTRUCTION           │◀─────────────────┘
+│        (RowDecoder/StreamDecoder)   │
+│                                     │
+│  For each pixel:                    │
+│  1. Decode gain from gain map       │
+│  2. Apply: HDR = (SDR + offset_sdr) │
+│            × gain^weight            │
+│            - offset_hdr             │
+│  3. Bilinear upsample gain map      │
+└──────────────────┬──────────────────┘
+                   │
+                   ▼
+           ┌─────────────────┐
+           │ OUTPUT TRANSFORM│
+           │ (if needed)     │
+           │ Linear → PQ/HLG │
+           └────────┬────────┘
+                    │
+                    ▼
+              HDR Output
+```
+
+### Memory Comparison
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                     MEMORY USAGE: 4K (3840×2160)                       │
+├────────────────────────────────────────────────────────────────────────┤
+│                                                                        │
+│  BATCH ENCODE (full images in memory)                                  │
+│  ═══════════════════════════════════                                   │
+│                                                                        │
+│  Stage              Memory                                             │
+│  ─────              ──────                                             │
+│  Decode HDR         132 MB  ████████████████████████████████████████  │
+│  + Resize buffer    +33 MB  ██████████                                │
+│  + SDR copy         +33 MB  ██████████                                │
+│  + Gain map          +1 MB  ▌                                         │
+│  ─────────────────────────                                             │
+│  PEAK:              165 MB                                             │
+│                                                                        │
+│  STREAMING ENCODE (row buffers)                                        │
+│  ══════════════════════════════                                        │
+│                                                                        │
+│  Component          Memory                                             │
+│  ─────────          ──────                                             │
+│  Decoder buffer      1.0 MB  ███                                       │
+│  Resize buffer       0.5 MB  ██                                        │
+│  Tonemap (in-place)  0.0 MB                                            │
+│  RowEncoder buffers  1.0 MB  ███                                       │
+│  JPEG encoders       1.5 MB  █████                                     │
+│  ─────────────────────────                                             │
+│  PEAK:               4.0 MB  (40× reduction!)                          │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Common Mistakes to Avoid
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                          ❌ WRONG                                      │
+├────────────────────────────────────────────────────────────────────────┤
+│                                                                        │
+│  1. Tonemapping PQ-encoded values                                      │
+│     ✗ let sdr = tonemap(pq_pixel);  // PQ is perceptual, not linear!  │
+│     ✓ let linear = pq_eotf(pq_pixel);                                 │
+│       let sdr = tonemap(linear);                                       │
+│                                                                        │
+│  2. Computing gain map from sRGB (not linear)                          │
+│     ✗ gain = srgb_hdr / srgb_sdr;  // Wrong! sRGB is nonlinear        │
+│     ✓ gain = linear_hdr / linear_sdr;                                 │
+│                                                                        │
+│  3. Loading full image when streaming works                            │
+│     ✗ let full_image = decoder.decode_all()?;  // 132 MB              │
+│     ✓ for row in decoder.rows() { ... }        // 1 MB                │
+│                                                                        │
+│  4. Applying sRGB OETF before gain map computation                     │
+│     ✗ let sdr = srgb_oetf(linear_sdr);                                │
+│       compute_gainmap(hdr_linear, sdr);  // Mixing linear and sRGB!   │
+│     ✓ compute_gainmap(hdr_linear, sdr_linear);                        │
+│       let sdr_output = srgb_oetf(sdr_linear);                         │
+│                                                                        │
+│  5. Ignoring color gamut conversion                                    │
+│     ✗ SDR in BT.2020 gamut (out-of-range values)                      │
+│     ✓ Convert BT.2020 → sRGB with gamut mapping before SDR output     │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Correct Pipeline Order
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                          ✓ CORRECT ORDER                               │
+├────────────────────────────────────────────────────────────────────────┤
+│                                                                        │
+│  ENCODE:                                                               │
+│  ═══════                                                               │
+│  1. Decode HDR source (get encoded pixels)                             │
+│  2. Apply EOTF (PQ/HLG → Linear)           ← moxcms                   │
+│  3. Convert gamut to working space         ← moxcms                   │
+│  4. Tonemap (linear HDR → linear SDR)      ← ultrahdr-core            │
+│  5. Compute gain map (both in linear!)     ← ultrahdr-core            │
+│  6. Convert SDR gamut to output space      ← moxcms                   │
+│  7. Apply OETF (Linear → sRGB)             ← moxcms                   │
+│  8. Encode SDR JPEG                        ← jpegli-rs/zenjpeg        │
+│  9. Encode gain map JPEG                   ← jpegli-rs/zenjpeg        │
+│  10. Assemble MPF container + XMP          ← ultrahdr-core            │
+│                                                                        │
+│  DECODE:                                                               │
+│  ═══════                                                               │
+│  1. Parse MPF, extract SDR + gain map JPEGs                            │
+│  2. Parse XMP/ISO metadata                  ← ultrahdr-core           │
+│  3. Decode SDR JPEG                         ← jpegli-rs               │
+│  4. Decode gain map JPEG                    ← jpegli-rs               │
+│  5. Apply EOTF to SDR (sRGB → Linear)      ← moxcms                   │
+│  6. Apply gain map (in linear space!)       ← ultrahdr-core           │
+│  7. Convert gamut if needed                 ← moxcms                   │
+│  8. Apply OETF for output (Linear → PQ)    ← moxcms                   │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
 ## Streaming APIs (Low Memory)
 
 For memory-constrained environments, `ultrahdr-core` provides streaming APIs that process images row-by-row:

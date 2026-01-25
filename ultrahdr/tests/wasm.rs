@@ -25,14 +25,14 @@ const TEST_ULTRAHDR: &[u8] = include_bytes!("../../test_ultrahdr.jpg");
 #[wasm_bindgen_test]
 fn test_wasm_decoder_creation() {
     setup();
-    let decoder = ultrahdr::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
+    let decoder = ultrahdr_rs::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
     assert!(decoder.is_ultrahdr(), "should recognize Ultra HDR");
 }
 
 #[wasm_bindgen_test]
 fn test_wasm_decode_sdr() {
     setup();
-    let decoder = ultrahdr::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
+    let decoder = ultrahdr_rs::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
     let sdr = decoder.decode_sdr().expect("decode SDR");
     assert!(sdr.width > 0, "width should be positive");
     assert!(sdr.height > 0, "height should be positive");
@@ -42,7 +42,7 @@ fn test_wasm_decode_sdr() {
 #[wasm_bindgen_test]
 fn test_wasm_decode_gainmap() {
     setup();
-    let decoder = ultrahdr::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
+    let decoder = ultrahdr_rs::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
     let gainmap = decoder.decode_gainmap().expect("decode gainmap");
     assert!(gainmap.width > 0, "gainmap width should be positive");
     assert!(gainmap.height > 0, "gainmap height should be positive");
@@ -51,7 +51,7 @@ fn test_wasm_decode_gainmap() {
 #[wasm_bindgen_test]
 fn test_wasm_decode_hdr() {
     setup();
-    let decoder = ultrahdr::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
+    let decoder = ultrahdr_rs::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
     let hdr = decoder.decode_hdr(4.0).expect("decode HDR");
     assert!(hdr.width > 0, "HDR width should be positive");
     assert!(hdr.height > 0, "HDR height should be positive");
@@ -61,7 +61,7 @@ fn test_wasm_decode_hdr() {
 #[wasm_bindgen_test]
 fn test_wasm_metadata() {
     setup();
-    let decoder = ultrahdr::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
+    let decoder = ultrahdr_rs::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
     let metadata = decoder.metadata().expect("get metadata");
     assert!(
         metadata.hdr_capacity_max > 1.0,
@@ -74,7 +74,7 @@ fn test_wasm_metadata() {
 // ============================================================================
 
 /// Create a small test HDR image.
-fn create_small_hdr(width: u32, height: u32) -> ultrahdr::RawImage {
+fn create_small_hdr(width: u32, height: u32) -> ultrahdr_rs::RawImage {
     let pixels: Vec<[f32; 4]> = (0..width * height)
         .map(|i| {
             let x = (i % width) as f32 / width as f32;
@@ -92,19 +92,19 @@ fn create_small_hdr(width: u32, height: u32) -> ultrahdr::RawImage {
         .flat_map(|p| p.iter().flat_map(|f| f.to_ne_bytes()))
         .collect();
 
-    ultrahdr::RawImage {
+    ultrahdr_rs::RawImage {
         width,
         height,
         stride: width * 16,
-        format: ultrahdr::PixelFormat::Rgba32F,
-        gamut: ultrahdr::ColorGamut::Bt2100,
-        transfer: ultrahdr::ColorTransfer::Linear,
+        format: ultrahdr_rs::PixelFormat::Rgba32F,
+        gamut: ultrahdr_rs::ColorGamut::Bt2100,
+        transfer: ultrahdr_rs::ColorTransfer::Linear,
         data,
     }
 }
 
 /// Create a small test SDR image.
-fn create_small_sdr(width: u32, height: u32) -> ultrahdr::RawImage {
+fn create_small_sdr(width: u32, height: u32) -> ultrahdr_rs::RawImage {
     let pixels: Vec<u8> = (0..width * height)
         .flat_map(|i| {
             let x = (i % width) as f32 / width as f32;
@@ -116,13 +116,13 @@ fn create_small_sdr(width: u32, height: u32) -> ultrahdr::RawImage {
         })
         .collect();
 
-    ultrahdr::RawImage {
+    ultrahdr_rs::RawImage {
         width,
         height,
         stride: width * 4,
-        format: ultrahdr::PixelFormat::Rgba8,
-        gamut: ultrahdr::ColorGamut::Bt709,
-        transfer: ultrahdr::ColorTransfer::Srgb,
+        format: ultrahdr_rs::PixelFormat::Rgba8,
+        gamut: ultrahdr_rs::ColorGamut::Bt709,
+        transfer: ultrahdr_rs::ColorTransfer::Srgb,
         data: pixels,
     }
 }
@@ -132,7 +132,7 @@ fn test_wasm_encode_hdr_only() {
     setup();
     let hdr = create_small_hdr(64, 64);
 
-    let result = ultrahdr::Encoder::new()
+    let result = ultrahdr_rs::Encoder::new()
         .set_hdr_image(hdr)
         .set_quality(80, 70)
         .encode();
@@ -148,7 +148,7 @@ fn test_wasm_encode_hdr_and_sdr() {
     let hdr = create_small_hdr(64, 64);
     let sdr = create_small_sdr(64, 64);
 
-    let result = ultrahdr::Encoder::new()
+    let result = ultrahdr_rs::Encoder::new()
         .set_hdr_image(hdr)
         .set_sdr_image(sdr)
         .set_quality(80, 70)
@@ -163,14 +163,14 @@ fn test_wasm_roundtrip() {
     let hdr = create_small_hdr(64, 64);
 
     // Encode
-    let jpeg = ultrahdr::Encoder::new()
+    let jpeg = ultrahdr_rs::Encoder::new()
         .set_hdr_image(hdr)
         .set_quality(85, 75)
         .encode()
         .expect("encode");
 
     // Decode
-    let decoder = ultrahdr::Decoder::new(&jpeg).expect("create decoder");
+    let decoder = ultrahdr_rs::Decoder::new(&jpeg).expect("create decoder");
     assert!(decoder.is_ultrahdr(), "should be Ultra HDR");
 
     let decoded_hdr = decoder.decode_hdr(4.0).expect("decode HDR");
@@ -278,7 +278,7 @@ fn test_jpegli_rgb_decode_direct() {
 fn test_gainmap_jpeg_extraction_workaround() {
     setup();
 
-    let decoder = ultrahdr::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
+    let decoder = ultrahdr_rs::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
     assert!(decoder.is_ultrahdr());
 
     // This DOES NOT decode - just extracts raw JPEG bytes
@@ -307,7 +307,7 @@ fn test_roundtrip_with_raw_jpeg_passthrough() {
     setup();
 
     // Decode original UltraHDR
-    let decoder = ultrahdr::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
+    let decoder = ultrahdr_rs::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
     assert!(decoder.is_ultrahdr());
 
     // Extract raw gain map JPEG (no decode, avoids crash)
@@ -333,18 +333,18 @@ fn test_roundtrip_with_raw_jpeg_passthrough() {
         })
         .collect();
 
-    let hdr = ultrahdr::RawImage {
+    let hdr = ultrahdr_rs::RawImage {
         width: sdr.width,
         height: sdr.height,
         stride: sdr.width * 16,
-        format: ultrahdr::PixelFormat::Rgba32F,
-        gamut: ultrahdr::ColorGamut::Bt709,
-        transfer: ultrahdr::ColorTransfer::Linear,
+        format: ultrahdr_rs::PixelFormat::Rgba32F,
+        gamut: ultrahdr_rs::ColorGamut::Bt709,
+        transfer: ultrahdr_rs::ColorTransfer::Linear,
         data: hdr_data,
     };
 
     // Re-encode using raw JPEG passthrough (bypasses grayscale encode too)
-    let result = ultrahdr::Encoder::new()
+    let result = ultrahdr_rs::Encoder::new()
         .set_hdr_image(hdr)
         .set_sdr_image(sdr)
         .set_existing_gainmap_jpeg(gainmap_jpeg, metadata)
@@ -356,6 +356,6 @@ fn test_roundtrip_with_raw_jpeg_passthrough() {
     assert!(!result.is_empty());
     assert_eq!(&result[0..2], &[0xFF, 0xD8], "should be valid JPEG");
 
-    let new_decoder = ultrahdr::Decoder::new(&result).expect("decode result");
+    let new_decoder = ultrahdr_rs::Decoder::new(&result).expect("decode result");
     assert!(new_decoder.is_ultrahdr(), "result should be UltraHDR");
 }

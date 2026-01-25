@@ -5,7 +5,7 @@
 mod common;
 
 use common::{create_hdr_solid, create_sdr_solid};
-use ultrahdr::{ColorGamut, ColorTransfer, Encoder, PixelFormat, RawImage};
+use ultrahdr_rs::{ColorGamut, ColorTransfer, Encoder, PixelFormat, RawImage};
 
 // ============================================================================
 // Dimension Edge Cases

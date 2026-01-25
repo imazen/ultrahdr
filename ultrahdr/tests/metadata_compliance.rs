@@ -5,7 +5,7 @@
 mod common;
 
 use common::{create_hdr_gradient, create_sdr_gradient, create_test_metadata};
-use ultrahdr::{Decoder, Encoder, GainMapMetadata};
+use ultrahdr_rs::{Decoder, Encoder, GainMapMetadata};
 
 // ============================================================================
 // Phase 4.1: XMP Serialization Tests
@@ -151,7 +151,7 @@ fn test_xmp_container_directory() {
 /// Test ISO metadata serialization round-trip.
 #[test]
 fn test_iso21496_roundtrip() {
-    use ultrahdr::metadata::iso21496::{deserialize_iso21496, serialize_iso21496};
+    use ultrahdr_rs::metadata::iso21496::{deserialize_iso21496, serialize_iso21496};
 
     let original = create_test_metadata(4.0);
 
@@ -192,7 +192,7 @@ fn test_iso21496_roundtrip() {
 /// Test ISO metadata version byte.
 #[test]
 fn test_iso21496_version() {
-    use ultrahdr::metadata::iso21496::{serialize_iso21496, ISO_VERSION};
+    use ultrahdr_rs::metadata::iso21496::{serialize_iso21496, ISO_VERSION};
 
     let metadata = create_test_metadata(2.0);
     let serialized = serialize_iso21496(&metadata);
@@ -204,7 +204,7 @@ fn test_iso21496_version() {
 /// Test ISO metadata flags byte.
 #[test]
 fn test_iso21496_flags() {
-    use ultrahdr::metadata::iso21496::serialize_iso21496;
+    use ultrahdr_rs::metadata::iso21496::serialize_iso21496;
 
     // Single-channel, use base color space
     let metadata = GainMapMetadata {
@@ -236,7 +236,7 @@ fn test_iso21496_flags() {
 /// Test ISO metadata handles extreme values.
 #[test]
 fn test_iso21496_extreme_values() {
-    use ultrahdr::metadata::iso21496::{deserialize_iso21496, serialize_iso21496};
+    use ultrahdr_rs::metadata::iso21496::{deserialize_iso21496, serialize_iso21496};
 
     let metadata = GainMapMetadata {
         max_content_boost: [100.0; 3], // Very high
@@ -263,7 +263,7 @@ fn test_iso21496_extreme_values() {
 /// Test ISO metadata rejects invalid data.
 #[test]
 fn test_iso21496_rejects_invalid() {
-    use ultrahdr::metadata::iso21496::deserialize_iso21496;
+    use ultrahdr_rs::metadata::iso21496::deserialize_iso21496;
 
     // Empty data
     let result = deserialize_iso21496(&[]);
@@ -311,7 +311,7 @@ fn test_mpf_images_are_valid_jpegs() {
     let encoded = encoder.encode().unwrap();
 
     // Find JPEG boundaries
-    use ultrahdr::metadata::mpf::find_jpeg_boundaries;
+    use ultrahdr_rs::metadata::mpf::find_jpeg_boundaries;
     let boundaries = find_jpeg_boundaries(&encoded);
 
     assert!(

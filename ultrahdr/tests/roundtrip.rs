@@ -8,7 +8,7 @@ use common::{
     create_hdr_checkerboard, create_hdr_gradient, create_hdr_highlights, create_hdr_solid,
     create_sdr_checkerboard, create_sdr_gradient, create_sdr_solid,
 };
-use ultrahdr::{Decoder, Encoder};
+use ultrahdr_rs::{Decoder, Encoder};
 
 /// Test basic encode/decode round-trip preserves dimensions.
 #[test]

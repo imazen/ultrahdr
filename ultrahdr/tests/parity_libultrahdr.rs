@@ -12,12 +12,12 @@ mod common;
 use common::{create_hdr_gradient, create_sdr_gradient};
 
 // Re-export the sys types for easier access
-use libultrahdr::sys::{uhdr_color_gamut, uhdr_color_range, uhdr_color_transfer, uhdr_img_fmt};
+use libultrahdr_rs::sys::{uhdr_color_gamut, uhdr_color_range, uhdr_color_transfer, uhdr_img_fmt};
 
 /// Test that libultrahdr decoder can be created.
 #[test]
 fn test_libultrahdr_decoder_creation() {
-    let decoder = libultrahdr::Decoder::new();
+    let decoder = libultrahdr_rs::Decoder::new();
     assert!(
         decoder.is_ok(),
         "Should create decoder: {:?}",
@@ -29,7 +29,7 @@ fn test_libultrahdr_decoder_creation() {
 /// Test that libultrahdr encoder can be created.
 #[test]
 fn test_libultrahdr_encoder_creation() {
-    let encoder = libultrahdr::Encoder::new();
+    let encoder = libultrahdr_rs::Encoder::new();
     assert!(
         encoder.is_ok(),
         "Should create encoder: {:?}",
@@ -56,9 +56,9 @@ fn test_libultrahdr_decodes_samples() {
         let mut data = std::fs::read(&path).expect("read file");
         eprintln!("{}: {} bytes", filename, data.len());
 
-        let mut decoder = libultrahdr::Decoder::new().expect("decoder");
+        let mut decoder = libultrahdr_rs::Decoder::new().expect("decoder");
 
-        let mut compressed = libultrahdr::CompressedImage::from_bytes(
+        let mut compressed = libultrahdr_rs::CompressedImage::from_bytes(
             &mut data,
             uhdr_color_gamut::UHDR_CG_BT_709,
             uhdr_color_transfer::UHDR_CT_SRGB,
@@ -104,7 +104,7 @@ fn test_our_decoder_parses_samples() {
         let data = std::fs::read(&path).expect("read file");
         eprintln!("{}: {} bytes", filename, data.len());
 
-        match ultrahdr::Decoder::new(&data) {
+        match ultrahdr_rs::Decoder::new(&data) {
             Ok(dec) => {
                 eprintln!("{}: Parsed", filename);
                 if dec.is_ultrahdr() {
@@ -127,7 +127,7 @@ fn test_our_encode_produces_valid_jpeg() {
     let hdr = create_hdr_gradient(64, 64, 4.0);
     let sdr = create_sdr_gradient(64, 64);
 
-    let mut encoder = ultrahdr::Encoder::new();
+    let mut encoder = ultrahdr_rs::Encoder::new();
     encoder
         .set_hdr_image(hdr)
         .set_sdr_image(sdr)
@@ -147,7 +147,7 @@ fn test_our_encode_produces_valid_jpeg() {
     assert_eq!(&encoded[0..2], &[0xFF, 0xD8], "JPEG SOI");
     assert_eq!(&encoded[encoded.len() - 2..], &[0xFF, 0xD9], "JPEG EOI");
 
-    let dec = ultrahdr::Decoder::new(&encoded).expect("parse");
+    let dec = ultrahdr_rs::Decoder::new(&encoded).expect("parse");
     assert!(dec.is_ultrahdr(), "Ultra HDR");
 }
 
@@ -157,7 +157,7 @@ fn test_libultrahdr_parses_our_output() {
     let hdr = create_hdr_gradient(64, 64, 4.0);
     let sdr = create_sdr_gradient(64, 64);
 
-    let mut encoder = ultrahdr::Encoder::new();
+    let mut encoder = ultrahdr_rs::Encoder::new();
     encoder
         .set_hdr_image(hdr)
         .set_sdr_image(sdr)
@@ -173,9 +173,9 @@ fn test_libultrahdr_parses_our_output() {
 
     eprintln!("Testing libultrahdr with {} bytes", encoded.len());
 
-    let mut decoder = libultrahdr::Decoder::new().expect("decoder");
+    let mut decoder = libultrahdr_rs::Decoder::new().expect("decoder");
 
-    let mut compressed = libultrahdr::CompressedImage::from_bytes(
+    let mut compressed = libultrahdr_rs::CompressedImage::from_bytes(
         &mut encoded,
         uhdr_color_gamut::UHDR_CG_BT_709,
         uhdr_color_transfer::UHDR_CT_SRGB,
@@ -220,8 +220,8 @@ fn test_gainmap_metadata_access() {
 
     let mut data = std::fs::read(&path).expect("read");
 
-    let mut decoder = libultrahdr::Decoder::new().expect("decoder");
-    let mut compressed = libultrahdr::CompressedImage::from_bytes(
+    let mut decoder = libultrahdr_rs::Decoder::new().expect("decoder");
+    let mut compressed = libultrahdr_rs::CompressedImage::from_bytes(
         &mut data,
         uhdr_color_gamut::UHDR_CG_BT_709,
         uhdr_color_transfer::UHDR_CT_SRGB,
@@ -263,7 +263,7 @@ fn test_dimension_parity() {
         let data = std::fs::read(&path).expect("read");
         let mut data_copy = data.clone();
 
-        let our_dims = ultrahdr::Decoder::new(&data)
+        let our_dims = ultrahdr_rs::Decoder::new(&data)
             .ok()
             .and_then(|d| d.dimensions().ok());
 
@@ -278,8 +278,8 @@ fn test_dimension_parity() {
 }
 
 fn get_lib_dims(data: &mut [u8]) -> Option<(u32, u32)> {
-    let mut decoder = libultrahdr::Decoder::new().ok()?;
-    let mut compressed = libultrahdr::CompressedImage::from_bytes(
+    let mut decoder = libultrahdr_rs::Decoder::new().ok()?;
+    let mut compressed = libultrahdr_rs::CompressedImage::from_bytes(
         data,
         uhdr_color_gamut::UHDR_CG_BT_709,
         uhdr_color_transfer::UHDR_CT_SRGB,

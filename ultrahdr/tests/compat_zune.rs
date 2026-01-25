@@ -18,7 +18,7 @@ fn test_zune_decodes_ultrahdr_base() {
     let hdr = create_hdr_gradient(128, 128, 4.0);
     let sdr = create_sdr_gradient(128, 128);
 
-    let mut encoder = ultrahdr::Encoder::new();
+    let mut encoder = ultrahdr_rs::Encoder::new();
     encoder
         .set_hdr_image(hdr)
         .set_sdr_image(sdr)
@@ -55,7 +55,7 @@ fn test_zune_sdr_pixel_preservation() {
     let hdr = create_hdr_solid(64, 64, 0.5, 0.5, 0.5);
     let sdr = create_sdr_solid(64, 64, 186, 186, 186); // ~0.5 in sRGB
 
-    let mut encoder = ultrahdr::Encoder::new();
+    let mut encoder = ultrahdr_rs::Encoder::new();
     encoder
         .set_hdr_image(hdr)
         .set_sdr_image(sdr.clone())
@@ -108,7 +108,7 @@ fn test_zune_image_integration() {
     let hdr = create_hdr_gradient(100, 100, 3.0);
     let sdr = create_sdr_gradient(100, 100);
 
-    let mut encoder = ultrahdr::Encoder::new();
+    let mut encoder = ultrahdr_rs::Encoder::new();
     encoder.set_hdr_image(hdr).set_sdr_image(sdr);
 
     let encoded = encoder.encode().unwrap();
@@ -141,7 +141,7 @@ fn test_zune_various_sizes() {
         let hdr = create_hdr_gradient(w, h, 2.0);
         let sdr = create_sdr_gradient(w, h);
 
-        let mut encoder = ultrahdr::Encoder::new();
+        let mut encoder = ultrahdr_rs::Encoder::new();
         encoder.set_hdr_image(hdr).set_sdr_image(sdr);
 
         let encoded = encoder.encode().unwrap();
@@ -172,7 +172,7 @@ fn test_zune_handles_metadata_markers() {
     let hdr = create_hdr_gradient(64, 64, 4.0);
     let sdr = create_sdr_gradient(64, 64);
 
-    let mut encoder = ultrahdr::Encoder::new();
+    let mut encoder = ultrahdr_rs::Encoder::new();
     encoder
         .set_hdr_image(hdr)
         .set_sdr_image(sdr)
@@ -207,7 +207,7 @@ fn test_roundtrip_with_zune() {
     let hdr = create_hdr_gradient(80, 80, 2.0);
     let sdr = create_sdr_gradient(80, 80);
 
-    let mut encoder = ultrahdr::Encoder::new();
+    let mut encoder = ultrahdr_rs::Encoder::new();
     encoder
         .set_hdr_image(hdr)
         .set_sdr_image(sdr.clone())
@@ -221,7 +221,7 @@ fn test_roundtrip_with_zune() {
     let zune_pixels = zune_decoder.decode().unwrap();
 
     // Decode with our decoder
-    let our_decoder = ultrahdr::Decoder::new(&encoded).unwrap();
+    let our_decoder = ultrahdr_rs::Decoder::new(&encoded).unwrap();
     let our_sdr = our_decoder.decode_sdr().unwrap();
 
     // Both should have same dimensions
@@ -261,7 +261,7 @@ fn test_zune_decodes_gainmap() {
     let hdr = create_hdr_gradient(128, 128, 4.0);
     let sdr = create_sdr_gradient(128, 128);
 
-    let mut encoder = ultrahdr::Encoder::new();
+    let mut encoder = ultrahdr_rs::Encoder::new();
     encoder
         .set_hdr_image(hdr)
         .set_sdr_image(sdr)
@@ -270,7 +270,7 @@ fn test_zune_decodes_gainmap() {
     let encoded = encoder.encode().unwrap();
 
     // Extract the gain map JPEG using our decoder
-    let our_decoder = ultrahdr::Decoder::new(&encoded).unwrap();
+    let our_decoder = ultrahdr_rs::Decoder::new(&encoded).unwrap();
     let gm_jpeg = our_decoder.gainmap_jpeg().expect("Should have gain map");
 
     // Verify the gain map is a valid JPEG that zune can decode

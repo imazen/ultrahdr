@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use ultrahdr::{ColorGamut, ColorTransfer, GainMapMetadata, PixelFormat, RawImage};
+use ultrahdr_rs::{ColorGamut, ColorTransfer, GainMapMetadata, PixelFormat, RawImage};
 
 /// Create an HDR gradient image for testing.
 ///
