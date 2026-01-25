@@ -44,6 +44,8 @@ pub struct StreamingTonemapConfig {
     pub shadow_lift: f32,
     /// Highlight desaturation threshold (fraction of white point, default: 0.5).
     pub desat_threshold: f32,
+    /// Number of channels in input data (3 for RGB, 4 for RGBA). Default: 4.
+    pub channels: u8,
 }
 
 impl Default for StreamingTonemapConfig {
@@ -56,7 +58,23 @@ impl Default for StreamingTonemapConfig {
             saturation: 0.95,
             shadow_lift: 0.02,
             desat_threshold: 0.5,
+            channels: 4,
         }
+    }
+}
+
+impl StreamingTonemapConfig {
+    /// Configure for RGB input (3 channels, no alpha).
+    pub fn rgb() -> Self {
+        Self {
+            channels: 3,
+            ..Default::default()
+        }
+    }
+
+    /// Configure for RGBA input (4 channels with alpha).
+    pub fn rgba() -> Self {
+        Self::default()
     }
 }
 
@@ -187,13 +205,13 @@ impl AdaptationGrid {
     }
 
     /// Add samples from a row of HDR data.
-    fn add_row(&mut self, row_data: &[f32], y: u32, image_width: u32) {
+    fn add_row(&mut self, row_data: &[f32], y: u32, image_width: u32, channels: usize) {
         let cell_y = y / self.cell_size;
         if cell_y >= self.height {
             return;
         }
 
-        for (x, pixel) in row_data.chunks(4).enumerate().take(image_width as usize) {
+        for (x, pixel) in row_data.chunks(channels).enumerate().take(image_width as usize) {
             let lum = luminance_bt709(pixel[0], pixel[1], pixel[2]);
 
             // Update global stats
@@ -362,26 +380,87 @@ impl StreamingTonemapper {
     /// Push an HDR row and get any ready SDR rows.
     ///
     /// Returns tonemapped rows that are ready (may be empty if still buffering).
-    /// `hdr_row` should be linear RGB float with 4 components per pixel (RGBA).
+    /// `hdr_row` should be linear RGB float with 3 or 4 components per pixel
+    /// (matching config.channels).
     pub fn push_row(&mut self, hdr_row: &[f32]) -> Result<Vec<TonemapOutput>> {
-        let input_row = self.buffer_start_row + self.buffer_count;
+        self.push_rows_inner(core::slice::from_ref(&hdr_row.to_vec()))
+    }
 
-        if input_row >= self.height {
-            return Ok(Vec::new());
+    /// Push multiple HDR rows at once for better efficiency.
+    ///
+    /// This is optimal when you have multiple rows available (e.g., from a tile decoder).
+    /// Each row should have `width * channels` f32 values.
+    pub fn push_rows(&mut self, hdr_rows: &[Vec<f32>]) -> Result<Vec<TonemapOutput>> {
+        self.push_rows_inner(hdr_rows)
+    }
+
+    /// Push rows from a contiguous buffer.
+    ///
+    /// The buffer should contain `rows * width * channels` f32 values,
+    /// where rows are stored consecutively.
+    pub fn push_rows_contiguous(&mut self, data: &[f32], num_rows: u32) -> Result<Vec<TonemapOutput>> {
+        let channels = self.config.channels as usize;
+        let row_stride = self.width as usize * channels;
+
+        // Process each row
+        let mut all_outputs = Vec::new();
+        for row_idx in 0..num_rows as usize {
+            let start = row_idx * row_stride;
+            let end = start + row_stride;
+            if end > data.len() {
+                break;
+            }
+            let row_data = &data[start..end];
+
+            let input_row = self.buffer_start_row + self.buffer_count;
+            if input_row >= self.height {
+                break;
+            }
+
+            // Add to grid statistics
+            self.grid.add_row(row_data, input_row, self.width, channels);
+
+            // Store in ring buffer
+            let buffer_idx = (input_row % self.config.lookahead_rows) as usize;
+            self.row_buffer[buffer_idx] = row_data.to_vec();
+            self.buffer_count += 1;
+
+            // Finalize grid cells for completed rows
+            let completed_cell_y = input_row / self.config.cell_size;
+            if input_row % self.config.cell_size == self.config.cell_size - 1 {
+                self.grid.finalize_row(completed_cell_y);
+            }
         }
 
-        // Add to grid statistics
-        self.grid.add_row(hdr_row, input_row, self.width);
+        // Output any ready rows
+        all_outputs.extend(self.try_output_rows()?);
+        Ok(all_outputs)
+    }
 
-        // Store in ring buffer
-        let buffer_idx = (input_row % self.config.lookahead_rows) as usize;
-        self.row_buffer[buffer_idx] = hdr_row.to_vec();
-        self.buffer_count += 1;
+    /// Internal implementation for pushing rows.
+    fn push_rows_inner(&mut self, hdr_rows: &[Vec<f32>]) -> Result<Vec<TonemapOutput>> {
+        let channels = self.config.channels as usize;
 
-        // Finalize grid cells for completed rows
-        let completed_cell_y = input_row / self.config.cell_size;
-        if input_row % self.config.cell_size == self.config.cell_size - 1 {
-            self.grid.finalize_row(completed_cell_y);
+        for hdr_row in hdr_rows {
+            let input_row = self.buffer_start_row + self.buffer_count;
+
+            if input_row >= self.height {
+                break;
+            }
+
+            // Add to grid statistics
+            self.grid.add_row(hdr_row, input_row, self.width, channels);
+
+            // Store in ring buffer
+            let buffer_idx = (input_row % self.config.lookahead_rows) as usize;
+            self.row_buffer[buffer_idx] = hdr_row.clone();
+            self.buffer_count += 1;
+
+            // Finalize grid cells for completed rows
+            let completed_cell_y = input_row / self.config.cell_size;
+            if input_row % self.config.cell_size == self.config.cell_size - 1 {
+                self.grid.finalize_row(completed_cell_y);
+            }
         }
 
         // Output rows if we have enough lookahead
@@ -462,12 +541,13 @@ impl StreamingTonemapper {
 
     /// Tonemap a single row.
     fn tonemap_row(&self, hdr_row: &[f32], y: u32) -> Vec<f32> {
-        let mut sdr_row = vec![0.0f32; self.width as usize * 4];
+        let channels = self.config.channels as usize;
+        let mut sdr_row = vec![0.0f32; self.width as usize * channels];
         let global = self.grid.global_params();
 
         for (x, (hdr_pixel, sdr_pixel)) in hdr_row
-            .chunks(4)
-            .zip(sdr_row.chunks_mut(4))
+            .chunks(channels)
+            .zip(sdr_row.chunks_mut(channels))
             .enumerate()
             .take(self.width as usize)
         {
@@ -491,7 +571,11 @@ impl StreamingTonemapper {
             sdr_pixel[0] = rgb[0];
             sdr_pixel[1] = rgb[1];
             sdr_pixel[2] = rgb[2];
-            sdr_pixel[3] = hdr_pixel.get(3).copied().unwrap_or(1.0);
+
+            // Preserve alpha if present
+            if channels >= 4 {
+                sdr_pixel[3] = hdr_pixel.get(3).copied().unwrap_or(1.0);
+            }
         }
 
         sdr_row
@@ -567,8 +651,8 @@ impl StreamingTonemapper {
         }
     }
 
-    /// Convert the tonemapped linear output to sRGB bytes.
-    pub fn linear_to_srgb8(linear: &[f32]) -> Vec<u8> {
+    /// Convert the tonemapped linear output to sRGB bytes (RGBA).
+    pub fn linear_to_srgb8_rgba(linear: &[f32]) -> Vec<u8> {
         linear
             .chunks(4)
             .flat_map(|p| {
@@ -582,9 +666,39 @@ impl StreamingTonemapper {
             .collect()
     }
 
-    /// Get progress info.
+    /// Convert the tonemapped linear output to sRGB bytes (RGB, no alpha).
+    pub fn linear_to_srgb8_rgb(linear: &[f32]) -> Vec<u8> {
+        linear
+            .chunks(3)
+            .flat_map(|p| {
+                [
+                    (srgb_oetf(p[0]) * 255.0).round().clamp(0.0, 255.0) as u8,
+                    (srgb_oetf(p[1]) * 255.0).round().clamp(0.0, 255.0) as u8,
+                    (srgb_oetf(p[2]) * 255.0).round().clamp(0.0, 255.0) as u8,
+                ]
+            })
+            .collect()
+    }
+
+    /// Convert linear output to sRGB bytes, auto-detecting channel count.
+    ///
+    /// Uses the configured channel count from this tonemapper instance.
+    pub fn linear_to_srgb8(&self, linear: &[f32]) -> Vec<u8> {
+        if self.config.channels >= 4 {
+            Self::linear_to_srgb8_rgba(linear)
+        } else {
+            Self::linear_to_srgb8_rgb(linear)
+        }
+    }
+
+    /// Get progress info: (rows_output, total_rows).
     pub fn progress(&self) -> (u32, u32) {
         (self.next_output_row, self.height)
+    }
+
+    /// Get the configured number of channels.
+    pub fn channels(&self) -> u8 {
+        self.config.channels
     }
 }
 
@@ -756,5 +870,115 @@ mod tests {
         assert!(result[0] >= 0.0 && result[0] <= 1.0, "R out of range: {}", result[0]);
         assert!(result[1] >= 0.0 && result[1] <= 1.0, "G out of range: {}", result[1]);
         assert!(result[2] >= 0.0 && result[2] <= 1.0, "B out of range: {}", result[2]);
+    }
+
+    #[test]
+    fn test_batch_push_rows() {
+        let width = 64u32;
+        let height = 64u32;
+        let config = StreamingTonemapConfig {
+            lookahead_rows: 16,
+            cell_size: 8,
+            ..Default::default()
+        };
+
+        let mut tonemapper = StreamingTonemapper::new(width, height, config).unwrap();
+
+        // Create batch of rows (simulate tile decoder giving us 8 rows at once)
+        let batch_size = 8;
+        let mut all_outputs = Vec::new();
+
+        for batch_start in (0..height).step_by(batch_size) {
+            let mut batch = Vec::new();
+            for y in batch_start..height.min(batch_start + batch_size as u32) {
+                let mut row = vec![0.0f32; width as usize * 4];
+                for x in 0..width {
+                    let t = (x as f32 + y as f32) / (width + height) as f32;
+                    let lum = t * 4.0;
+                    let idx = x as usize * 4;
+                    row[idx] = lum;
+                    row[idx + 1] = lum * 0.8;
+                    row[idx + 2] = lum * 0.6;
+                    row[idx + 3] = 1.0;
+                }
+                batch.push(row);
+            }
+
+            let outputs = tonemapper.push_rows(&batch).unwrap();
+            all_outputs.extend(outputs);
+        }
+
+        all_outputs.extend(tonemapper.finish().unwrap());
+        all_outputs.sort_by_key(|o| o.row_index);
+
+        assert_eq!(all_outputs.len(), height as usize);
+    }
+
+    #[test]
+    fn test_rgb_3channel_mode() {
+        let width = 32u32;
+        let height = 32u32;
+        let config = StreamingTonemapConfig::rgb();
+
+        assert_eq!(config.channels, 3);
+
+        let mut tonemapper = StreamingTonemapper::new(width, height, config).unwrap();
+        let mut all_outputs = Vec::new();
+
+        for _y in 0..height {
+            let mut row = vec![0.0f32; width as usize * 3]; // RGB, no alpha
+            for x in 0..width {
+                let t = x as f32 / width as f32;
+                let lum = t * 2.0;
+                let idx = x as usize * 3;
+                row[idx] = lum;
+                row[idx + 1] = lum;
+                row[idx + 2] = lum;
+            }
+            all_outputs.extend(tonemapper.push_row(&row).unwrap());
+        }
+
+        all_outputs.extend(tonemapper.finish().unwrap());
+
+        // Should have all rows
+        assert_eq!(all_outputs.len(), height as usize);
+
+        // Each output row should be 3 channels
+        for output in &all_outputs {
+            assert_eq!(output.sdr_linear.len(), width as usize * 3);
+        }
+
+        // Convert to sRGB8
+        let row0_srgb = tonemapper.linear_to_srgb8(&all_outputs[0].sdr_linear);
+        assert_eq!(row0_srgb.len(), width as usize * 3);
+    }
+
+    #[test]
+    fn test_contiguous_buffer() {
+        let width = 64u32;
+        let height = 64u32;
+        let config = StreamingTonemapConfig::default();
+
+        let mut tonemapper = StreamingTonemapper::new(width, height, config).unwrap();
+
+        // Create contiguous buffer (like from a decoded image)
+        let mut buffer = vec![0.0f32; width as usize * height as usize * 4];
+        for y in 0..height {
+            for x in 0..width {
+                let idx = (y as usize * width as usize + x as usize) * 4;
+                let lum = (x as f32 / width as f32) * 3.0;
+                buffer[idx] = lum;
+                buffer[idx + 1] = lum;
+                buffer[idx + 2] = lum;
+                buffer[idx + 3] = 1.0;
+            }
+        }
+
+        // Push all rows at once
+        let mut all_outputs = tonemapper.push_rows_contiguous(&buffer, height).unwrap();
+        all_outputs.extend(tonemapper.finish().unwrap());
+        all_outputs.sort_by_key(|o| o.row_index);
+
+        assert_eq!(all_outputs.len(), height as usize);
     }
 }
