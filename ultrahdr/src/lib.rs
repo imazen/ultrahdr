@@ -8,7 +8,7 @@
 //! # Crate Structure
 //!
 //! - [`ultrahdr_core`] - Core gain map math and metadata (no codec dependency)
-//! - `ultrahdr` (this crate) - Full encoder/decoder with zenjpeg integration
+//! - `ultrahdr` (this crate) - Full encoder/decoder (bring your own JPEG codec)
 //!
 //! # Format Overview
 //!
@@ -21,25 +21,25 @@
 //! # Example
 //!
 //! ```ignore
-//! use ultrahdr::{Encoder, Decoder, RawImage, PixelFormat, ColorTransfer};
+//! use ultrahdr::{encode_ultrahdr, Decoder, GainMapMetadata, ColorGamut};
+//! use ultrahdr::gainmap::compute::{compute_gainmap, GainMapConfig};
 //!
-//! // Encoding HDR to Ultra HDR JPEG
-//! let hdr_image = RawImage::from_data(
-//!     1920, 1080,
-//!     PixelFormat::Rgba16F,
-//!     ColorGamut::Bt2100,
-//!     ColorTransfer::Pq,
-//!     hdr_pixels,
-//! )?;
+//! // 1. Prepare your images (using your own JPEG codec)
+//! let sdr_jpeg = my_encoder.encode_rgb(&sdr_pixels)?;
 //!
-//! let ultrahdr_jpeg = Encoder::new()
-//!     .set_hdr_image(hdr_image)
-//!     .set_quality(90, 85)
-//!     .encode()?;
+//! // 2. Compute gain map from HDR and SDR
+//! let config = GainMapConfig::default();
+//! let (gainmap, metadata) = compute_gainmap(&hdr, &sdr, &config, Unstoppable)?;
+//! let gainmap_jpeg = my_encoder.encode_grayscale(&gainmap.data)?;
 //!
-//! // Decoding Ultra HDR JPEG
-//! let decoder = Decoder::new(&ultrahdr_jpeg)?;
-//! let hdr_output = decoder.decode_hdr(4.0)?; // 4x SDR brightness
+//! // 3. Assemble Ultra HDR file
+//! let ultrahdr = encode_ultrahdr(&sdr_jpeg, &gainmap_jpeg, &metadata, ColorGamut::Bt709)?;
+//!
+//! // 4. Decode: get raw JPEG bytes and decode with your codec
+//! let decoder = Decoder::new(&ultrahdr)?;
+//! let sdr_jpeg = decoder.primary_jpeg().unwrap();
+//! let gainmap_jpeg = decoder.gainmap_jpeg().unwrap();
+//! let metadata = decoder.metadata().unwrap();
 //! ```
 //!
 //! # Standards
@@ -72,4 +72,4 @@ mod encode;
 
 // Re-export encoder/decoder
 pub use decode::Decoder;
-pub use encode::Encoder;
+pub use encode::{encode_ultrahdr, Encoder};

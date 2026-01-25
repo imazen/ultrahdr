@@ -14,9 +14,6 @@ readme = "../README.md"
 # Core gain map math and metadata
 ultrahdr-core = { workspace = true }
 
-# JPEG codec (optional, for convenience APIs)
-zenjpeg = { workspace = true, optional = true }
-
 # Color management
 moxcms = { workspace = true }
 
@@ -59,7 +56,11 @@ zune-core = { path = "../../zune-image/crates/zune-core" }
 zune-jpeg = { path = "../../zune-image/crates/zune-jpeg" }
 
 [features]
-default = ["zenjpeg"]
-zenjpeg = ["dep:zenjpeg"]  # Convenience APIs with bundled codec
+default = []
 simd = ["ultrahdr-core/simd"]  # Enable explicit SIMD optimizations
 ffi-tests = ["libultrahdr"]  # Enable FFI parity tests with libultrahdr C++
+_test-helpers = ["dep:zenjpeg"]  # Internal: enables test helper methods (underscore prefix = not public API)
+
+[dependencies.zenjpeg]
+workspace = true
+optional = true
