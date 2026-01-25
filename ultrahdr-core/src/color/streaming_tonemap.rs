@@ -377,52 +377,46 @@ impl StreamingTonemapper {
         })
     }
 
-    /// Push an HDR row and get any ready SDR rows.
+    /// Push HDR rows from a slice with stride.
+    ///
+    /// # Arguments
+    /// - `data`: Slice containing row data (linear HDR, f32)
+    /// - `stride`: Number of f32 elements between row starts (>= width * channels)
+    /// - `num_rows`: Number of rows to process from this slice
+    ///
+    /// Stride allows for padding between rows or processing a sub-region of a larger buffer.
+    /// For tightly-packed data, use `stride = width * channels`.
     ///
     /// Returns tonemapped rows that are ready (may be empty if still buffering).
-    /// `hdr_row` should be linear RGB float with 3 or 4 components per pixel
-    /// (matching config.channels).
-    pub fn push_row(&mut self, hdr_row: &[f32]) -> Result<Vec<TonemapOutput>> {
-        self.push_rows_inner(core::slice::from_ref(&hdr_row.to_vec()))
-    }
-
-    /// Push multiple HDR rows at once for better efficiency.
-    ///
-    /// This is optimal when you have multiple rows available (e.g., from a tile decoder).
-    /// Each row should have `width * channels` f32 values.
-    pub fn push_rows(&mut self, hdr_rows: &[Vec<f32>]) -> Result<Vec<TonemapOutput>> {
-        self.push_rows_inner(hdr_rows)
-    }
-
-    /// Push rows from a contiguous buffer.
-    ///
-    /// The buffer should contain `rows * width * channels` f32 values,
-    /// where rows are stored consecutively.
-    pub fn push_rows_contiguous(&mut self, data: &[f32], num_rows: u32) -> Result<Vec<TonemapOutput>> {
+    pub fn push_rows(
+        &mut self,
+        data: &[f32],
+        stride: usize,
+        num_rows: usize,
+    ) -> Result<Vec<TonemapOutput>> {
         let channels = self.config.channels as usize;
-        let row_stride = self.width as usize * channels;
+        let row_width = self.width as usize * channels;
 
-        // Process each row
-        let mut all_outputs = Vec::new();
-        for row_idx in 0..num_rows as usize {
-            let start = row_idx * row_stride;
-            let end = start + row_stride;
-            if end > data.len() {
-                break;
-            }
-            let row_data = &data[start..end];
-
+        for row_idx in 0..num_rows {
             let input_row = self.buffer_start_row + self.buffer_count;
             if input_row >= self.height {
                 break;
             }
+
+            let start = row_idx * stride;
+            if start + row_width > data.len() {
+                break;
+            }
+            let row_data = &data[start..start + row_width];
 
             // Add to grid statistics
             self.grid.add_row(row_data, input_row, self.width, channels);
 
-            // Store in ring buffer
+            // Store in ring buffer (copy into pre-allocated slot)
             let buffer_idx = (input_row % self.config.lookahead_rows) as usize;
-            self.row_buffer[buffer_idx] = row_data.to_vec();
+            let buffer_slot = &mut self.row_buffer[buffer_idx];
+            buffer_slot.clear();
+            buffer_slot.extend_from_slice(row_data);
             self.buffer_count += 1;
 
             // Finalize grid cells for completed rows
@@ -432,39 +426,15 @@ impl StreamingTonemapper {
             }
         }
 
-        // Output any ready rows
-        all_outputs.extend(self.try_output_rows()?);
-        Ok(all_outputs)
+        self.try_output_rows()
     }
 
-    /// Internal implementation for pushing rows.
-    fn push_rows_inner(&mut self, hdr_rows: &[Vec<f32>]) -> Result<Vec<TonemapOutput>> {
-        let channels = self.config.channels as usize;
-
-        for hdr_row in hdr_rows {
-            let input_row = self.buffer_start_row + self.buffer_count;
-
-            if input_row >= self.height {
-                break;
-            }
-
-            // Add to grid statistics
-            self.grid.add_row(hdr_row, input_row, self.width, channels);
-
-            // Store in ring buffer
-            let buffer_idx = (input_row % self.config.lookahead_rows) as usize;
-            self.row_buffer[buffer_idx] = hdr_row.clone();
-            self.buffer_count += 1;
-
-            // Finalize grid cells for completed rows
-            let completed_cell_y = input_row / self.config.cell_size;
-            if input_row % self.config.cell_size == self.config.cell_size - 1 {
-                self.grid.finalize_row(completed_cell_y);
-            }
-        }
-
-        // Output rows if we have enough lookahead
-        self.try_output_rows()
+    /// Push a single HDR row.
+    ///
+    /// Convenience method for `push_rows(row, row.len(), 1)`.
+    #[inline]
+    pub fn push_row(&mut self, row: &[f32]) -> Result<Vec<TonemapOutput>> {
+        self.push_rows(row, row.len(), 1)
     }
 
     /// Signal that all input has been provided. Flush remaining rows.
@@ -876,6 +846,7 @@ mod tests {
     fn test_batch_push_rows() {
         let width = 64u32;
         let height = 64u32;
+        let channels = 4usize;
         let config = StreamingTonemapConfig {
             lookahead_rows: 16,
             cell_size: 8,
@@ -885,26 +856,28 @@ mod tests {
         let mut tonemapper = StreamingTonemapper::new(width, height, config).unwrap();
 
         // Create batch of rows (simulate tile decoder giving us 8 rows at once)
-        let batch_size = 8;
+        let batch_size = 8usize;
+        let stride = width as usize * channels;
         let mut all_outputs = Vec::new();
 
-        for batch_start in (0..height).step_by(batch_size) {
-            let mut batch = Vec::new();
-            for y in batch_start..height.min(batch_start + batch_size as u32) {
-                let mut row = vec![0.0f32; width as usize * 4];
-                for x in 0..width {
+        for batch_start in (0..height as usize).step_by(batch_size) {
+            let rows_in_batch = batch_size.min(height as usize - batch_start);
+            let mut batch = vec![0.0f32; rows_in_batch * stride];
+
+            for row_in_batch in 0..rows_in_batch {
+                let y = batch_start + row_in_batch;
+                for x in 0..width as usize {
                     let t = (x as f32 + y as f32) / (width + height) as f32;
                     let lum = t * 4.0;
-                    let idx = x as usize * 4;
-                    row[idx] = lum;
-                    row[idx + 1] = lum * 0.8;
-                    row[idx + 2] = lum * 0.6;
-                    row[idx + 3] = 1.0;
+                    let idx = row_in_batch * stride + x * channels;
+                    batch[idx] = lum;
+                    batch[idx + 1] = lum * 0.8;
+                    batch[idx + 2] = lum * 0.6;
+                    batch[idx + 3] = 1.0;
                 }
-                batch.push(row);
             }
 
-            let outputs = tonemapper.push_rows(&batch).unwrap();
+            let outputs = tonemapper.push_rows(&batch, stride, rows_in_batch).unwrap();
             all_outputs.extend(outputs);
         }
 
@@ -957,15 +930,17 @@ mod tests {
     fn test_contiguous_buffer() {
         let width = 64u32;
         let height = 64u32;
+        let channels = 4usize;
+        let stride = width as usize * channels;
         let config = StreamingTonemapConfig::default();
 
         let mut tonemapper = StreamingTonemapper::new(width, height, config).unwrap();
 
         // Create contiguous buffer (like from a decoded image)
-        let mut buffer = vec![0.0f32; width as usize * height as usize * 4];
-        for y in 0..height {
-            for x in 0..width {
-                let idx = (y as usize * width as usize + x as usize) * 4;
+        let mut buffer = vec![0.0f32; height as usize * stride];
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                let idx = y * stride + x * channels;
                 let lum = (x as f32 / width as f32) * 3.0;
                 buffer[idx] = lum;
                 buffer[idx + 1] = lum;
@@ -974,11 +949,46 @@ mod tests {
             }
         }
 
-        // Push all rows at once
-        let mut all_outputs = tonemapper.push_rows_contiguous(&buffer, height).unwrap();
+        // Push all rows at once using stride-based API
+        let mut all_outputs = tonemapper.push_rows(&buffer, stride, height as usize).unwrap();
         all_outputs.extend(tonemapper.finish().unwrap());
         all_outputs.sort_by_key(|o| o.row_index);
 
         assert_eq!(all_outputs.len(), height as usize);
+    }
+
+    #[test]
+    fn test_stride_with_padding() {
+        let width = 60u32; // Not aligned
+        let height = 32u32;
+        let channels = 4usize;
+        let stride = 64 * channels; // Padded to 64 pixels per row
+        let config = StreamingTonemapConfig::default();
+
+        let mut tonemapper = StreamingTonemapper::new(width, height, config).unwrap();
+
+        // Create buffer with padding (simulates aligned memory)
+        let mut buffer = vec![0.0f32; height as usize * stride];
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                let idx = y * stride + x * channels;
+                let lum = (x as f32 / width as f32) * 2.0;
+                buffer[idx] = lum;
+                buffer[idx + 1] = lum;
+                buffer[idx + 2] = lum;
+                buffer[idx + 3] = 1.0;
+            }
+            // Padding pixels (64-60=4 pixels) are left as zeros
+        }
+
+        let mut all_outputs = tonemapper.push_rows(&buffer, stride, height as usize).unwrap();
+        all_outputs.extend(tonemapper.finish().unwrap());
+
+        assert_eq!(all_outputs.len(), height as usize);
+
+        // Output should be width * channels, not stride
+        for output in &all_outputs {
+            assert_eq!(output.sdr_linear.len(), width as usize * channels);
+        }
     }
 }
