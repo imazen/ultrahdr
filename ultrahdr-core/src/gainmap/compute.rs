@@ -1,8 +1,11 @@
 //! Gain map computation from HDR and SDR images.
 
 use crate::color::gamut::rgb_to_luminance;
+#[cfg(feature = "transfer")]
 use crate::color::transfer::{apply_eotf, pq_eotf, srgb_eotf};
-use crate::types::{ColorTransfer, GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
+use crate::types::{GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
+#[cfg(feature = "transfer")]
+use crate::types::ColorTransfer;
 use enough::Stop;
 
 /// Configuration for gain map computation.
@@ -245,6 +248,14 @@ fn compute_multichannel_gainmap(
 }
 
 /// Extract linear RGB `[0,1]` from a raw image at the given pixel position.
+///
+/// When the `transfer` feature is enabled, this function applies appropriate
+/// EOTF conversions (sRGB, PQ, HLG) based on the image's transfer function.
+///
+/// When the `transfer` feature is disabled, only inherently linear formats
+/// (Rgba16F, Rgba32F) are supported. For encoded formats, the caller must
+/// pre-convert to linear using an external CMS.
+#[cfg(feature = "transfer")]
 fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
     match img.format {
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
@@ -268,11 +279,10 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
 
         PixelFormat::Rgba16F => {
             let idx = (y * img.stride + x * 8) as usize;
-            // Read as f16 (half float) - assuming little-endian
             let r = half_to_f32(&img.data[idx..idx + 2]);
             let g = half_to_f32(&img.data[idx + 2..idx + 4]);
             let b = half_to_f32(&img.data[idx + 4..idx + 6]);
-            [r, g, b] // Already linear
+            [r, g, b]
         }
 
         PixelFormat::Rgba32F => {
@@ -295,7 +305,7 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
                 img.data[idx + 10],
                 img.data[idx + 11],
             ]);
-            [r, g, b] // Already linear
+            [r, g, b]
         }
 
         PixelFormat::Rgba1010102Pq | PixelFormat::Rgba1010102Hlg => {
@@ -311,7 +321,6 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
             let g = ((packed >> 10) & 0x3FF) as f32 / 1023.0;
             let b = ((packed >> 20) & 0x3FF) as f32 / 1023.0;
 
-            // Apply EOTF
             match img.format {
                 PixelFormat::Rgba1010102Pq => [pq_eotf(r), pq_eotf(g), pq_eotf(b)],
                 _ => [
@@ -323,12 +332,10 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         }
 
         PixelFormat::P010 => {
-            // P010: 10-bit YUV 4:2:0, Y plane followed by interleaved UV
             let y_idx = (y * img.stride * 2 + x * 2) as usize;
             let y_val = u16::from_le_bytes([img.data[y_idx], img.data[y_idx + 1]]);
             let y_lum = (y_val >> 6) as f32 / 1023.0;
 
-            // UV plane starts after Y plane
             let uv_offset = (img.height * img.stride * 2) as usize;
             let uv_y = y / 2;
             let uv_x = x / 2;
@@ -341,21 +348,17 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
             let u = (u_val >> 6) as f32 / 1023.0 - 0.5;
             let v = (v_val >> 6) as f32 / 1023.0 - 0.5;
 
-            // BT.2020 YUV to RGB (for HDR content)
             let r = y_lum + 1.4746 * v;
             let g = y_lum - 0.1646 * u - 0.5714 * v;
             let b = y_lum + 1.8814 * u;
 
-            // Apply PQ EOTF (P010 is typically PQ encoded)
             [pq_eotf(r), pq_eotf(g), pq_eotf(b)]
         }
 
         PixelFormat::Yuv420 => {
-            // 8-bit YUV 4:2:0
             let y_idx = (y * img.stride + x) as usize;
             let y_val = img.data[y_idx] as f32 / 255.0;
 
-            // U and V planes
             let uv_size = (img.stride / 2) * (img.height / 2);
             let u_offset = (img.height * img.stride) as usize;
             let v_offset = u_offset + uv_size as usize;
@@ -367,7 +370,6 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
             let u = img.data[u_offset + uv_idx] as f32 / 255.0 - 0.5;
             let v = img.data[v_offset + uv_idx] as f32 / 255.0 - 0.5;
 
-            // BT.709 YUV to RGB
             let r = y_val + 1.5748 * v;
             let g = y_val - 0.1873 * u - 0.4681 * v;
             let b = y_val + 1.8556 * u;
@@ -381,6 +383,67 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
             let linear = srgb_eotf(v);
             [linear, linear, linear]
         }
+    }
+}
+
+/// Extract linear RGB from a raw image (no transfer feature).
+///
+/// Only supports inherently linear formats (Rgba16F, Rgba32F).
+/// For encoded formats (sRGB, PQ, etc.), use an external CMS to pre-convert.
+#[cfg(not(feature = "transfer"))]
+fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
+    match img.format {
+        PixelFormat::Rgba16F => {
+            let idx = (y * img.stride + x * 8) as usize;
+            let r = half_to_f32(&img.data[idx..idx + 2]);
+            let g = half_to_f32(&img.data[idx + 2..idx + 4]);
+            let b = half_to_f32(&img.data[idx + 4..idx + 6]);
+            [r, g, b]
+        }
+
+        PixelFormat::Rgba32F => {
+            let idx = (y * img.stride + x * 16) as usize;
+            let r = f32::from_le_bytes([
+                img.data[idx],
+                img.data[idx + 1],
+                img.data[idx + 2],
+                img.data[idx + 3],
+            ]);
+            let g = f32::from_le_bytes([
+                img.data[idx + 4],
+                img.data[idx + 5],
+                img.data[idx + 6],
+                img.data[idx + 7],
+            ]);
+            let b = f32::from_le_bytes([
+                img.data[idx + 8],
+                img.data[idx + 9],
+                img.data[idx + 10],
+                img.data[idx + 11],
+            ]);
+            [r, g, b]
+        }
+
+        // For encoded formats without transfer feature, treat as linear
+        // (caller must pre-convert using external CMS)
+        PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
+            let bpp = if img.format == PixelFormat::Rgba8 { 4 } else { 3 };
+            let idx = (y * img.stride + x * bpp as u32) as usize;
+            let r = img.data[idx] as f32 / 255.0;
+            let g = img.data[idx + 1] as f32 / 255.0;
+            let b = img.data[idx + 2] as f32 / 255.0;
+            // Assume already linear - caller must pre-convert
+            [r, g, b]
+        }
+
+        PixelFormat::Gray8 => {
+            let idx = (y * img.stride + x) as usize;
+            let v = img.data[idx] as f32 / 255.0;
+            [v, v, v]
+        }
+
+        // Formats that require transfer functions - return mid-gray as fallback
+        _ => [0.18, 0.18, 0.18],
     }
 }
 

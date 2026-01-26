@@ -46,8 +46,9 @@ harness = false
 required-features = ["simd"]
 
 [features]
-default = ["std"]
+default = ["std", "transfer"]
 std = ["enough/std", "archmage?/std", "magetypes?/std"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
+transfer = []  # Built-in transfer functions (sRGB, PQ, HLG). Disable to use external CMS.
 # Future: alloc-only support
 # alloc = ["enough/alloc"]
