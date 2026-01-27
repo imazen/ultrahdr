@@ -680,6 +680,37 @@ std::thread::spawn(move || {
 let result = compute_gainmap(&hdr, &sdr, &config, &stop);
 ```
 
+## Known Differences from libultrahdr
+
+This implementation aims for compatibility with [Google's libultrahdr](https://github.com/google/libultrahdr) reference implementation, but has the following known differences:
+
+### XMP Metadata Validation (ultrahdr-core)
+
+| Behavior | libultrahdr | This Implementation |
+|----------|-------------|---------------------|
+| `BaseRenditionIsHDR="True"` | **Rejected** with error | ⚠️ Accepted (should reject) |
+| Required fields (Version, GainMapMax, HDRCapacityMax) | **All required** | ⚠️ Only checks if Version OR GainMapMax present |
+| Unparseable field values | **Error** | ⚠️ Silently uses defaults |
+
+### JPEG Boundary Detection
+
+| Behavior | libultrahdr | This Implementation |
+|----------|-------------|---------------------|
+| Primary method | JpegScanner (SOI/EOI markers) | MPF directory parsing |
+| Fallback | N/A | SOI/EOI marker scanning |
+| Marker-aware scanning | Yes (skips marker payloads) | ⚠️ Simple scan in ultrahdr-core, robust scan in zenjpeg |
+| >2 images warning | Yes | No |
+
+### Practical Impact
+
+- Files with `BaseRenditionIsHDR="True"` (rare) may decode incorrectly
+- Files with missing required XMP fields may use incorrect default values
+- Detection should work for all standard Ultra HDR files
+
+### Tracking
+
+These differences are tracked for future fixes. Contributions welcome.
+
 ## License
 
 Apache-2.0
