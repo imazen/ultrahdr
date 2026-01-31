@@ -169,7 +169,11 @@ impl RowDecoder {
                 let in_idx = input_start + x as usize * 3;
                 let out_idx = output_start + x as usize * 4;
 
-                let sdr = [sdr_linear[in_idx], sdr_linear[in_idx + 1], sdr_linear[in_idx + 2]];
+                let sdr = [
+                    sdr_linear[in_idx],
+                    sdr_linear[in_idx + 1],
+                    sdr_linear[in_idx + 2],
+                ];
                 let gain = self.sample_gainmap(x, y);
                 let hdr = apply_gain(sdr, gain, &self.metadata);
 
@@ -458,7 +462,11 @@ impl StreamDecoder {
                 let in_idx = input_start + x as usize * 3;
                 let out_idx = output_start + x as usize * 4;
 
-                let sdr = [sdr_linear[in_idx], sdr_linear[in_idx + 1], sdr_linear[in_idx + 2]];
+                let sdr = [
+                    sdr_linear[in_idx],
+                    sdr_linear[in_idx + 1],
+                    sdr_linear[in_idx + 2],
+                ];
                 let gain = self.sample_gainmap(x, y);
                 let hdr = apply_gain(sdr, gain, &self.metadata);
 
@@ -516,9 +524,7 @@ impl StreamDecoder {
 
     #[inline]
     fn sample_row_gray(row: Option<&[u8]>, x: u32) -> f32 {
-        row.and_then(|r| r.get(x as usize).copied())
-            .unwrap_or(128) as f32
-            / 255.0
+        row.and_then(|r| r.get(x as usize).copied()).unwrap_or(128) as f32 / 255.0
     }
 
     #[inline]
@@ -723,7 +729,11 @@ impl RowEncoder {
     }
 
     /// Process a single pair of rows.
-    pub fn process_row(&mut self, hdr_linear: &[f32], sdr_linear: &[f32]) -> Result<Option<Vec<u8>>> {
+    pub fn process_row(
+        &mut self,
+        hdr_linear: &[f32],
+        sdr_linear: &[f32],
+    ) -> Result<Option<Vec<u8>>> {
         let rows = self.process_rows(hdr_linear, sdr_linear, 1)?;
         Ok(rows.into_iter().next())
     }
@@ -1254,8 +1264,7 @@ mod tests {
             use_base_color_space: true,
         };
 
-        let mut decoder =
-            RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
 
         // Linear f32 RGB input (mid-gray = 0.18)
         let sdr_linear = vec![0.18f32; 4 * 3]; // One row, 4 pixels, RGB

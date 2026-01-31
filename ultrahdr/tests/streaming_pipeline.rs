@@ -14,7 +14,9 @@
 mod common;
 
 use ultrahdr_rs::gainmap::streaming::RowEncoder;
-use ultrahdr_rs::{color::tonemap::filmic_tonemap, color::transfer::srgb_oetf, ColorGamut, GainMapConfig};
+use ultrahdr_rs::{
+    color::tonemap::filmic_tonemap, color::transfer::srgb_oetf, ColorGamut, GainMapConfig,
+};
 use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 
 /// Tonemap a single linear HDR RGB value to linear SDR RGB.

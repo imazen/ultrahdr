@@ -741,7 +741,7 @@ mod tests {
 
             // All values should be in [0, 1]
             for &val in &output.sdr_linear {
-                assert!(val >= 0.0 && val <= 1.0, "Value out of range: {}", val);
+                assert!((0.0..=1.0).contains(&val), "Value out of range: {}", val);
             }
         }
     }
@@ -788,12 +788,12 @@ mod tests {
 
         // Both values should be in valid SDR range
         assert!(
-            bright_val >= 0.0 && bright_val <= 1.0,
+            (0.0..=1.0).contains(&bright_val),
             "Bright val out of range: {}",
             bright_val
         );
         assert!(
-            dark_val >= 0.0 && dark_val <= 1.0,
+            (0.0..=1.0).contains(&dark_val),
             "Dark val out of range: {}",
             dark_val
         );

@@ -8,11 +8,11 @@ use ultrahdr_core::metadata::{
     mpf::create_mpf_header,
     xmp::{create_xmp_app1_marker, generate_xmp},
 };
+use ultrahdr_core::{ColorGamut, Error, GainMapMetadata, Result};
 #[cfg(feature = "_test-helpers")]
 use ultrahdr_core::{ColorTransfer, PixelFormat, Unstoppable};
 #[cfg(feature = "_test-helpers")]
 use ultrahdr_core::{GainMap, RawImage};
-use ultrahdr_core::{ColorGamut, Error, GainMapMetadata, Result};
 
 use crate::jpeg::{
     create_icc_markers, get_icc_profile_for_gamut, insert_segment_after_soi, JpegSegment,
