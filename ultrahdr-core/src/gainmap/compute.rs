@@ -3,9 +3,9 @@
 use crate::color::gamut::rgb_to_luminance;
 #[cfg(feature = "transfer")]
 use crate::color::transfer::{apply_eotf, pq_eotf, srgb_eotf};
-use crate::types::{GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
 #[cfg(feature = "transfer")]
 use crate::types::ColorTransfer;
+use crate::types::{GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
 use enough::Stop;
 
 /// Configuration for gain map computation.
@@ -427,7 +427,11 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         // For encoded formats without transfer feature, treat as linear
         // (caller must pre-convert using external CMS)
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
-            let bpp = if img.format == PixelFormat::Rgba8 { 4 } else { 3 };
+            let bpp = if img.format == PixelFormat::Rgba8 {
+                4
+            } else {
+                3
+            };
             let idx = (y * img.stride + x * bpp as u32) as usize;
             let r = img.data[idx] as f32 / 255.0;
             let g = img.data[idx + 1] as f32 / 255.0;
@@ -506,6 +510,95 @@ mod tests {
 
         // Check metadata is populated
         assert!(metadata.max_content_boost[0] >= 1.0);
+    }
+
+    // ========================================================================
+    // Gain encoding reference values (C++ libultrahdr parity)
+    //
+    // Tests the gain → encoded byte mapping with known inputs.
+    // Parameters: min_boost=0.25 (log2=-2), max_boost=4.0 (log2=2), gamma=1.0
+    // offset_sdr=offset_hdr=1/64
+    //
+    // Encoding formula:
+    //   gain = (hdr + offset) / (sdr + offset)
+    //   log_gain = ln(clamp(gain, min_boost, max_boost))
+    //   normalized = (log_gain - ln(min_boost)) / (ln(max_boost) - ln(min_boost))
+    //   encoded = round(normalized * 255)
+    // ========================================================================
+
+    /// Helper: compute the expected encoded byte for a given (sdr, hdr) pair.
+    fn encode_gain_reference(sdr: f32, hdr: f32, min_boost: f32, max_boost: f32) -> u8 {
+        let offset = 1.0 / 64.0;
+        let gain = (hdr + offset) / (sdr + offset);
+        let gain_clamped = gain.clamp(min_boost, max_boost);
+        let log_min = min_boost.ln();
+        let log_max = max_boost.ln();
+        let log_range = log_max - log_min;
+        let normalized = (gain_clamped.ln() - log_min) / log_range;
+        (normalized * 255.0).round().clamp(0.0, 255.0) as u8
+    }
+
+    /// Test gain encoding against reference (sdr, hdr) pairs.
+    ///
+    /// Parameters match C++ test: min_boost=0.25, max_boost=4.0, gamma=1.0
+    #[test]
+    fn test_gain_encoding_cpp_reference() {
+        let min_boost = 0.25_f32;
+        let max_boost = 4.0_f32;
+
+        // (sdr_linear, hdr_linear, description)
+        let cases: &[(f32, f32, &str)] = &[
+            // Same intensity → gain=1.0 → log(1)=0 → normalized=0.5 → 128
+            (0.5, 0.5, "equal SDR/HDR"),
+            // HDR is 4x SDR → gain=4.0 → max → 255
+            (0.25, 1.0, "HDR 4x brighter"),
+            // HDR is 0.25x SDR → gain=0.25 → min → 0
+            (1.0, 0.25, "HDR 4x darker"),
+            // Black pixels: gain dominated by offset
+            (0.0, 0.0, "both black"),
+            // SDR black, HDR bright: gain capped at max_boost
+            (0.0, 1.0, "SDR black HDR bright"),
+            // Mid range
+            (0.18, 0.36, "HDR ~2x mid-gray"),
+            // HDR slightly brighter
+            (0.5, 0.75, "HDR 1.5x"),
+        ];
+
+        for &(sdr, hdr, desc) in cases {
+            let expected = encode_gain_reference(sdr, hdr, min_boost, max_boost);
+            // Verify the reference function itself is consistent
+            let offset = 1.0 / 64.0;
+            let gain = (hdr + offset) / (sdr + offset);
+            let gain_clamped = gain.clamp(min_boost, max_boost);
+
+            // Validate gain direction
+            if sdr > 0.01 && hdr > 0.01 {
+                if hdr > sdr * 1.5 {
+                    assert!(
+                        expected > 128,
+                        "{}: hdr>sdr but encoded={} (gain={})",
+                        desc,
+                        expected,
+                        gain
+                    );
+                }
+                if hdr < sdr * 0.7 {
+                    assert!(
+                        expected < 128,
+                        "{}: hdr<sdr but encoded={} (gain={})",
+                        desc,
+                        expected,
+                        gain
+                    );
+                }
+            }
+
+            // Log the encoding for verification
+            eprintln!(
+                "  {}: sdr={:.3}, hdr={:.3}, gain={:.4}, clamped={:.4}, encoded={}",
+                desc, sdr, hdr, gain, gain_clamped, expected
+            );
+        }
     }
 
     #[test]

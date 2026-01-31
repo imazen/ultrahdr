@@ -87,7 +87,8 @@ impl Decoder {
     pub fn decode_sdr(&self) -> Result<RawImage> {
         Err(Error::DecodeError(
             "decode_sdr() requires a JPEG codec. Use primary_jpeg() to get raw bytes \
-             and decode with your own codec".into()
+             and decode with your own codec"
+                .into(),
         ))
     }
 
@@ -121,7 +122,8 @@ impl Decoder {
     pub fn decode_gainmap(&self) -> Result<GainMap> {
         Err(Error::DecodeError(
             "decode_gainmap() requires a JPEG codec. Use gainmap_jpeg() to get raw bytes \
-             and decode with your own codec".into()
+             and decode with your own codec"
+                .into(),
         ))
     }
 
@@ -152,6 +154,13 @@ impl Decoder {
     ) -> Result<RawImage> {
         if !self.is_ultrahdr {
             return Err(Error::DecodeError("Not an Ultra HDR image".into()));
+        }
+
+        if !display_boost.is_finite() || display_boost < 1.0 {
+            return Err(Error::DecodeError(format!(
+                "display_boost must be >= 1.0, got {}",
+                display_boost
+            )));
         }
 
         let metadata = self

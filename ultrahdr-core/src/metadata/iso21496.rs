@@ -258,4 +258,168 @@ mod tests {
             );
         }
     }
+
+    /// Multi-channel roundtrip with C++ libultrahdr reference values.
+    ///
+    /// Per-channel: max_content_boost=[100.5, 101.5, 102.5],
+    /// min_content_boost=[1.5, 1.6, 1.7], gamma=[1.0, 1.01, 1.02],
+    /// offset_sdr/hdr=[0.0625, 0.0875, 0.1125],
+    /// hdr_capacity_max=10000.0/203.0, use_base_cg=false
+    #[test]
+    fn test_iso21496_multichannel_cpp_reference() {
+        let original = GainMapMetadata {
+            max_content_boost: [100.5, 101.5, 102.5],
+            min_content_boost: [1.5, 1.6, 1.7],
+            gamma: [1.0, 1.01, 1.02],
+            offset_sdr: [0.0625, 0.0875, 0.1125],
+            offset_hdr: [0.0625, 0.0875, 0.1125],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 10000.0 / 203.0, // ~49.26
+            use_base_color_space: false,
+        };
+
+        let serialized = serialize_iso21496(&original);
+        let parsed = deserialize_iso21496(&serialized).unwrap();
+
+        // Verify flags: multi-channel set, use_base_cg NOT set
+        assert_eq!(
+            serialized[1] & 0x01,
+            0x01,
+            "MULTI_CHANNEL flag should be set"
+        );
+        assert_eq!(
+            serialized[1] & 0x02,
+            0x00,
+            "USE_BASE_CG flag should NOT be set"
+        );
+        assert!(!parsed.use_base_color_space);
+
+        // Per-channel values must roundtrip within fraction precision
+        let tol = 0.05;
+        for i in 0..3 {
+            assert!(
+                (parsed.max_content_boost[i] - original.max_content_boost[i]).abs()
+                    / original.max_content_boost[i]
+                    < tol,
+                "max_content_boost[{}]: {} vs {}",
+                i,
+                parsed.max_content_boost[i],
+                original.max_content_boost[i]
+            );
+            assert!(
+                (parsed.min_content_boost[i] - original.min_content_boost[i]).abs()
+                    / original.min_content_boost[i]
+                    < tol,
+                "min_content_boost[{}]: {} vs {}",
+                i,
+                parsed.min_content_boost[i],
+                original.min_content_boost[i]
+            );
+            assert!(
+                (parsed.gamma[i] - original.gamma[i]).abs() < 0.01,
+                "gamma[{}]: {} vs {}",
+                i,
+                parsed.gamma[i],
+                original.gamma[i]
+            );
+            assert!(
+                (parsed.offset_sdr[i] - original.offset_sdr[i]).abs() < 0.001,
+                "offset_sdr[{}]: {} vs {}",
+                i,
+                parsed.offset_sdr[i],
+                original.offset_sdr[i]
+            );
+            assert!(
+                (parsed.offset_hdr[i] - original.offset_hdr[i]).abs() < 0.001,
+                "offset_hdr[{}]: {} vs {}",
+                i,
+                parsed.offset_hdr[i],
+                original.offset_hdr[i]
+            );
+        }
+
+        // HDR capacity roundtrip
+        assert!(
+            (parsed.hdr_capacity_max - original.hdr_capacity_max).abs() / original.hdr_capacity_max
+                < tol,
+            "hdr_capacity_max: {} vs {}",
+            parsed.hdr_capacity_max,
+            original.hdr_capacity_max
+        );
+
+        // Verify channels are distinct (not collapsed to single)
+        assert_ne!(parsed.max_content_boost[0], parsed.max_content_boost[1]);
+        assert_ne!(parsed.max_content_boost[1], parsed.max_content_boost[2]);
+        assert_ne!(parsed.min_content_boost[0], parsed.min_content_boost[1]);
+    }
+
+    /// Multi-channel with negative offsets, C++ libultrahdr reference.
+    ///
+    /// offset_sdr/hdr=[-0.0625, -0.0615, -0.0605],
+    /// hdr_capacity_max=1000.0/203.0, use_base_cg=true
+    #[test]
+    fn test_iso21496_negative_offsets_cpp_reference() {
+        let original = GainMapMetadata {
+            max_content_boost: [10.0, 11.0, 12.0],
+            min_content_boost: [0.5, 0.6, 0.7],
+            gamma: [1.0, 1.1, 1.2],
+            offset_sdr: [-0.0625, -0.0615, -0.0605],
+            offset_hdr: [-0.0625, -0.0615, -0.0605],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 1000.0 / 203.0, // ~4.926
+            use_base_color_space: true,
+        };
+
+        let serialized = serialize_iso21496(&original);
+        let parsed = deserialize_iso21496(&serialized).unwrap();
+
+        // Verify flags: multi-channel set, use_base_cg set
+        assert_eq!(
+            serialized[1] & 0x01,
+            0x01,
+            "MULTI_CHANNEL flag should be set"
+        );
+        assert_eq!(serialized[1] & 0x02, 0x02, "USE_BASE_CG flag should be set");
+        assert!(parsed.use_base_color_space);
+
+        // Negative offsets must survive roundtrip
+        let tol = 0.001;
+        for i in 0..3 {
+            assert!(
+                (parsed.offset_sdr[i] - original.offset_sdr[i]).abs() < tol,
+                "offset_sdr[{}]: {} vs {}",
+                i,
+                parsed.offset_sdr[i],
+                original.offset_sdr[i]
+            );
+            assert!(
+                (parsed.offset_hdr[i] - original.offset_hdr[i]).abs() < tol,
+                "offset_hdr[{}]: {} vs {}",
+                i,
+                parsed.offset_hdr[i],
+                original.offset_hdr[i]
+            );
+        }
+
+        // Verify all per-channel values roundtrip
+        let rel_tol = 0.05;
+        for i in 0..3 {
+            assert!(
+                (parsed.max_content_boost[i] - original.max_content_boost[i]).abs()
+                    / original.max_content_boost[i]
+                    < rel_tol,
+                "max_content_boost[{}]: {} vs {}",
+                i,
+                parsed.max_content_boost[i],
+                original.max_content_boost[i]
+            );
+            assert!(
+                (parsed.gamma[i] - original.gamma[i]).abs() < 0.01,
+                "gamma[{}]: {} vs {}",
+                i,
+                parsed.gamma[i],
+                original.gamma[i]
+            );
+        }
+    }
 }

@@ -422,6 +422,193 @@ mod tests {
         );
     }
 
+    // ========================================================================
+    // C++ libultrahdr reference value tests
+    //
+    // These pin our transfer functions against mathematically derived values.
+    // Epsilon matches C++ ComparisonEpsilon = 1e-4.
+    // ========================================================================
+
+    /// sRGB EOTF (inverse OETF) reference points.
+    /// Input: sRGB-encoded [0,1] → Output: linear [0,1]
+    #[test]
+    fn test_srgb_eotf_cpp_reference() {
+        // (srgb_encoded, expected_linear)
+        let cases: [(f32, f32); 5] = [
+            (0.0, 0.0),
+            (0.04045, 0.04045 / 12.92), // Exact boundary: linear segment
+            (0.5, ((0.5 + 0.055) / 1.055_f32).powf(2.4)), // Mid-range
+            (0.75, ((0.75 + 0.055) / 1.055_f32).powf(2.4)),
+            (1.0, 1.0),
+        ];
+
+        for &(input, expected) in &cases {
+            let result = srgb_eotf(input);
+            assert!(
+                (result - expected).abs() < EPSILON,
+                "srgb_eotf({}) = {}, expected {}",
+                input,
+                result,
+                expected
+            );
+        }
+    }
+
+    /// HLG OETF reference points.
+    /// Input: scene linear [0,1] → Output: HLG encoded [0,1]
+    #[test]
+    fn test_hlg_oetf_cpp_reference() {
+        let cases: [(f32, f32); 5] = [
+            (0.0, 0.0),
+            (1.0 / 12.0, (3.0 / 12.0_f32).sqrt()), // Exact boundary
+            (0.25, HLG_A * (12.0 * 0.25 - HLG_B).ln() + HLG_C),
+            (0.5, HLG_A * (12.0 * 0.5 - HLG_B).ln() + HLG_C),
+            (1.0, 1.0),
+        ];
+
+        for &(input, expected) in &cases {
+            let result = hlg_oetf(input);
+            assert!(
+                (result - expected).abs() < EPSILON,
+                "hlg_oetf({}) = {}, expected {}",
+                input,
+                result,
+                expected
+            );
+        }
+    }
+
+    /// HLG inverse OETF reference points.
+    /// Input: HLG encoded [0,1] → Output: scene linear [0,1]
+    #[test]
+    fn test_hlg_oetf_inv_cpp_reference() {
+        let cases: [(f32, f32); 5] = [
+            (0.0, 0.0),
+            (0.25, 0.25 * 0.25 / 3.0), // Below 0.5: e^2/3
+            (0.5, 0.5 * 0.5 / 3.0),    // Boundary
+            (0.75, ((0.75 - HLG_C) / HLG_A).exp() / 12.0 + HLG_B / 12.0),
+            (1.0, 1.0),
+        ];
+
+        for &(input, expected) in &cases {
+            let result = hlg_oetf_inv(input);
+            assert!(
+                (result - expected).abs() < EPSILON,
+                "hlg_oetf_inv({}) = {}, expected {}",
+                input,
+                result,
+                expected
+            );
+        }
+    }
+
+    /// PQ OETF reference points.
+    /// Input: linear [0,1] (1.0 = 10000 nits) → Output: PQ encoded [0,1]
+    #[test]
+    fn test_pq_oetf_cpp_reference() {
+        // Compute expected values from the ST.2084 formula
+        let compute_pq = |y: f32| -> f32 {
+            if y <= 0.0 {
+                return 0.0;
+            }
+            let y_m1 = y.powf(PQ_M1);
+            let num = PQ_C1 + PQ_C2 * y_m1;
+            let den = 1.0 + PQ_C3 * y_m1;
+            (num / den).powf(PQ_M2)
+        };
+
+        let cases: [(f32, f32); 5] = [
+            (0.0, 0.0),
+            (0.01, compute_pq(0.01)),     // 100 nits
+            (0.0203, compute_pq(0.0203)), // SDR white (203 nits)
+            (0.1, compute_pq(0.1)),       // 1000 nits
+            (1.0, 1.0),
+        ];
+
+        for &(input, expected) in &cases {
+            let result = pq_oetf(input);
+            assert!(
+                (result - expected).abs() < EPSILON,
+                "pq_oetf({}) = {}, expected {}",
+                input,
+                result,
+                expected
+            );
+        }
+    }
+
+    /// PQ EOTF (inverse) reference points.
+    /// Input: PQ encoded [0,1] → Output: linear [0,1]
+    #[test]
+    fn test_pq_eotf_cpp_reference() {
+        let compute_inv_pq = |e: f32| -> f32 {
+            if e <= 0.0 {
+                return 0.0;
+            }
+            let e_inv_m2 = e.powf(1.0 / PQ_M2);
+            let num = (e_inv_m2 - PQ_C1).max(0.0);
+            let den = PQ_C2 - PQ_C3 * e_inv_m2;
+            if den <= 0.0 {
+                return 0.0;
+            }
+            (num / den).powf(1.0 / PQ_M1)
+        };
+
+        let cases: [(f32, f32); 5] = [
+            (0.0, 0.0),
+            (0.25, compute_inv_pq(0.25)),
+            (0.5, compute_inv_pq(0.5)),
+            (0.75, compute_inv_pq(0.75)),
+            (1.0, 1.0),
+        ];
+
+        for &(input, expected) in &cases {
+            let result = pq_eotf(input);
+            assert!(
+                (result - expected).abs() < EPSILON,
+                "pq_eotf({}) = {}, expected {}",
+                input,
+                result,
+                expected
+            );
+        }
+    }
+
+    /// Verify PQ and HLG OETF/EOTF are true inverses at reference points.
+    #[test]
+    fn test_transfer_inverse_identity() {
+        let test_values = [0.0, 0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0];
+
+        for &v in &test_values {
+            // PQ: eotf(oetf(x)) == x
+            let pq_roundtrip = pq_eotf(pq_oetf(v));
+            assert!(
+                (pq_roundtrip - v).abs() < EPSILON,
+                "PQ inverse identity failed at {}: got {}",
+                v,
+                pq_roundtrip
+            );
+
+            // HLG: oetf_inv(oetf(x)) == x
+            let hlg_roundtrip = hlg_oetf_inv(hlg_oetf(v));
+            assert!(
+                (hlg_roundtrip - v).abs() < EPSILON,
+                "HLG inverse identity failed at {}: got {}",
+                v,
+                hlg_roundtrip
+            );
+
+            // sRGB: eotf(oetf(x)) == x
+            let srgb_roundtrip = srgb_eotf(srgb_oetf(v));
+            assert!(
+                (srgb_roundtrip - v).abs() < EPSILON,
+                "sRGB inverse identity failed at {}: got {}",
+                v,
+                srgb_roundtrip
+            );
+        }
+    }
+
     #[test]
     fn test_lut_matches_direct() {
         let srgb_lut = SrgbEotfLut::new();

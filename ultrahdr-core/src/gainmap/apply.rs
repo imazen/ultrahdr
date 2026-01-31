@@ -203,7 +203,11 @@ fn get_sdr_linear(sdr: &RawImage, x: u32, y: u32) -> [f32; 3] {
 fn get_sdr_linear(sdr: &RawImage, x: u32, y: u32) -> [f32; 3] {
     match sdr.format {
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
-            let bpp = if sdr.format == PixelFormat::Rgba8 { 4 } else { 3 };
+            let bpp = if sdr.format == PixelFormat::Rgba8 {
+                4
+            } else {
+                3
+            };
             let idx = (y * sdr.stride + x * bpp as u32) as usize;
             let r = sdr.data[idx] as f32 / 255.0;
             let g = sdr.data[idx + 1] as f32 / 255.0;
@@ -214,13 +218,22 @@ fn get_sdr_linear(sdr: &RawImage, x: u32, y: u32) -> [f32; 3] {
         PixelFormat::Rgba32F => {
             let idx = (y * sdr.stride + x * 16) as usize;
             let r = f32::from_le_bytes([
-                sdr.data[idx], sdr.data[idx + 1], sdr.data[idx + 2], sdr.data[idx + 3],
+                sdr.data[idx],
+                sdr.data[idx + 1],
+                sdr.data[idx + 2],
+                sdr.data[idx + 3],
             ]);
             let g = f32::from_le_bytes([
-                sdr.data[idx + 4], sdr.data[idx + 5], sdr.data[idx + 6], sdr.data[idx + 7],
+                sdr.data[idx + 4],
+                sdr.data[idx + 5],
+                sdr.data[idx + 6],
+                sdr.data[idx + 7],
             ]);
             let b = f32::from_le_bytes([
-                sdr.data[idx + 8], sdr.data[idx + 9], sdr.data[idx + 10], sdr.data[idx + 11],
+                sdr.data[idx + 8],
+                sdr.data[idx + 9],
+                sdr.data[idx + 10],
+                sdr.data[idx + 11],
             ]);
             [r, g, b]
         }
@@ -471,6 +484,175 @@ mod tests {
         assert_eq!(result.width, 4);
         assert_eq!(result.height, 4);
         assert_eq!(result.format, PixelFormat::Rgba8);
+    }
+
+    // ========================================================================
+    // Gain application reference values (C++ libultrahdr parity)
+    //
+    // Tests the LUT-based gain application against known-correct values.
+    // The LUT maps byte values to linear gain multipliers:
+    //   normalized = byte / 255.0
+    //   linear = normalized^(1/gamma)  [undo gamma]
+    //   log_gain = ln(min_boost) + linear * (ln(max_boost) - ln(min_boost))
+    //   gain = exp(log_gain * weight)
+    //
+    // Then HDR = (sdr + offset_sdr) * gain - offset_hdr
+    // ========================================================================
+
+    /// Test gain application at 5 weight levels for white pixel.
+    ///
+    /// White (sdr=1.0) at gain map value 255 (max boost),
+    /// with weight from 0.0 to 1.0 in steps of 0.25.
+    #[test]
+    fn test_gain_application_weight_levels() {
+        let metadata = GainMapMetadata {
+            min_content_boost: [1.0; 3],
+            max_content_boost: [4.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 4.0,
+            use_base_color_space: true,
+        };
+
+        let sdr_val = 1.0_f32; // White pixel (linear)
+        let offset = 1.0_f32 / 64.0;
+        let log_min = 1.0_f32.ln(); // 0.0
+        let log_max = 4.0_f32.ln(); // ~1.386
+
+        // At byte=255 (normalized=1.0, gamma=1.0 → linear=1.0):
+        //   log_gain = 0.0 + 1.0 * (ln(4) - ln(1)) = ln(4) ≈ 1.386
+        //   gain = exp(log_gain * weight)
+        //   hdr = (sdr + offset) * gain - offset
+
+        let weights: [(f32, &str); 5] = [
+            (0.0, "SDR (no boost)"),
+            (0.25, "25% boost"),
+            (0.5, "50% boost"),
+            (0.75, "75% boost"),
+            (1.0, "full boost"),
+        ];
+
+        for &(weight, desc) in &weights {
+            let lut = GainMapLut::new(&metadata, weight);
+            let gain = lut.lookup(255, 0);
+
+            let log_gain = log_min + 1.0 * (log_max - log_min);
+            let expected_gain = (log_gain * weight).exp();
+            let expected_hdr = (sdr_val + offset) * expected_gain - offset;
+
+            // Verify LUT gain matches formula
+            assert!(
+                (gain - expected_gain).abs() < 0.01,
+                "{}: LUT gain={}, expected={}",
+                desc,
+                gain,
+                expected_gain
+            );
+
+            // Verify HDR output
+            let hdr = apply_gain([sdr_val; 3], [gain; 3], &metadata);
+            assert!(
+                (hdr[0] - expected_hdr).abs() < 0.02,
+                "{}: hdr={}, expected={}",
+                desc,
+                hdr[0],
+                expected_hdr
+            );
+        }
+    }
+
+    /// Test gain application for black pixel (sdr=0.0).
+    ///
+    /// Black pixels should remain close to black regardless of gain,
+    /// because the offset dominates: hdr = (0 + 1/64) * gain - 1/64
+    #[test]
+    fn test_gain_application_black_pixel() {
+        let metadata = GainMapMetadata {
+            min_content_boost: [1.0; 3],
+            max_content_boost: [4.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 4.0,
+            use_base_color_space: true,
+        };
+
+        let offset = 1.0_f32 / 64.0;
+
+        // At full weight with max gain byte
+        let lut = GainMapLut::new(&metadata, 1.0);
+        let gain = lut.lookup(255, 0);
+
+        // hdr = (0 + 1/64) * 4.0 - 1/64 = 4/64 - 1/64 = 3/64 ≈ 0.047
+        let expected_hdr = offset * gain - offset;
+        let hdr = apply_gain([0.0; 3], [gain; 3], &metadata);
+
+        assert!(
+            (hdr[0] - expected_hdr).abs() < 0.01,
+            "Black pixel HDR: {} vs expected {}",
+            hdr[0],
+            expected_hdr
+        );
+
+        // Black with zero gain (byte=0) should stay near zero
+        let gain_min = lut.lookup(0, 0);
+        let hdr_min = apply_gain([0.0; 3], [gain_min; 3], &metadata);
+        // gain_min = exp(0 * 1.0) = 1.0 for weight=1.0 and min_boost=1.0
+        // hdr = (0 + 1/64) * 1.0 - 1/64 = 0
+        assert!(
+            hdr_min[0].abs() < 0.01,
+            "Black at min gain should be ~0, got {}",
+            hdr_min[0]
+        );
+    }
+
+    /// Verify gain LUT covers the full [min_boost, max_boost] range.
+    #[test]
+    fn test_gain_lut_range_coverage() {
+        let metadata = GainMapMetadata {
+            min_content_boost: [0.5; 3],
+            max_content_boost: [8.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 8.0,
+            use_base_color_space: true,
+        };
+
+        let lut = GainMapLut::new(&metadata, 1.0);
+
+        // Byte 0 → min gain = exp(ln(0.5)) = 0.5
+        let gain_0 = lut.lookup(0, 0);
+        assert!(
+            (gain_0 - 0.5).abs() < 0.01,
+            "Byte 0 should give min gain 0.5, got {}",
+            gain_0
+        );
+
+        // Byte 255 → max gain = exp(ln(8)) = 8.0
+        let gain_255 = lut.lookup(255, 0);
+        assert!(
+            (gain_255 - 8.0).abs() < 0.1,
+            "Byte 255 should give max gain 8.0, got {}",
+            gain_255
+        );
+
+        // Monotonically increasing
+        for i in 1..=255u8 {
+            let prev = lut.lookup(i - 1, 0);
+            let curr = lut.lookup(i, 0);
+            assert!(
+                curr >= prev,
+                "LUT not monotonic at byte {}: {} < {}",
+                i,
+                curr,
+                prev
+            );
+        }
     }
 
     #[test]

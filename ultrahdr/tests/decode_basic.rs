@@ -220,3 +220,80 @@ fn test_pixel_values_valid() {
         // Alpha should typically be 255 for opaque images
     }
 }
+
+// ============================================================================
+// Decoder Parameter Validation (C++ libultrahdr parity)
+// ============================================================================
+
+/// decode_hdr with display_boost < 1.0 should error.
+#[test]
+fn test_decode_hdr_rejects_boost_below_one() {
+    let decoder = Decoder::new(TEST_ULTRAHDR).unwrap();
+    assert!(decoder.is_ultrahdr());
+
+    let result = decoder.decode_hdr(0.5);
+    assert!(
+        result.is_err(),
+        "display_boost=0.5 should be rejected, got Ok"
+    );
+
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("display_boost") || err.contains("1.0"),
+        "Error should mention display_boost: {}",
+        err
+    );
+}
+
+/// decode_hdr with display_boost = 0.0 should error.
+#[test]
+fn test_decode_hdr_rejects_zero_boost() {
+    let decoder = Decoder::new(TEST_ULTRAHDR).unwrap();
+    assert!(decoder.is_ultrahdr());
+
+    let result = decoder.decode_hdr(0.0);
+    assert!(
+        result.is_err(),
+        "display_boost=0.0 should be rejected, got Ok"
+    );
+}
+
+/// decode_hdr with negative display_boost should error.
+#[test]
+fn test_decode_hdr_rejects_negative_boost() {
+    let decoder = Decoder::new(TEST_ULTRAHDR).unwrap();
+    assert!(decoder.is_ultrahdr());
+
+    let result = decoder.decode_hdr(-1.0);
+    assert!(
+        result.is_err(),
+        "display_boost=-1.0 should be rejected, got Ok"
+    );
+}
+
+/// decode_hdr with NaN display_boost should error.
+#[test]
+fn test_decode_hdr_rejects_nan_boost() {
+    let decoder = Decoder::new(TEST_ULTRAHDR).unwrap();
+    assert!(decoder.is_ultrahdr());
+
+    let result = decoder.decode_hdr(f32::NAN);
+    assert!(
+        result.is_err(),
+        "display_boost=NaN should be rejected, got Ok"
+    );
+}
+
+/// decode_hdr with exactly 1.0 should succeed (SDR output).
+#[test]
+fn test_decode_hdr_accepts_exactly_one() {
+    let decoder = Decoder::new(TEST_ULTRAHDR).unwrap();
+    assert!(decoder.is_ultrahdr());
+
+    let result = decoder.decode_hdr(1.0);
+    assert!(
+        result.is_ok(),
+        "display_boost=1.0 should be accepted: {:?}",
+        result.err()
+    );
+}

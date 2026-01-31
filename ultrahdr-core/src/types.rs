@@ -468,10 +468,19 @@ impl GainMapMetadata {
                 "hdr_capacity_min must be non-negative finite".into(),
             ));
         }
-        if !self.hdr_capacity_max.is_finite() || self.hdr_capacity_max < 0.0 {
+        if !self.hdr_capacity_max.is_finite() || self.hdr_capacity_max < 1.0 {
             return Err(Error::InvalidMetadata(
-                "hdr_capacity_max must be non-negative finite".into(),
+                "hdr_capacity_max must be >= 1.0".into(),
             ));
+        }
+
+        for i in 0..3 {
+            if self.min_content_boost[i] > self.max_content_boost[i] {
+                return Err(Error::InvalidMetadata(format!(
+                    "min_content_boost[{}] ({}) > max_content_boost[{}] ({})",
+                    i, self.min_content_boost[i], i, self.max_content_boost[i]
+                )));
+            }
         }
 
         Ok(())
@@ -573,6 +582,137 @@ mod tests {
         metadata.gamma[0] = 1.0;
         metadata.max_content_boost[1] = -1.0;
         assert!(metadata.validate().is_err());
+    }
+
+    // ========================================================================
+    // Metadata validation tests (C++ libultrahdr parity)
+    // ========================================================================
+
+    /// min_content_boost > max_content_boost should be rejected.
+    #[test]
+    fn test_validate_rejects_min_gt_max_boost() {
+        let metadata = GainMapMetadata {
+            min_content_boost: [5.0; 3],
+            max_content_boost: [2.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 5.0,
+            use_base_color_space: true,
+        };
+        let err = metadata.validate().unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("min_content_boost"),
+            "Error should mention min_content_boost: {}",
+            msg
+        );
+    }
+
+    /// gamma < 0 should be rejected (also covers gamma = 0).
+    #[test]
+    fn test_validate_rejects_negative_gamma() {
+        let metadata = GainMapMetadata {
+            min_content_boost: [1.0; 3],
+            max_content_boost: [4.0; 3],
+            gamma: [-1.0, 1.0, 1.0],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 4.0,
+            use_base_color_space: true,
+        };
+        let err = metadata.validate().unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("gamma"), "Error should mention gamma: {}", msg);
+
+        // Zero gamma
+        let metadata_zero = GainMapMetadata {
+            gamma: [0.0, 1.0, 1.0],
+            ..metadata.clone()
+        };
+        assert!(metadata_zero.validate().is_err());
+    }
+
+    /// hdr_capacity_max < 1.0 should be rejected.
+    #[test]
+    fn test_validate_rejects_capacity_below_one() {
+        let metadata = GainMapMetadata {
+            min_content_boost: [1.0; 3],
+            max_content_boost: [4.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 0.5, // Invalid: < 1.0
+            use_base_color_space: true,
+        };
+        let err = metadata.validate().unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("hdr_capacity_max"),
+            "Error should mention hdr_capacity_max: {}",
+            msg
+        );
+    }
+
+    /// Per-channel validation: only one channel invalid should still fail.
+    #[test]
+    fn test_validate_per_channel_independent() {
+        // Channel 2 has min > max, others are fine
+        let metadata = GainMapMetadata {
+            min_content_boost: [1.0, 1.0, 5.0],
+            max_content_boost: [4.0, 4.0, 2.0],
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 4.0,
+            use_base_color_space: true,
+        };
+        assert!(metadata.validate().is_err());
+    }
+
+    /// NaN and infinity should be rejected in all numeric fields.
+    #[test]
+    fn test_validate_rejects_nan_infinity() {
+        let base = GainMapMetadata {
+            min_content_boost: [1.0; 3],
+            max_content_boost: [4.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 4.0,
+            use_base_color_space: true,
+        };
+        assert!(base.validate().is_ok());
+
+        // NaN in each field
+        let mut m = base.clone();
+        m.max_content_boost[0] = f32::NAN;
+        assert!(m.validate().is_err());
+
+        let mut m = base.clone();
+        m.min_content_boost[1] = f32::NAN;
+        assert!(m.validate().is_err());
+
+        let mut m = base.clone();
+        m.offset_sdr[2] = f32::NAN;
+        assert!(m.validate().is_err());
+
+        let mut m = base.clone();
+        m.offset_hdr[0] = f32::INFINITY;
+        assert!(m.validate().is_err());
+
+        let mut m = base.clone();
+        m.hdr_capacity_min = f32::NAN;
+        assert!(m.validate().is_err());
+
+        let mut m = base;
+        m.hdr_capacity_max = f32::INFINITY;
+        assert!(m.validate().is_err());
     }
 
     #[test]

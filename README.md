@@ -28,6 +28,47 @@ Ultra HDR is a backward-compatible HDR image format that embeds a gain map in a 
 - **Pure Rust**: No C dependencies, uses [zenjpeg](https://github.com/imazen/zenjpeg) for JPEG
 - **WASM**: `ultrahdr-core` compiles to WebAssembly
 
+## Comparison with C++ libultrahdr
+
+| Feature | ultrahdr-rs | C++ libultrahdr |
+|---------|:-----------:|:---------------:|
+| **Encoding** | | |
+| HDR + SDR → Ultra HDR JPEG | Yes | Yes |
+| HDR-only (auto-tonemap SDR) | Yes | Yes |
+| Adaptive tonemapping (learn curves) | Yes | No |
+| Streaming encode (low memory) | Yes | No |
+| Multi-channel gain map | Yes | Yes |
+| **Decoding** | | |
+| Ultra HDR → HDR reconstruct | Yes | Yes |
+| Display boost parameter | Yes | Yes |
+| Gain map extraction (raw JPEG) | Yes | Yes |
+| **Metadata** | | |
+| XMP (hdrgm namespace) | Yes | Yes |
+| ISO 21496-1 binary | Yes | Yes |
+| MPF (Multi-Picture Format) | Yes | Yes |
+| **Pixel Formats** | | |
+| RGBA 8-bit (SDR) | Yes | Yes |
+| RGBA 32F / 16F (HDR) | Yes | Yes |
+| P010 (10-bit YUV) | Yes | Yes |
+| RGBA 1010102 (PQ/HLG) | Yes | Yes |
+| **Transfer Functions** | | |
+| sRGB | Yes | Yes |
+| PQ (ST.2084) | Yes | Yes |
+| HLG (BT.2100) | Yes | Yes |
+| **Color Gamuts** | | |
+| BT.709 / sRGB | Yes | Yes |
+| Display P3 | Yes | Yes |
+| BT.2100 / BT.2020 | Yes | Yes |
+| **Platform** | | |
+| Pure Rust (no C deps) | Yes | No (C++) |
+| WASM support | Yes (`ultrahdr-core`) | No |
+| `no_std` support | Yes (`ultrahdr-core`) | No |
+| JPEG codec bundled | Optional (zenjpeg) | Yes (built-in) |
+| **Not Yet Implemented** | | |
+| JPEG-R (ISO 21496-1 container) | No | Yes |
+| Editing API (in-place metadata update) | No | Yes |
+| GPU acceleration | No | Yes (OpenGL) |
+
 ## Usage
 
 ### Encoding
