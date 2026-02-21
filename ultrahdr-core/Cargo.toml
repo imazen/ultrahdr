@@ -1,6 +1,6 @@
 [package]
 name = "ultrahdr-core"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.92"
 license = "Apache-2.0"
@@ -12,15 +12,15 @@ readme = "../README.md"
 
 [dependencies]
 # Cooperative cancellation
-enough = "0.3"
+enough = "0.4"
 
 # Math
 wide = "1.1"
-half = "2.4"
+half = "2.7"
 
 # SIMD (optional - for explicit SIMD optimizations)
-archmage = { version = "0.2", default-features = false, features = ["macros"], optional = true }
-magetypes = { version = "0.1", default-features = false, optional = true }
+archmage = { version = "0.8", default-features = false, features = ["macros"], optional = true }
+magetypes = { version = "0.8", default-features = false, optional = true }
 
 # Types
 bytemuck = { version = "1.14", features = ["derive"] }
@@ -30,7 +30,7 @@ thiserror = "2.0"
 
 [dev-dependencies]
 # Property testing
-proptest = "1.4"
+proptest = "1.10"
 
 # Native-only benchmarking
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

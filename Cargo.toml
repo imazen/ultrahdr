@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.92"
 license = "Apache-2.0"
@@ -15,14 +15,14 @@ repository = "https://github.com/imazen/ultrahdr"
 
 [workspace.dependencies]
 # Core crate
-ultrahdr-core = { path = "ultrahdr-core", version = "0.1.1" }
+ultrahdr-core = { path = "ultrahdr-core", version = "0.2.0" }
 
 # Cooperative cancellation
-enough = "0.3"
+enough = "0.4"
 
 # Math
 wide = "1.1"
-half = "2.4"
+half = "2.7"
 
 # Types
 bytemuck = { version = "1.14", features = ["derive"] }
@@ -37,10 +37,10 @@ zenjpeg = { path = "../zenjpeg/zenjpeg", features = ["decoder"] }
 moxcms = "0.8"
 
 # Image buffer abstractions
-imgref = "1.10"
+imgref = "1.12"
 rgb = { version = "0.8", features = ["as-bytes"] }
 
 # Testing
-proptest = "1.4"
-fast-ssim2 = "0.6"
+proptest = "1.10"
+fast-ssim2 = "0.7"
 criterion = "0.8"

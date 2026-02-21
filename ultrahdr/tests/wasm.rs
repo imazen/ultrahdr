@@ -224,12 +224,12 @@ fn test_zenjpeg_grayscale_decode_direct() {
     let decoder = Decoder::new();
 
     // This crashes in browser WASM with "RuntimeError: unreachable"
-    let result = decoder.decode(&jpeg_data);
+    let result = decoder.decode(&jpeg_data, enough::Unstoppable);
 
     match result {
         Ok(decoded) => {
-            assert_eq!(decoded.width, 64, "Expected 64x64 image");
-            assert_eq!(decoded.height, 64, "Expected 64x64 image");
+            assert_eq!(decoded.width(), 64, "Expected 64x64 image");
+            assert_eq!(decoded.height(), 64, "Expected 64x64 image");
         }
         Err(e) => {
             panic!("Jpegli grayscale decode failed: {:?}", e);
@@ -258,11 +258,11 @@ fn test_zenjpeg_rgb_decode_direct() {
     // Decode RGB - this works in both Node.js and browser WASM
     let decoder = Decoder::new();
     let decoded = decoder
-        .decode(&jpeg_data)
+        .decode(&jpeg_data, enough::Unstoppable)
         .expect("RGB decode should work in WASM");
 
-    assert_eq!(decoded.width, 8);
-    assert_eq!(decoded.height, 8);
+    assert_eq!(decoded.width(), 8);
+    assert_eq!(decoded.height(), 8);
 }
 
 // ============================================================================

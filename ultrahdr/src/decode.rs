@@ -239,12 +239,14 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<RawImage> {
     use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
     let decoded = JpegDecoder::new()
         .output_format(JpegPixelFormat::Rgb)
-        .decode(jpeg_data)
+        .decode(jpeg_data, Unstoppable)
         .map_err(|e| Error::DecodeError(format!("JPEG decode failed: {}", e)))?;
 
-    let width = decoded.width;
-    let height = decoded.height;
-    let pixels = &decoded.data;
+    let width = decoded.width();
+    let height = decoded.height();
+    let pixels = decoded
+        .pixels_u8()
+        .ok_or_else(|| Error::DecodeError("No pixel data in decoded JPEG".into()))?;
     let bpp = decoded.bytes_per_pixel();
 
     // Convert to RGBA if needed
@@ -294,12 +296,14 @@ fn decode_jpeg_to_grayscale(jpeg_data: &[u8]) -> Result<RawImage> {
     use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
     let decoded = JpegDecoder::new()
         .output_format(JpegPixelFormat::Gray)
-        .decode(jpeg_data)
+        .decode(jpeg_data, Unstoppable)
         .map_err(|e| Error::DecodeError(format!("JPEG decode failed: {}", e)))?;
 
-    let width = decoded.width;
-    let height = decoded.height;
-    let pixels = &decoded.data;
+    let width = decoded.width();
+    let height = decoded.height();
+    let pixels = decoded
+        .pixels_u8()
+        .ok_or_else(|| Error::DecodeError("No pixel data in decoded JPEG".into()))?;
     let bpp = decoded.bytes_per_pixel();
 
     // Convert to grayscale if needed

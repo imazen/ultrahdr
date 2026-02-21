@@ -183,10 +183,11 @@ fn encode_ultrahdr(
     gainmap_jpeg: Vec<u8>,
 ) -> Vec<u8> {
     let config = EncoderConfig::ycbcr(quality, ChromaSubsampling::Quarter)
-        .xmp(xmp.as_bytes().to_vec())
         .add_gainmap(gainmap_jpeg);
 
     let mut enc = config
+        .request()
+        .xmp(xmp.as_bytes())
         .encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)
         .expect("create encoder");
     enc.push_packed(sdr_rgb, Unstoppable).expect("push data");
@@ -326,14 +327,14 @@ fn test_zenjpeg_encode_decode_sdr() {
     let jpeg = encode_rgb(&sdr_rgb, width, height, 90.0);
     assert!(!jpeg.is_empty());
 
-    let decoded = Decoder::new().decode(&jpeg).expect("decode");
+    let decoded = Decoder::new().decode(&jpeg, Unstoppable).expect("decode");
 
-    assert_eq!(decoded.width, width);
-    assert_eq!(decoded.height, height);
+    assert_eq!(decoded.width(), width);
+    assert_eq!(decoded.height(), height);
 
     let diff: i32 = sdr_rgb
         .iter()
-        .zip(decoded.data.iter())
+        .zip(decoded.pixels_u8().unwrap().iter())
         .map(|(&a, &b)| (a as i32 - b as i32).abs())
         .sum();
     let avg_diff = diff as f32 / sdr_rgb.len() as f32;
@@ -352,10 +353,11 @@ fn test_zenjpeg_xmp_preservation() {
     let pixels = vec![128u8; (width * height * 3) as usize];
     let xmp_content = "<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description hdrgm:Version=\"1.0\"/></rdf:RDF></x:xmpmeta>";
 
-    let config =
-        EncoderConfig::ycbcr(85.0, ChromaSubsampling::Quarter).xmp(xmp_content.as_bytes().to_vec());
+    let config = EncoderConfig::ycbcr(85.0, ChromaSubsampling::Quarter);
 
     let mut enc = config
+        .request()
+        .xmp(xmp_content.as_bytes())
         .encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)
         .expect("create encoder");
     enc.push_packed(&pixels, Unstoppable).expect("push data");
@@ -368,7 +370,7 @@ fn test_zenjpeg_xmp_preservation() {
 
     let decoded = Decoder::new()
         .preserve(PreserveConfig::default())
-        .decode(&jpeg)
+        .decode(&jpeg, Unstoppable)
         .expect("decode");
 
     let extras = decoded.extras().expect("should have extras");
@@ -442,11 +444,11 @@ fn test_ultrahdr_decode() {
     // Decode
     let decoded = Decoder::new()
         .preserve(PreserveConfig::default())
-        .decode(&ultrahdr)
+        .decode(&ultrahdr, Unstoppable)
         .expect("decode");
 
-    assert_eq!(decoded.width, width);
-    assert_eq!(decoded.height, height);
+    assert_eq!(decoded.width(), width);
+    assert_eq!(decoded.height(), height);
 
     let extras = decoded.extras().expect("should have extras");
 
@@ -484,7 +486,7 @@ fn test_ultrahdr_roundtrip() {
     // Decode
     let decoded = Decoder::new()
         .preserve(PreserveConfig::default())
-        .decode(&ultrahdr)
+        .decode(&ultrahdr, Unstoppable)
         .expect("decode");
 
     let extras = decoded.extras().expect("extras");
@@ -492,14 +494,14 @@ fn test_ultrahdr_roundtrip() {
     let (parsed_metadata, _) = parse_xmp(xmp_str).expect("parse XMP");
 
     let gainmap_data = extras.gainmap().expect("gainmap");
-    let gainmap_decoded = Decoder::new().decode(gainmap_data).expect("decode gainmap");
+    let gainmap_decoded = Decoder::new().decode(gainmap_data, Unstoppable).expect("decode gainmap");
 
     // Apply gainmap to reconstruct HDR
-    let sdr_raw = rgb8_to_raw_image(&decoded.data, decoded.width, decoded.height);
+    let sdr_raw = rgb8_to_raw_image(decoded.pixels_u8().unwrap(), decoded.width(), decoded.height());
     let gainmap_raw = gray8_to_gainmap(
-        &gainmap_decoded.data,
-        gainmap_decoded.width,
-        gainmap_decoded.height,
+        gainmap_decoded.pixels_u8().unwrap(),
+        gainmap_decoded.width(),
+        gainmap_decoded.height(),
     );
 
     let reconstructed = apply_gainmap(
@@ -551,13 +553,13 @@ fn test_roundtrip_edit_sdr_keep_gainmap() {
     // Decode
     let decoded = Decoder::new()
         .preserve(PreserveConfig::default())
-        .decode(&original)
+        .decode(&original, Unstoppable)
         .expect("decode");
 
     let extras = decoded.extras().unwrap();
 
     // Edit SDR pixels
-    let edited_sdr: Vec<u8> = decoded.data.iter().map(|v| v.saturating_add(10)).collect();
+    let edited_sdr: Vec<u8> = decoded.pixels_u8().unwrap().iter().map(|v| v.saturating_add(10)).collect();
 
     // Re-encode with preserved metadata using to_encoder_segments()
     let encoder_segments = extras.to_encoder_segments();
@@ -573,7 +575,7 @@ fn test_roundtrip_edit_sdr_keep_gainmap() {
     // Verify metadata preserved
     let re_decoded = Decoder::new()
         .preserve(PreserveConfig::default())
-        .decode(&re_encoded)
+        .decode(&re_encoded, Unstoppable)
         .expect("decode");
 
     let re_extras = re_decoded.extras().unwrap();
@@ -582,8 +584,8 @@ fn test_roundtrip_edit_sdr_keep_gainmap() {
 
     // Verify pixels were edited
     assert_ne!(
-        &re_decoded.data[..100],
-        &decoded.data[..100],
+        &re_decoded.pixels_u8().unwrap()[..100],
+        &decoded.pixels_u8().unwrap()[..100],
         "SDR pixels should be different"
     );
 }
@@ -630,9 +632,10 @@ fn test_readme_workflow_encode_decode() {
     // 4. Encode UltraHDR with embedded gain map
     let ultrahdr_jpeg = {
         let cfg = EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter)
-            .xmp(xmp.as_bytes().to_vec())
             .add_gainmap(gainmap_jpeg);
         let mut enc = cfg
+            .request()
+            .xmp(xmp.as_bytes())
             .encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)
             .expect("create ultrahdr encoder");
         enc.push_packed(&sdr_rgb, Unstoppable).expect("push sdr");
@@ -652,7 +655,7 @@ fn test_readme_workflow_encode_decode() {
     // 1. Decode with metadata preservation
     let decoded = Decoder::new()
         .preserve(PreserveConfig::default())
-        .decode(&ultrahdr_jpeg)
+        .decode(&ultrahdr_jpeg, Unstoppable)
         .expect("decode ultrahdr");
 
     let extras = decoded.extras().expect("should have extras");
@@ -670,16 +673,16 @@ fn test_readme_workflow_encode_decode() {
     // 3. Decode gain map JPEG
     let gainmap_data = extras.gainmap().expect("should have gainmap");
     let gainmap_decoded = Decoder::new()
-        .decode(gainmap_data)
+        .decode(gainmap_data, Unstoppable)
         .expect("decode gainmap jpeg");
 
     // 4. Build RawImage and GainMap structs
-    let sdr_raw = rgb8_to_raw_image(&decoded.data, decoded.width, decoded.height);
+    let sdr_raw = rgb8_to_raw_image(decoded.pixels_u8().unwrap(), decoded.width(), decoded.height());
     let gainmap_raw = GainMap {
-        width: gainmap_decoded.width,
-        height: gainmap_decoded.height,
+        width: gainmap_decoded.width(),
+        height: gainmap_decoded.height(),
         channels: 1,
-        data: gainmap_decoded.data,
+        data: gainmap_decoded.pixels_u8().unwrap().to_vec(),
     };
 
     // 5. Apply gain map to reconstruct HDR
@@ -760,12 +763,12 @@ fn test_readme_workflow_lossless_roundtrip() {
     // Decode
     let decoded = Decoder::new()
         .preserve(PreserveConfig::default())
-        .decode(&original)
+        .decode(&original, Unstoppable)
         .expect("decode");
     let extras = decoded.extras().unwrap();
 
     // Edit SDR pixels (simple brightness adjustment)
-    let edited_sdr: Vec<u8> = decoded.data.iter().map(|v| v.saturating_add(20)).collect();
+    let edited_sdr: Vec<u8> = decoded.pixels_u8().unwrap().iter().map(|v| v.saturating_add(20)).collect();
 
     // Re-encode preserving XMP + gainmap
     let encoder_segments = extras.to_encoder_segments();
@@ -780,7 +783,7 @@ fn test_readme_workflow_lossless_roundtrip() {
     // Verify round-trip preserved metadata
     let re_decoded = Decoder::new()
         .preserve(PreserveConfig::default())
-        .decode(&re_encoded)
+        .decode(&re_encoded, Unstoppable)
         .expect("decode re-encoded");
 
     let re_extras = re_decoded.extras().expect("should have extras");
@@ -802,23 +805,24 @@ fn test_readme_workflow_lossless_roundtrip() {
 
     // Pixels should be different (we edited them)
     let pixel_diff: i32 = decoded
-        .data
+        .pixels_u8()
+        .unwrap()
         .iter()
-        .zip(re_decoded.data.iter())
+        .zip(re_decoded.pixels_u8().unwrap().iter())
         .map(|(&a, &b)| (a as i32 - b as i32).abs())
         .sum();
     assert!(pixel_diff > 0, "Pixels should have changed after edit");
 
     // HDR reconstruction should still work with edited SDR + preserved gainmap
     let (parsed_metadata, _) = parse_xmp(re_xmp).expect("parse XMP");
-    let gainmap_decoded = Decoder::new().decode(re_gainmap).expect("decode gainmap");
+    let gainmap_decoded = Decoder::new().decode(re_gainmap, Unstoppable).expect("decode gainmap");
 
-    let sdr_raw = rgb8_to_raw_image(&re_decoded.data, re_decoded.width, re_decoded.height);
+    let sdr_raw = rgb8_to_raw_image(re_decoded.pixels_u8().unwrap(), re_decoded.width(), re_decoded.height());
     let gainmap_raw = GainMap {
-        width: gainmap_decoded.width,
-        height: gainmap_decoded.height,
+        width: gainmap_decoded.width(),
+        height: gainmap_decoded.height(),
         channels: 1,
-        data: gainmap_decoded.data,
+        data: gainmap_decoded.pixels_u8().unwrap().to_vec(),
     };
 
     let hdr = apply_gainmap(
