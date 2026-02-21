@@ -101,21 +101,21 @@ std::fs::write("output.jpg", &ultrahdr_jpeg)?;
 ### Decoding
 
 ```rust
-use ultrahdr_rs::{Decoder, HdrOutputFormat};
+use ultrahdr_rs::Decoder;
 
 let data = std::fs::read("ultrahdr.jpg")?;
 let decoder = Decoder::new(&data)?;
 
 if decoder.is_ultrahdr() {
     // Get HDR output (4x display boost)
-    let hdr = decoder.decode_hdr(4.0, HdrOutputFormat::LinearFloat)?;
+    let hdr = decoder.decode_hdr(4.0)?;
 
     // Or just get SDR
     let sdr = decoder.decode_sdr()?;
 
     // Inspect metadata
     let metadata = decoder.metadata();
-    println!("HDR capacity: {:.1}x", metadata.hdr_capacity_max);
+    println!("HDR capacity: {:.1}x", metadata.unwrap().hdr_capacity_max);
 }
 ```
 
@@ -445,7 +445,7 @@ Understanding the correct sequencing is critical for both quality and memory eff
 For memory-constrained environments, `ultrahdr-core` provides streaming APIs that process images row-by-row:
 
 ```rust
-use ultrahdr_core::gainmap::streaming::{RowDecoder, RowEncoder, DecodeInput, EncodeInput};
+use ultrahdr_core::gainmap::streaming::{RowDecoder, RowEncoder};
 ```
 
 | Type | Direction | Memory | Use Case |
@@ -458,19 +458,20 @@ use ultrahdr_core::gainmap::streaming::{RowDecoder, RowEncoder, DecodeInput, Enc
 ### Streaming Decode Example
 
 ```rust
-use ultrahdr_core::gainmap::streaming::{RowDecoder, DecodeInput};
-use ultrahdr_core::{HdrOutputFormat, ColorGamut};
+use ultrahdr_core::gainmap::streaming::RowDecoder;
+use ultrahdr_core::ColorGamut;
 
-// Load gainmap fully, then stream SDR rows
+// Load gainmap fully, then stream SDR rows (linear f32)
 let mut decoder = RowDecoder::new(
-    gainmap, metadata, width, height, 4.0, HdrOutputFormat::LinearFloat, ColorGamut::Bt709
+    gainmap, metadata, width, height, 4.0, ColorGamut::Bt709
 )?;
 
 // Process in 16-row batches (JPEG MCU alignment)
+// Note: SDR input must be linear f32 RGB (3 floats per pixel)
 for batch_start in (0..height).step_by(16) {
     let batch_height = 16.min(height - batch_start);
-    let sdr_batch = jpeg_decoder.next_rows(batch_height);
-    let hdr_batch = decoder.process_rows(&sdr_batch, batch_height)?;
+    let sdr_batch = jpeg_decoder.next_rows(batch_height); // linear f32
+    let hdr_batch = decoder.process_sdr_rows(&sdr_batch, batch_height)?;
     write_output(&hdr_batch);
 }
 ```
@@ -631,9 +632,10 @@ let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
 // 4. Encode UltraHDR with embedded gain map
 let ultrahdr = {
     let cfg = EncoderConfig::ycbcr(90.0, ChromaSubsampling::Quarter)
-        .xmp(xmp.as_bytes().to_vec())
         .add_gainmap(gainmap_jpeg);
-    let mut enc = cfg.encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)?;
+    let mut enc = cfg.request()
+        .xmp(xmp.as_bytes())
+        .encode_from_bytes(width, height, PixelLayout::Rgb8Srgb)?;
     enc.push_packed(&sdr_rgb, ZenjpegStop)?;
     enc.finish()?
 };
@@ -652,7 +654,7 @@ use zenjpeg::decoder::{Decoder, PreserveConfig};
 // 1. Decode with metadata preservation
 let decoded = Decoder::new()
     .preserve(PreserveConfig::default())
-    .decode(&ultrahdr_jpeg)?;
+    .decode(&ultrahdr_jpeg, Unstoppable)?;
 
 let extras = decoded.extras().expect("extras");
 
@@ -662,19 +664,19 @@ let (metadata, _) = parse_xmp(xmp_str)?;
 
 // 3. Decode gain map JPEG
 let gainmap_jpeg = extras.gainmap().expect("gainmap");
-let gainmap_decoded = Decoder::new().decode(gainmap_jpeg)?;
+let gainmap_decoded = Decoder::new().decode(gainmap_jpeg, Unstoppable)?;
 
 // 4. Build RawImage and GainMap structs
 let sdr = RawImage::from_data(
-    decoded.width, decoded.height,
+    decoded.width(), decoded.height(),
     PixelFormat::Rgba8, ColorGamut::Bt709, ColorTransfer::Srgb,
     rgba_pixels,
 )?;
 let gainmap = GainMap {
-    width: gainmap_decoded.width,
-    height: gainmap_decoded.height,
+    width: gainmap_decoded.width(),
+    height: gainmap_decoded.height(),
     channels: 1,
-    data: gainmap_decoded.data,
+    data: gainmap_decoded.pixels_u8().unwrap().to_vec(),
 };
 
 // 5. Apply gain map to reconstruct HDR
@@ -685,7 +687,7 @@ let hdr = apply_gainmap(&sdr, &gainmap, &metadata, 4.0, HdrOutputFormat::LinearF
 
 ```rust
 // Decode
-let decoded = Decoder::new().preserve(PreserveConfig::default()).decode(&ultrahdr)?;
+let decoded = Decoder::new().preserve(PreserveConfig::default()).decode(&ultrahdr, Unstoppable)?;
 let extras = decoded.extras().unwrap();
 
 // Edit SDR pixels...
