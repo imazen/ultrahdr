@@ -1,7 +1,7 @@
 [package]
 name = "ultrahdr-core"
 version = "0.2.0"
-edition = "2021"
+edition = "2024"
 rust-version = "1.92"
 license = "Apache-2.0"
 description = "Core gain map math and metadata for Ultra HDR - no codec dependencies"
