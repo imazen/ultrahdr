@@ -3,11 +3,11 @@
 //! This can be compiled to WASI and run under wasmtime or wasmer.
 
 use ultrahdr_core::{
-    gainmap::{
-        apply::{apply_gainmap, HdrOutputFormat},
-        compute::{compute_gainmap, GainMapConfig},
-    },
     ColorGamut, ColorTransfer, GainMap, GainMapMetadata, PixelFormat, RawImage, Unstoppable,
+    gainmap::{
+        apply::{HdrOutputFormat, apply_gainmap},
+        compute::{GainMapConfig, compute_gainmap},
+    },
 };
 
 /// Simple timer using WASI clock.

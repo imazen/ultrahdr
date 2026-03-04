@@ -1,7 +1,7 @@
 //! Ultra HDR decoder.
 
 #[cfg(feature = "_test-helpers")]
-use ultrahdr_core::gainmap::apply::{apply_gainmap, HdrOutputFormat};
+use ultrahdr_core::gainmap::apply::{HdrOutputFormat, apply_gainmap};
 use ultrahdr_core::metadata::{
     mpf::{find_jpeg_boundaries, parse_mpf},
     xmp::parse_xmp,

@@ -25,10 +25,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
+use crate::RawImage;
 use crate::color::gamut::{convert_gamut, rgb_to_luminance, soft_clip_gamut};
 use crate::color::transfer::{hlg_eotf, pq_eotf, srgb_eotf, srgb_oetf};
 use crate::types::{ColorGamut, ColorTransfer, Error, GainMap, GainMapMetadata, Result};
-use crate::RawImage;
 
 // ============================================================================
 // Tone Mapping Configuration
@@ -915,8 +915,8 @@ pub fn tonemap_image_to_srgb8(img: &RawImage, target_gamut: ColorGamut) -> Vec<u
 
 /// Get linear RGB from any image format.
 fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
-    use crate::color::transfer::{hlg_oetf_inv, pq_eotf};
     use crate::PixelFormat;
+    use crate::color::transfer::{hlg_oetf_inv, pq_eotf};
 
     match img.format {
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {

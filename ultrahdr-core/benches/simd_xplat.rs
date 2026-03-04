@@ -9,7 +9,7 @@
 //!   cargo build --package ultrahdr-core --bench simd_xplat --features simd --target aarch64-unknown-linux-gnu
 //!   cargo build --package ultrahdr-core --bench simd_xplat --features simd --target wasm32-unknown-unknown
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 // ============================================================================
 // Scalar baseline - current LUT implementation

@@ -3,7 +3,7 @@
 #[cfg(feature = "_test-helpers")]
 use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8;
 #[cfg(feature = "_test-helpers")]
-use ultrahdr_core::gainmap::compute::{compute_gainmap, GainMapConfig};
+use ultrahdr_core::gainmap::compute::{GainMapConfig, compute_gainmap};
 use ultrahdr_core::metadata::{
     mpf::create_mpf_header,
     xmp::{create_xmp_app1_marker, generate_xmp},
@@ -15,7 +15,7 @@ use ultrahdr_core::{ColorTransfer, PixelFormat, Unstoppable};
 use ultrahdr_core::{GainMap, RawImage};
 
 use crate::jpeg::{
-    create_icc_markers, get_icc_profile_for_gamut, insert_segment_after_soi, JpegSegment,
+    JpegSegment, create_icc_markers, get_icc_profile_for_gamut, insert_segment_after_soi,
 };
 
 /// Assemble an Ultra HDR JPEG from pre-encoded components.
@@ -393,7 +393,7 @@ impl Encoder {
                 return Err(Error::EncodeError(format!(
                     "Unsupported SDR pixel format: {:?}",
                     sdr.format
-                )))
+                )));
             }
         };
 

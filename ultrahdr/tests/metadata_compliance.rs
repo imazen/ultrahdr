@@ -192,7 +192,7 @@ fn test_iso21496_roundtrip() {
 /// Test ISO metadata version byte.
 #[test]
 fn test_iso21496_version() {
-    use ultrahdr_rs::metadata::iso21496::{serialize_iso21496, ISO_VERSION};
+    use ultrahdr_rs::metadata::iso21496::{ISO_VERSION, serialize_iso21496};
 
     let metadata = create_test_metadata(2.0);
     let serialized = serialize_iso21496(&metadata);

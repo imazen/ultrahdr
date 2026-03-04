@@ -15,7 +15,7 @@ mod common;
 
 use ultrahdr_rs::gainmap::streaming::RowEncoder;
 use ultrahdr_rs::{
-    color::tonemap::filmic_tonemap, color::transfer::srgb_oetf, ColorGamut, GainMapConfig,
+    ColorGamut, GainMapConfig, color::tonemap::filmic_tonemap, color::transfer::srgb_oetf,
 };
 use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 

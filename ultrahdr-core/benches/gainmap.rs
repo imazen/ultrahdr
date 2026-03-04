@@ -1,13 +1,13 @@
 //! Benchmarks for gain map operations.
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 use ultrahdr_core::{
-    gainmap::{
-        apply::{apply_gainmap, HdrOutputFormat},
-        compute::{compute_gainmap, GainMapConfig},
-    },
     ColorGamut, ColorTransfer, GainMap, GainMapMetadata, PixelFormat, RawImage,
+    gainmap::{
+        apply::{HdrOutputFormat, apply_gainmap},
+        compute::{GainMapConfig, compute_gainmap},
+    },
 };
 
 /// Create a test SDR image of given dimensions.
