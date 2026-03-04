@@ -1,9 +1,16 @@
 use std::fs;
 use ultrahdr_rs::container;
 
+fn zenjpeg_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var("ZENJPEG_DIR").unwrap_or_else(|_| "/home/lilith/work/zenjpeg".into()),
+    )
+}
+
 fn main() {
-    let data =
-        fs::read("/home/lilith/work/zenjpeg/zenjpeg/tests/images/ultrahdr_sample.jpg").unwrap();
+    let path = zenjpeg_dir().join("zenjpeg/tests/images/ultrahdr_sample.jpg");
+    let data = fs::read(&path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {}. Set ZENJPEG_DIR.", path.display(), e));
 
     // Parse using ultrahdr container functions
     let segments = container::scan_segments(&data);
