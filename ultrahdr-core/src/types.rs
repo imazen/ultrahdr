@@ -487,6 +487,100 @@ impl GainMapMetadata {
     }
 }
 
+// ============================================================================
+// zencodec interop: From conversions for zenpixels / zencodec-types
+// ============================================================================
+
+#[cfg(feature = "zencodec")]
+mod zencodec_interop {
+    use super::*;
+    use zenpixels::{ColorPrimaries, TransferFunction};
+
+    // --- ColorGamut ↔ ColorPrimaries ---
+
+    impl From<ColorGamut> for ColorPrimaries {
+        fn from(gamut: ColorGamut) -> Self {
+            match gamut {
+                ColorGamut::Bt709 => ColorPrimaries::Bt709,
+                ColorGamut::DisplayP3 => ColorPrimaries::DisplayP3,
+                ColorGamut::Bt2100 => ColorPrimaries::Bt2020,
+            }
+        }
+    }
+
+    impl From<ColorPrimaries> for ColorGamut {
+        fn from(primaries: ColorPrimaries) -> Self {
+            match primaries {
+                ColorPrimaries::Bt709 => ColorGamut::Bt709,
+                ColorPrimaries::DisplayP3 => ColorGamut::DisplayP3,
+                ColorPrimaries::Bt2020 => ColorGamut::Bt2100,
+                _ => ColorGamut::Bt709, // fallback
+            }
+        }
+    }
+
+    // --- ColorTransfer ↔ TransferFunction ---
+
+    impl From<ColorTransfer> for TransferFunction {
+        fn from(transfer: ColorTransfer) -> Self {
+            match transfer {
+                ColorTransfer::Srgb => TransferFunction::Srgb,
+                ColorTransfer::Linear => TransferFunction::Linear,
+                ColorTransfer::Pq => TransferFunction::Pq,
+                ColorTransfer::Hlg => TransferFunction::Hlg,
+            }
+        }
+    }
+
+    impl From<TransferFunction> for ColorTransfer {
+        fn from(tf: TransferFunction) -> Self {
+            match tf {
+                TransferFunction::Srgb => ColorTransfer::Srgb,
+                TransferFunction::Linear => ColorTransfer::Linear,
+                TransferFunction::Pq => ColorTransfer::Pq,
+                TransferFunction::Hlg => ColorTransfer::Hlg,
+                _ => ColorTransfer::Srgb, // fallback
+            }
+        }
+    }
+
+    // --- GainMapMetadata ↔ zencodec_types::GainMapMetadata ---
+    //
+    // ultrahdr uses linear domain: max_content_boost=4.0, hdr_capacity_max=4.0
+    // zencodec uses log2 domain:   gain_map_max=2.0,       hdr_capacity_max=2.0
+
+    impl From<GainMapMetadata> for zencodec_types::GainMapMetadata {
+        fn from(m: GainMapMetadata) -> Self {
+            Self {
+                base_rendition_is_hdr: false, // Ultra HDR always has SDR base
+                gain_map_min: m.min_content_boost.map(f32::log2),
+                gain_map_max: m.max_content_boost.map(f32::log2),
+                gamma: m.gamma,
+                offset_sdr: m.offset_sdr,
+                offset_hdr: m.offset_hdr,
+                hdr_capacity_min: m.hdr_capacity_min.log2(),
+                hdr_capacity_max: m.hdr_capacity_max.log2(),
+                use_base_color_space: m.use_base_color_space,
+            }
+        }
+    }
+
+    impl From<zencodec_types::GainMapMetadata> for GainMapMetadata {
+        fn from(m: zencodec_types::GainMapMetadata) -> Self {
+            Self {
+                min_content_boost: m.gain_map_min.map(f32::exp2),
+                max_content_boost: m.gain_map_max.map(f32::exp2),
+                gamma: m.gamma,
+                offset_sdr: m.offset_sdr,
+                offset_hdr: m.offset_hdr,
+                hdr_capacity_min: m.hdr_capacity_min.exp2(),
+                hdr_capacity_max: m.hdr_capacity_max.exp2(),
+                use_base_color_space: m.use_base_color_space,
+            }
+        }
+    }
+}
+
 /// A fraction for ISO 21496-1 metadata encoding.
 ///
 /// ISO 21496-1 uses fractional representation for gain map metadata
@@ -728,5 +822,177 @@ mod tests {
                 roundtrip
             );
         }
+    }
+}
+
+#[cfg(all(test, feature = "zencodec"))]
+mod zencodec_tests {
+    use super::*;
+    use zenpixels::{ColorPrimaries, TransferFunction};
+
+    #[test]
+    fn test_color_gamut_to_primaries() {
+        assert_eq!(
+            ColorPrimaries::from(ColorGamut::Bt709),
+            ColorPrimaries::Bt709
+        );
+        assert_eq!(
+            ColorPrimaries::from(ColorGamut::DisplayP3),
+            ColorPrimaries::DisplayP3
+        );
+        assert_eq!(
+            ColorPrimaries::from(ColorGamut::Bt2100),
+            ColorPrimaries::Bt2020
+        );
+    }
+
+    #[test]
+    fn test_primaries_to_color_gamut() {
+        assert_eq!(ColorGamut::from(ColorPrimaries::Bt709), ColorGamut::Bt709);
+        assert_eq!(
+            ColorGamut::from(ColorPrimaries::DisplayP3),
+            ColorGamut::DisplayP3
+        );
+        assert_eq!(ColorGamut::from(ColorPrimaries::Bt2020), ColorGamut::Bt2100);
+        // Unknown falls back to Bt709
+        assert_eq!(ColorGamut::from(ColorPrimaries::Unknown), ColorGamut::Bt709);
+    }
+
+    #[test]
+    fn test_color_transfer_to_transfer_function() {
+        assert_eq!(
+            TransferFunction::from(ColorTransfer::Srgb),
+            TransferFunction::Srgb
+        );
+        assert_eq!(
+            TransferFunction::from(ColorTransfer::Linear),
+            TransferFunction::Linear
+        );
+        assert_eq!(
+            TransferFunction::from(ColorTransfer::Pq),
+            TransferFunction::Pq
+        );
+        assert_eq!(
+            TransferFunction::from(ColorTransfer::Hlg),
+            TransferFunction::Hlg
+        );
+    }
+
+    #[test]
+    fn test_transfer_function_to_color_transfer() {
+        assert_eq!(
+            ColorTransfer::from(TransferFunction::Srgb),
+            ColorTransfer::Srgb
+        );
+        assert_eq!(
+            ColorTransfer::from(TransferFunction::Linear),
+            ColorTransfer::Linear
+        );
+        assert_eq!(ColorTransfer::from(TransferFunction::Pq), ColorTransfer::Pq);
+        assert_eq!(
+            ColorTransfer::from(TransferFunction::Hlg),
+            ColorTransfer::Hlg
+        );
+        // Unknown/Bt709 fall back to Srgb
+        assert_eq!(
+            ColorTransfer::from(TransferFunction::Unknown),
+            ColorTransfer::Srgb
+        );
+        assert_eq!(
+            ColorTransfer::from(TransferFunction::Bt709),
+            ColorTransfer::Srgb
+        );
+    }
+
+    #[test]
+    fn test_gainmap_metadata_to_zencodec() {
+        let uhdr = GainMapMetadata {
+            max_content_boost: [4.0; 3],
+            min_content_boost: [1.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 4.0,
+            use_base_color_space: true,
+        };
+
+        let zen: zencodec_types::GainMapMetadata = uhdr.into();
+
+        // log2(4.0) = 2.0
+        assert!((zen.gain_map_max[0] - 2.0).abs() < 1e-6);
+        // log2(1.0) = 0.0
+        assert!((zen.gain_map_min[0] - 0.0).abs() < 1e-6);
+        // log2(1.0) = 0.0
+        assert!((zen.hdr_capacity_min - 0.0).abs() < 1e-6);
+        // log2(4.0) = 2.0
+        assert!((zen.hdr_capacity_max - 2.0).abs() < 1e-6);
+        assert!(!zen.base_rendition_is_hdr);
+        assert!(zen.use_base_color_space);
+        assert_eq!(zen.gamma, [1.0; 3]);
+        assert_eq!(zen.offset_sdr, [1.0 / 64.0; 3]);
+    }
+
+    #[test]
+    fn test_gainmap_metadata_from_zencodec() {
+        let zen = zencodec_types::GainMapMetadata {
+            base_rendition_is_hdr: false,
+            gain_map_max: [2.0; 3], // log2(4.0)
+            gain_map_min: [0.0; 3], // log2(1.0)
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 0.0, // log2(1.0)
+            hdr_capacity_max: 2.0, // log2(4.0)
+            use_base_color_space: true,
+        };
+
+        let uhdr: GainMapMetadata = zen.into();
+
+        // exp2(2.0) = 4.0
+        assert!((uhdr.max_content_boost[0] - 4.0).abs() < 1e-6);
+        // exp2(0.0) = 1.0
+        assert!((uhdr.min_content_boost[0] - 1.0).abs() < 1e-6);
+        // exp2(0.0) = 1.0
+        assert!((uhdr.hdr_capacity_min - 1.0).abs() < 1e-6);
+        // exp2(2.0) = 4.0
+        assert!((uhdr.hdr_capacity_max - 4.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_gainmap_metadata_roundtrip() {
+        let original = GainMapMetadata {
+            max_content_boost: [4.0, 2.0, 8.0],
+            min_content_boost: [0.5, 1.0, 0.25],
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 8.0,
+            use_base_color_space: false,
+        };
+
+        let zen: zencodec_types::GainMapMetadata = original.clone().into();
+        let roundtrip: GainMapMetadata = zen.into();
+
+        for i in 0..3 {
+            assert!(
+                (roundtrip.max_content_boost[i] - original.max_content_boost[i]).abs() < 1e-5,
+                "max_content_boost[{i}] roundtrip: {} vs {}",
+                roundtrip.max_content_boost[i],
+                original.max_content_boost[i]
+            );
+            assert!(
+                (roundtrip.min_content_boost[i] - original.min_content_boost[i]).abs() < 1e-5,
+                "min_content_boost[{i}] roundtrip: {} vs {}",
+                roundtrip.min_content_boost[i],
+                original.min_content_boost[i]
+            );
+        }
+        assert!((roundtrip.hdr_capacity_max - original.hdr_capacity_max).abs() < 1e-5);
+        assert_eq!(
+            roundtrip.use_base_color_space,
+            original.use_base_color_space
+        );
     }
 }

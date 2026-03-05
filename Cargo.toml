@@ -40,6 +40,13 @@ moxcms = "0.8"
 imgref = "1.12"
 rgb = { version = "0.8", features = ["as-bytes"] }
 
+# Transfer functions
+linear-srgb = { path = "../linear-srgb", default-features = false, features = ["transfer"] }
+
+# Zen ecosystem interop
+zenpixels = { path = "../zenpixels/zenpixels", default-features = false }
+zencodec-types = { path = "../zencodec-types" }
+
 # Testing
 proptest = "1.10"
 fast-ssim2 = "0.7"

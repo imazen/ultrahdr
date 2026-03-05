@@ -28,6 +28,13 @@ bytemuck = { version = "1.14", features = ["derive"] }
 # Error handling - std only for now
 thiserror = "2.0"
 
+# Transfer functions (optional)
+linear-srgb = { workspace = true, optional = true }
+
+# Zen ecosystem interop (optional)
+zenpixels = { workspace = true, optional = true }
+zencodec-types = { workspace = true, optional = true }
+
 [dev-dependencies]
 # Property testing
 proptest = "1.10"
@@ -47,8 +54,9 @@ required-features = ["simd"]
 
 [features]
 default = ["std", "transfer"]
-std = ["enough/std", "archmage?/std", "magetypes?/std"]
+std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb?/std"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
-transfer = []  # Built-in transfer functions (sRGB, PQ, HLG). Disable to use external CMS.
+transfer = ["dep:linear-srgb"]  # Transfer functions (sRGB, PQ, HLG) via linear-srgb.
+zencodec = ["dep:zenpixels", "dep:zencodec-types"]  # From conversions for zen* ecosystem types.
 # Future: alloc-only support
 # alloc = ["enough/alloc"]

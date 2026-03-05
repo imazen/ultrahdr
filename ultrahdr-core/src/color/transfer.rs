@@ -17,76 +17,50 @@ use alloc::boxed::Box;
 
 use crate::types::ColorTransfer;
 
+// All scalar transfer functions delegate to `linear-srgb` for fast
+// rational polynomial / fast-math implementations. Ultrahdr-specific
+// composite functions (hlg_ootf, hlg_eotf, nits helpers) are kept here.
+
 // ============================================================================
 // sRGB Transfer Function (IEC 61966-2-1)
 // ============================================================================
 
 /// sRGB OETF: Linear `[0,1]` → sRGB encoded `[0,1]`
+///
+/// Delegates to `linear-srgb` (rational polynomial, ~5e-7 max error, no `powf`).
 #[inline]
 pub fn srgb_oetf(linear: f32) -> f32 {
-    if linear <= 0.0031308 {
-        linear * 12.92
-    } else {
-        1.055 * linear.powf(1.0 / 2.4) - 0.055
-    }
+    linear_srgb::tf::linear_to_srgb(linear)
 }
 
 /// sRGB EOTF (inverse OETF): sRGB encoded `[0,1]` → Linear `[0,1]`
+///
+/// Delegates to `linear-srgb` (rational polynomial, ~5e-7 max error, no `powf`).
 #[inline]
 pub fn srgb_eotf(encoded: f32) -> f32 {
-    if encoded <= 0.04045 {
-        encoded / 12.92
-    } else {
-        ((encoded + 0.055) / 1.055).powf(2.4)
-    }
+    linear_srgb::tf::srgb_to_linear(encoded)
 }
 
 // ============================================================================
 // PQ Transfer Function (SMPTE ST 2084 / ITU-R BT.2100)
 // ============================================================================
 
-// PQ constants
-const PQ_M1: f32 = 2610.0 / 16384.0; // 0.1593017578125
-const PQ_M2: f32 = 2523.0 / 4096.0 * 128.0; // 78.84375
-const PQ_C1: f32 = 3424.0 / 4096.0; // 0.8359375
-const PQ_C2: f32 = 2413.0 / 4096.0 * 32.0; // 18.8515625
-const PQ_C3: f32 = 2392.0 / 4096.0 * 32.0; // 18.6875
-
 /// PQ OETF: Linear `[0,1]` (normalized to 10000 nits) → PQ encoded `[0,1]`
 ///
 /// Input is linear light normalized so that 1.0 = 10000 nits.
+/// Delegates to `linear-srgb` (rational polynomial, ~3e-6 max error).
 #[inline]
 pub fn pq_oetf(linear: f32) -> f32 {
-    if linear <= 0.0 {
-        return 0.0;
-    }
-
-    let y = linear.max(0.0);
-    let y_m1 = y.powf(PQ_M1);
-    let numerator = PQ_C1 + PQ_C2 * y_m1;
-    let denominator = 1.0 + PQ_C3 * y_m1;
-    (numerator / denominator).powf(PQ_M2)
+    linear_srgb::tf::linear_to_pq(linear)
 }
 
 /// PQ EOTF: PQ encoded `[0,1]` → Linear `[0,1]` (normalized to 10000 nits)
 ///
 /// Output is linear light normalized so that 1.0 = 10000 nits.
+/// Delegates to `linear-srgb` (rational polynomial, ~7e-7 max error).
 #[inline]
 pub fn pq_eotf(encoded: f32) -> f32 {
-    if encoded <= 0.0 {
-        return 0.0;
-    }
-
-    let e = encoded.max(0.0);
-    let e_inv_m2 = e.powf(1.0 / PQ_M2);
-    let numerator = (e_inv_m2 - PQ_C1).max(0.0);
-    let denominator = PQ_C2 - PQ_C3 * e_inv_m2;
-
-    if denominator <= 0.0 {
-        return 0.0;
-    }
-
-    (numerator / denominator).powf(1.0 / PQ_M1)
+    linear_srgb::tf::pq_to_linear(encoded)
 }
 
 /// Convert PQ-normalized linear to absolute nits.
@@ -105,41 +79,21 @@ pub fn nits_to_pq(nits: f32) -> f32 {
 // HLG Transfer Function (ITU-R BT.2100 / ARIB STD-B67)
 // ============================================================================
 
-// HLG constants
-const HLG_A: f32 = 0.17883277;
-const HLG_B: f32 = 0.28466892; // 1 - 4*a
-const HLG_C: f32 = 0.55991073; // 0.5 - a*ln(4*a)
-
 /// HLG OETF: Scene linear `[0,1]` → HLG encoded `[0,1]`
 ///
 /// Input is scene-referred linear light (not display-referred).
+/// Delegates to `linear-srgb` (fast log2 approximation, ~5e-6 max error).
 #[inline]
 pub fn hlg_oetf(linear: f32) -> f32 {
-    if linear <= 0.0 {
-        return 0.0;
-    }
-
-    let e = linear.max(0.0);
-    if e <= 1.0 / 12.0 {
-        (3.0 * e).sqrt()
-    } else {
-        HLG_A * (12.0 * e - HLG_B).ln() + HLG_C
-    }
+    linear_srgb::tf::linear_to_hlg(linear)
 }
 
 /// HLG inverse OETF: HLG encoded `[0,1]` → Scene linear `[0,1]`
+///
+/// Delegates to `linear-srgb` (fast pow2 approximation, ~5e-6 max error).
 #[inline]
 pub fn hlg_oetf_inv(encoded: f32) -> f32 {
-    if encoded <= 0.0 {
-        return 0.0;
-    }
-
-    let e = encoded.max(0.0);
-    if e <= 0.5 {
-        e * e / 3.0
-    } else {
-        ((e - HLG_C) / HLG_A).exp() / 12.0 + HLG_B / 12.0
-    }
+    linear_srgb::tf::hlg_to_linear(encoded)
 }
 
 /// HLG OOTF: Scene linear → Display linear
@@ -312,6 +266,16 @@ mod tests {
     use super::*;
 
     const EPSILON: f32 = 1e-4;
+
+    // Reference constants for test formulas
+    const PQ_M1: f32 = 2610.0 / 16384.0;
+    const PQ_M2: f32 = 2523.0 / 4096.0 * 128.0;
+    const PQ_C1: f32 = 3424.0 / 4096.0;
+    const PQ_C2: f32 = 2413.0 / 4096.0 * 32.0;
+    const PQ_C3: f32 = 2392.0 / 4096.0 * 32.0;
+    const HLG_A: f32 = 0.17883277;
+    const HLG_B: f32 = 0.28466892;
+    const HLG_C: f32 = 0.55991073;
 
     fn approx_eq(a: f32, b: f32) -> bool {
         (a - b).abs() < EPSILON || (a - b).abs() / a.abs().max(b.abs()).max(1e-10) < EPSILON
