@@ -2,15 +2,19 @@ use std::fs;
 use ultrahdr_rs::container;
 
 fn zenjpeg_dir() -> std::path::PathBuf {
-    let dir = std::path::PathBuf::from(
-        std::env::var("ZENJPEG_DIR").unwrap_or_else(|_| {
-            // Default: sibling directory relative to workspace root
-            let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .ancestors().nth(2).expect("workspace root");
-            workspace.join("zenjpeg").to_string_lossy().into_owned()
-        }),
+    let dir = std::path::PathBuf::from(std::env::var("ZENJPEG_DIR").unwrap_or_else(|_| {
+        // Default: sibling directory relative to workspace root
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("workspace root");
+        workspace.join("zenjpeg").to_string_lossy().into_owned()
+    }));
+    assert!(
+        dir.is_dir(),
+        "zenjpeg repo not found: {}. Set ZENJPEG_DIR.",
+        dir.display()
     );
-    assert!(dir.is_dir(), "zenjpeg repo not found: {}. Set ZENJPEG_DIR.", dir.display());
     dir
 }
 
