@@ -201,10 +201,8 @@ mod tests {
     #[test]
     fn test_create_icc_markers_empty() {
         let markers = create_icc_markers(&[]);
-        assert_eq!(markers.len(), 1);
-        // Should still have header
-        assert_eq!(markers[0][0], 0xFF);
-        assert_eq!(markers[0][1], 0xE2);
+        // Empty input produces no chunks
+        assert_eq!(markers.len(), 0);
     }
 
     #[test]

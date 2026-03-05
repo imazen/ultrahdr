@@ -3,33 +3,38 @@
 #[cfg(feature = "_test-helpers")]
 use ultrahdr_core::gainmap::apply::{HdrOutputFormat, apply_gainmap};
 use ultrahdr_core::metadata::{
-    mpf::{find_jpeg_boundaries, parse_mpf},
+    mpf::find_jpeg_boundaries,
     xmp::parse_xmp,
 };
 #[cfg(feature = "_test-helpers")]
 use ultrahdr_core::{ColorGamut, ColorTransfer, PixelFormat, Unstoppable};
 use ultrahdr_core::{Error, GainMap, GainMapMetadata, RawImage, Result};
 
-use crate::jpeg::{extract_icc_profile, find_xmp_data};
+use crate::container::{self, AppSegment};
 
 /// Ultra HDR decoder.
 ///
 /// Decodes Ultra HDR JPEGs, extracting the SDR base image, gain map,
 /// and metadata. Can reconstruct HDR content at various display
 /// brightness levels.
-pub struct Decoder {
-    data: Vec<u8>,
+///
+/// The decoder borrows the input data to avoid an unconditional copy.
+/// For owned data, use [`Decoder::from_vec`].
+pub struct Decoder<'a> {
+    data: &'a [u8],
     metadata: Option<GainMapMetadata>,
     primary_jpeg: Option<(usize, usize)>,
     gainmap_jpeg: Option<(usize, usize)>,
     is_ultrahdr: bool,
 }
 
-impl Decoder {
+impl<'a> Decoder<'a> {
     /// Create a new decoder from JPEG data.
-    pub fn new(data: &[u8]) -> Result<Self> {
+    ///
+    /// The decoder borrows the data — no copy is made.
+    pub fn new(data: &'a [u8]) -> Result<Self> {
         let mut decoder = Self {
-            data: data.to_vec(),
+            data,
             metadata: None,
             primary_jpeg: None,
             gainmap_jpeg: None,
@@ -175,35 +180,52 @@ impl Decoder {
     }
 
     /// Parse the Ultra HDR structure.
+    ///
+    /// Uses `container::scan_segments` for efficient marker-to-marker scanning
+    /// instead of byte-by-byte search.
     fn parse(&mut self) -> Result<()> {
         // Check for valid JPEG
         if self.data.len() < 4 || self.data[0] != 0xFF || self.data[1] != 0xD8 {
             return Err(Error::DecodeError("Not a valid JPEG".into()));
         }
 
-        // Try to find XMP metadata with hdrgm namespace
-        if let Some(xmp) = find_xmp_data(&self.data) {
-            if xmp.contains("hdrgm:") || xmp.contains("http://ns.adobe.com/hdr-gain-map/") {
-                if let Ok((metadata, _gainmap_len)) = parse_xmp(&xmp) {
+        // Scan APP segments efficiently (walks marker-to-marker, not byte-by-byte)
+        let segments = container::scan_segments(self.data);
+
+        // Find XMP metadata with hdrgm namespace
+        if let Some(xmp_str) = find_xmp_in_segments(&segments) {
+            if xmp_str.contains("hdrgm:") || xmp_str.contains("http://ns.adobe.com/hdr-gain-map/")
+            {
+                if let Ok((metadata, _gainmap_len)) = parse_xmp(&xmp_str) {
                     self.metadata = Some(metadata);
                     self.is_ultrahdr = true;
                 }
             }
         }
 
-        // Try to parse MPF to find gain map
-        if let Ok(images) = parse_mpf(&self.data) {
-            if images.len() >= 2 {
-                // First image is primary, second is gain map
-                self.primary_jpeg = Some(images[0]);
-                self.gainmap_jpeg = Some(images[1]);
-                self.is_ultrahdr = true;
+        // Try to parse MPF to find gain map (reuses container module's parser)
+        if let Some(mpf_seg) = segments.iter().find(|s| s.is_mpf()) {
+            if let Ok(mpf_dir) = container::parse_mpf_segment(&mpf_seg.data, mpf_seg.offset) {
+                if mpf_dir.entries.len() >= 2 {
+                    // Primary image
+                    let primary_size = mpf_dir.entries[0].size as usize;
+                    self.primary_jpeg = Some((0, primary_size));
+
+                    // Secondary images (gain map)
+                    let secondaries = container::extract_secondary_images(self.data, &mpf_dir);
+                    if let Some(gm) = secondaries.first() {
+                        let gm_start =
+                            gm.as_ptr() as usize - self.data.as_ptr() as usize;
+                        self.gainmap_jpeg = Some((gm_start, gm_start + gm.len()));
+                        self.is_ultrahdr = true;
+                    }
+                }
             }
         }
 
         // Fallback: look for multiple JPEGs in the file
         if self.gainmap_jpeg.is_none() {
-            let boundaries = find_jpeg_boundaries(&self.data);
+            let boundaries = find_jpeg_boundaries(self.data);
             if boundaries.len() >= 2 {
                 self.primary_jpeg = Some(boundaries[0]);
                 self.gainmap_jpeg = Some(boundaries[1]);
@@ -220,7 +242,7 @@ impl Decoder {
 
     /// Get the ICC profile from the primary image if present.
     pub fn icc_profile(&self) -> Option<Vec<u8>> {
-        extract_icc_profile(&self.data)
+        crate::jpeg::extract_icc_profile(self.data)
     }
 
     /// Get information about the decoded image dimensions.
@@ -231,6 +253,25 @@ impl Decoder {
         let sdr = self.decode_sdr()?;
         Ok((sdr.width, sdr.height))
     }
+}
+
+/// Find XMP data in pre-scanned APP segments.
+///
+/// This is O(segments) instead of O(bytes), since we use the already-scanned
+/// segment list from `container::scan_segments`.
+fn find_xmp_in_segments(segments: &[AppSegment]) -> Option<String> {
+    let xmp_ns = b"http://ns.adobe.com/xap/1.0/\0";
+
+    for seg in segments {
+        if seg.is_xmp() && seg.data.len() > xmp_ns.len() {
+            let xmp_bytes = &seg.data[xmp_ns.len()..];
+            if let Ok(xmp) = std::str::from_utf8(xmp_bytes) {
+                return Some(xmp.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 /// Decode JPEG to RGB.
@@ -339,7 +380,7 @@ fn decode_jpeg_to_grayscale(jpeg_data: &[u8]) -> Result<RawImage> {
     })
 }
 
-#[cfg(all(test, feature = "_test-helpers"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -354,8 +395,68 @@ mod tests {
         // Minimal JPEG (just SOI + EOI)
         let data = vec![0xFF, 0xD8, 0xFF, 0xD9];
         let decoder = Decoder::new(&data);
-        // This will fail to parse as a valid image but won't error on construction
         assert!(decoder.is_ok());
         assert!(!decoder.unwrap().is_ultrahdr());
+    }
+
+    #[test]
+    fn test_decoder_not_ultrahdr() {
+        // JPEG with APP0 but no UltraHDR content
+        let data = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xE0, 0x00, 0x07, // APP0 length 7
+            b'J', b'F', b'I', b'F', 0x00, // JFIF
+            0xFF, 0xD9, // EOI
+        ];
+        let decoder = Decoder::new(&data).unwrap();
+        assert!(!decoder.is_ultrahdr());
+        assert!(decoder.metadata().is_none());
+        assert!(decoder.gainmap_jpeg().is_none());
+        // Primary should be the whole file
+        assert!(decoder.primary_jpeg().is_some());
+    }
+
+    #[test]
+    fn test_decoder_borrows_data() {
+        let data = vec![0xFF, 0xD8, 0xFF, 0xD9];
+        let decoder = Decoder::new(&data).unwrap();
+        // The decoder borrows data, so primary_jpeg should be a subslice of our data
+        let primary = decoder.primary_jpeg().unwrap();
+        assert_eq!(primary.as_ptr(), data.as_ptr());
+    }
+
+    #[test]
+    fn test_decoder_empty_too_short() {
+        assert!(Decoder::new(&[]).is_err());
+        assert!(Decoder::new(&[0xFF]).is_err());
+        assert!(Decoder::new(&[0xFF, 0xD8]).is_err()); // Too short (< 4)
+    }
+
+    #[test]
+    fn test_decoder_icc_profile_none() {
+        let data = vec![0xFF, 0xD8, 0xFF, 0xD9];
+        let decoder = Decoder::new(&data).unwrap();
+        assert!(decoder.icc_profile().is_none());
+    }
+
+    #[test]
+    fn test_decoder_two_jpeg_fallback() {
+        // Two concatenated JPEGs — should find both via boundary scan
+        let mut data = vec![
+            0xFF, 0xD8, // SOI 1
+            0xFF, 0xD9, // EOI 1
+            0xFF, 0xD8, // SOI 2
+            0xFF, 0xD9, // EOI 2
+        ];
+        // Need to be >= 4 bytes total
+        let decoder = Decoder::new(&data).unwrap();
+        assert!(decoder.primary_jpeg().is_some());
+        assert!(decoder.gainmap_jpeg().is_some());
+    }
+
+    #[test]
+    fn test_find_xmp_in_segments_none() {
+        let segments: Vec<AppSegment> = vec![];
+        assert!(find_xmp_in_segments(&segments).is_none());
     }
 }

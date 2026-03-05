@@ -417,8 +417,10 @@ pub fn extract_secondary_images<'a>(data: &'a [u8], mpf: &MpfDirectory) -> Vec<&
         }
 
         // Calculate actual offset
-        // Secondary images have offsets relative to the MPF marker
-        let actual_offset = mpf.mpf_marker_offset + entry.offset as usize;
+        // Per CIPA DC-007, secondary image offsets are relative to the TIFF header,
+        // which is 8 bytes after the MPF marker (2 marker + 2 length + 4 "MPF\0")
+        let tiff_header_offset = mpf.mpf_marker_offset + 8;
+        let actual_offset = tiff_header_offset + entry.offset as usize;
         let end = actual_offset + entry.size as usize;
 
         if actual_offset < data.len() && end <= data.len() {

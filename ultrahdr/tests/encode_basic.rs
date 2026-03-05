@@ -321,7 +321,8 @@ fn test_encode_various_dimensions() {
             result.err()
         );
 
-        let decoder = Decoder::new(&result.unwrap()).unwrap();
+        let encoded = result.unwrap();
+        let decoder = Decoder::new(&encoded).unwrap();
         let (dw, dh) = decoder.dimensions().unwrap();
         assert_eq!(dw, w, "Width mismatch for {}x{}", w, h);
         assert_eq!(dh, h, "Height mismatch for {}x{}", w, h);

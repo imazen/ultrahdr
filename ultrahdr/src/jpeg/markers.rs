@@ -222,33 +222,6 @@ pub fn insert_segment_after_soi(jpeg: &[u8], segment: &JpegSegment) -> Result<Ve
     Ok(result)
 }
 
-/// Find XMP data in JPEG segments.
-pub fn find_xmp_data(data: &[u8]) -> Option<String> {
-    let xmp_marker = b"http://ns.adobe.com/xap/1.0/\0";
-
-    let mut pos = 0;
-    while pos + 4 < data.len() {
-        if data[pos] == 0xFF && data[pos + 1] == 0xE1 {
-            let length = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
-            if pos + 4 + xmp_marker.len() < data.len() {
-                let marker_data = &data[pos + 4..];
-                if marker_data.starts_with(xmp_marker) {
-                    let xmp_start = xmp_marker.len();
-                    let xmp_end = length - 2;
-                    if xmp_start < xmp_end && pos + 4 + xmp_end <= data.len() {
-                        if let Ok(xmp) = std::str::from_utf8(&marker_data[xmp_start..xmp_end]) {
-                            return Some(xmp.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        pos += 1;
-    }
-
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
