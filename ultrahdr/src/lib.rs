@@ -49,6 +49,7 @@
 //! - ISO 21496-1 (gain map metadata)
 //! - Adobe XMP (hdrgm namespace)
 
+#![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
