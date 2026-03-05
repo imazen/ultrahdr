@@ -19,8 +19,8 @@ wide = "1.1"
 half = "2.7"
 
 # SIMD (optional - for explicit SIMD optimizations)
-archmage = { version = "0.8", default-features = false, features = ["macros"], optional = true }
-magetypes = { version = "0.8", default-features = false, optional = true }
+archmage = { version = "0.9", default-features = false, features = ["macros"], optional = true }
+magetypes = { version = "0.9", default-features = false, optional = true }
 
 # Types
 bytemuck = { version = "1.14", features = ["derive"] }
