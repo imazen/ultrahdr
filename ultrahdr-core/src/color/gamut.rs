@@ -381,4 +381,141 @@ mod tests {
         let clipped = soft_clip_gamut(negative);
         assert!(clipped[0] >= 0.0);
     }
+
+    #[test]
+    fn test_identity_conversion() {
+        let rgb = [0.3, 0.6, 0.9];
+        for gamut in [ColorGamut::Bt709, ColorGamut::DisplayP3, ColorGamut::Bt2100] {
+            let result = convert_gamut(rgb, gamut, gamut);
+            assert_eq!(
+                result, rgb,
+                "Identity conversion changed values for {:?}",
+                gamut
+            );
+        }
+    }
+
+    #[test]
+    fn test_matrix_identity() {
+        let test_colors = [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.5, 0.5, 0.5],
+            [0.1, 0.2, 0.3],
+        ];
+
+        for rgb in test_colors {
+            let result = Matrix3x3::IDENTITY.transform(rgb);
+            assert_eq!(result, rgb, "IDENTITY.transform({:?}) != input", rgb);
+        }
+    }
+
+    #[test]
+    fn test_matrix_multiply_identity() {
+        let a = BT709_TO_P3;
+        let result = a.multiply(&Matrix3x3::IDENTITY);
+        for i in 0..3 {
+            for j in 0..3 {
+                assert!(
+                    approx_eq(result.0[i][j], a.0[i][j]),
+                    "A * IDENTITY != A at [{},{}]: {} vs {}",
+                    i,
+                    j,
+                    result.0[i][j],
+                    a.0[i][j]
+                );
+            }
+        }
+
+        let result2 = Matrix3x3::IDENTITY.multiply(&a);
+        for i in 0..3 {
+            for j in 0..3 {
+                assert!(
+                    approx_eq(result2.0[i][j], a.0[i][j]),
+                    "IDENTITY * A != A at [{},{}]: {} vs {}",
+                    i,
+                    j,
+                    result2.0[i][j],
+                    a.0[i][j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_primary_red_bt709_to_p3() {
+        // BT.709 pure red [1,0,0] converted to P3
+        let red_709 = [1.0f32, 0.0, 0.0];
+        let red_p3 = convert_gamut(red_709, ColorGamut::Bt709, ColorGamut::DisplayP3);
+
+        // P3 has wider red primaries, so 709 red sits inside P3 gamut.
+        // The R channel in P3 should be lower than 1.0 (it doesn't need full P3 red).
+        assert!(
+            red_p3[0] < 1.0,
+            "Expected P3 red < 1.0 for 709 red, got {}",
+            red_p3[0]
+        );
+        // G should be positive (709 red bleeds slightly into P3 green)
+        assert!(
+            red_p3[1] >= 0.0,
+            "Expected non-negative P3 green, got {}",
+            red_p3[1]
+        );
+    }
+
+    #[test]
+    fn test_luminance_coefficients_sum() {
+        for gamut in [ColorGamut::Bt709, ColorGamut::DisplayP3, ColorGamut::Bt2100] {
+            let coeffs = luma_coefficients(gamut);
+            let sum = coeffs[0] + coeffs[1] + coeffs[2];
+            assert!(
+                (sum - 1.0).abs() < 0.01,
+                "Luma coefficients for {:?} sum to {} (expected ~1.0)",
+                gamut,
+                sum
+            );
+        }
+    }
+
+    #[test]
+    fn test_soft_clip_no_change_in_gamut() {
+        let test_values = [
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [0.5, 0.5, 0.5],
+            [0.0, 0.5, 1.0],
+            [0.1, 0.9, 0.3],
+        ];
+
+        for rgb in test_values {
+            let clipped = soft_clip_gamut(rgb);
+            assert!(
+                rgb_approx_eq(rgb, clipped),
+                "In-gamut {:?} was changed to {:?}",
+                rgb,
+                clipped
+            );
+        }
+    }
+
+    #[test]
+    fn test_soft_clip_clamps_negative() {
+        let test_cases = [
+            [-0.5, 0.5, 0.5],
+            [0.5, -0.1, 0.5],
+            [0.5, 0.5, -0.3],
+            [-1.0, -0.5, -0.1],
+        ];
+
+        for rgb in test_cases {
+            let clipped = soft_clip_gamut(rgb);
+            assert!(
+                clipped[0] >= 0.0 && clipped[1] >= 0.0 && clipped[2] >= 0.0,
+                "Negative values not clipped for {:?}: got {:?}",
+                rgb,
+                clipped
+            );
+        }
+    }
 }

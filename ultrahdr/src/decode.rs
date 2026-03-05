@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn test_decoder_two_jpeg_fallback() {
         // Two concatenated JPEGs — should find both via boundary scan
-        let mut data = vec![
+        let data = vec![
             0xFF, 0xD8, // SOI 1
             0xFF, 0xD9, // EOI 1
             0xFF, 0xD8, // SOI 2

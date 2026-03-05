@@ -1322,4 +1322,338 @@ mod tests {
         assert_eq!(gainmap.width, 2);
         assert_eq!(gainmap.height, 2);
     }
+
+    /// Helper: standard metadata used across tests.
+    fn test_metadata() -> GainMapMetadata {
+        GainMapMetadata {
+            min_content_boost: [1.0; 3],
+            max_content_boost: [4.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [0.015625; 3],
+            offset_hdr: [0.015625; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 4.0,
+            use_base_color_space: true,
+        }
+    }
+
+    /// Helper: 2x2 gainmap filled with a constant byte value.
+    fn test_gainmap(value: u8) -> GainMap {
+        let mut gm = GainMap::new(2, 2).unwrap();
+        for v in &mut gm.data {
+            *v = value;
+        }
+        gm
+    }
+
+    #[test]
+    fn test_row_decoder_completion() {
+        let gainmap = test_gainmap(128);
+        let metadata = test_metadata();
+
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
+
+        assert!(!decoder.is_complete());
+        assert_eq!(decoder.rows_remaining(), 4);
+
+        let sdr_row = vec![0.18f32; 4 * 3];
+        for i in 0..4u32 {
+            assert!(!decoder.is_complete());
+            assert_eq!(decoder.rows_remaining(), 4 - i);
+            assert_eq!(decoder.current_row(), i);
+            let hdr = decoder.process_row(&sdr_row).unwrap();
+            assert_eq!(hdr.len(), 4 * 4); // RGBA
+        }
+
+        assert!(decoder.is_complete());
+        assert_eq!(decoder.rows_remaining(), 0);
+        assert_eq!(decoder.current_row(), 4);
+    }
+
+    #[test]
+    fn test_row_decoder_reset() {
+        let gainmap = test_gainmap(128);
+        let metadata = test_metadata();
+
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
+
+        let sdr_row = vec![0.18f32; 4 * 3];
+
+        // Process 2 rows
+        decoder.process_row(&sdr_row).unwrap();
+        decoder.process_row(&sdr_row).unwrap();
+        assert_eq!(decoder.current_row(), 2);
+        assert_eq!(decoder.rows_remaining(), 2);
+
+        // Reset
+        decoder.reset();
+        assert_eq!(decoder.current_row(), 0);
+        assert_eq!(decoder.rows_remaining(), 4);
+        assert!(!decoder.is_complete());
+
+        // Can reprocess from the beginning
+        let hdr = decoder.process_row(&sdr_row).unwrap();
+        assert_eq!(hdr.len(), 4 * 4);
+        assert_eq!(decoder.current_row(), 1);
+    }
+
+    #[test]
+    fn test_row_decoder_input_too_short() {
+        let gainmap = test_gainmap(128);
+        let metadata = test_metadata();
+
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
+
+        // Only 2 pixels worth of data (6 floats) instead of 4 pixels (12 floats)
+        let short_input = vec![0.18f32; 2 * 3];
+        let result = decoder.process_row(&short_input);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("too short"),
+            "expected 'too short' in error: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_row_decoder_after_complete() {
+        let gainmap = test_gainmap(128);
+        let metadata = test_metadata();
+
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
+
+        let sdr_row = vec![0.18f32; 4 * 3];
+        for _ in 0..4 {
+            decoder.process_row(&sdr_row).unwrap();
+        }
+        assert!(decoder.is_complete());
+
+        // Another row should error
+        let result = decoder.process_row(&sdr_row);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("already processed"),
+            "expected 'already processed' in error: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_stream_decoder_basic() {
+        let metadata = test_metadata();
+
+        // SDR: 4x4, gainmap: 2x2, 1 channel
+        let mut decoder =
+            StreamDecoder::new(metadata.clone(), 4, 4, 2, 2, 1, 4.0, ColorGamut::Bt709).unwrap();
+
+        assert!(!decoder.is_complete());
+        assert_eq!(decoder.sdr_rows_remaining(), 4);
+        assert_eq!(decoder.gainmap_rows_remaining(), 2);
+
+        // Push all gainmap rows first (2 rows, each 2 bytes for 2×1-channel)
+        let gm_row = vec![128u8; 2];
+        decoder.push_gainmap_row(&gm_row).unwrap();
+        decoder.push_gainmap_row(&gm_row).unwrap();
+        assert_eq!(decoder.gainmap_rows_remaining(), 0);
+
+        // Now push SDR rows and get HDR output
+        let sdr_row = vec![0.18f32; 4 * 3];
+        for _ in 0..4 {
+            assert!(decoder.can_process(1));
+            let hdr = decoder.process_sdr_rows(&sdr_row, 1).unwrap();
+            assert_eq!(hdr.len(), 4 * 4); // 4 pixels × RGBA
+            // Output values should be positive
+            for &v in &hdr {
+                assert!(v >= 0.0, "HDR output should be non-negative, got {v}");
+            }
+        }
+
+        assert!(decoder.is_complete());
+        assert_eq!(decoder.sdr_rows_remaining(), 0);
+    }
+
+    #[test]
+    fn test_row_encoder_process_rows_batch() {
+        let config = GainMapConfig {
+            scale_factor: 2,
+            ..Default::default()
+        };
+
+        let mut encoder =
+            RowEncoder::new(4, 4, config, ColorGamut::Bt709, ColorGamut::Bt709).unwrap();
+
+        // Provide all 4 rows at once
+        let hdr_linear = vec![0.5f32; 4 * 4 * 3]; // 4 rows × 4 pixels × RGB
+        let sdr_linear = vec![0.18f32; 4 * 4 * 3];
+
+        let gm_rows = encoder.process_rows(&hdr_linear, &sdr_linear, 4).unwrap();
+
+        // With scale_factor=2 and height=4, gm_height=2
+        // After providing all 4 input rows, both gainmap rows should be produced
+        let (current, total) = encoder.progress();
+        assert_eq!(total, 4);
+        assert_eq!(current, 4);
+
+        let (gainmap, metadata) = encoder.finish().unwrap();
+        assert_eq!(gainmap.width, 2);
+        assert_eq!(gainmap.height, 2);
+        assert!(metadata.max_content_boost[0] >= 1.0);
+        // The batch call should have produced the same number of gm rows
+        // as the total gm height (2), since all input was provided at once.
+        assert_eq!(gm_rows.len(), 2);
+    }
+
+    #[test]
+    fn test_stream_encoder_status_methods() {
+        let config = GainMapConfig {
+            scale_factor: 2,
+            ..Default::default()
+        };
+
+        let mut encoder =
+            StreamEncoder::new(4, 4, config, ColorGamut::Bt709, ColorGamut::Bt709).unwrap();
+
+        // Initial state
+        assert_eq!(encoder.hdr_rows_remaining(), 4);
+        assert_eq!(encoder.sdr_rows_remaining(), 4);
+        assert!(!encoder.inputs_complete());
+        assert!(!encoder.is_complete());
+
+        let hdr_row = vec![0.5f32; 4 * 3];
+        let sdr_row = vec![0.18f32; 4 * 3];
+
+        // Push 2 HDR rows
+        encoder.push_hdr_row(&hdr_row).unwrap();
+        encoder.push_hdr_row(&hdr_row).unwrap();
+        assert_eq!(encoder.hdr_rows_remaining(), 2);
+        assert_eq!(encoder.sdr_rows_remaining(), 4);
+        assert!(!encoder.inputs_complete());
+
+        // Push 2 SDR rows
+        encoder.push_sdr_row(&sdr_row).unwrap();
+        encoder.push_sdr_row(&sdr_row).unwrap();
+        assert_eq!(encoder.sdr_rows_remaining(), 2);
+        assert!(!encoder.inputs_complete());
+
+        // Push remaining rows
+        encoder.push_hdr_row(&hdr_row).unwrap();
+        encoder.push_hdr_row(&hdr_row).unwrap();
+        encoder.push_sdr_row(&sdr_row).unwrap();
+        encoder.push_sdr_row(&sdr_row).unwrap();
+
+        assert_eq!(encoder.hdr_rows_remaining(), 0);
+        assert_eq!(encoder.sdr_rows_remaining(), 0);
+        assert!(encoder.inputs_complete());
+        // All gainmap rows should have been produced and are pending
+        assert_eq!(encoder.gainmap_rows_remaining(), 0);
+    }
+
+    #[test]
+    fn test_stream_encoder_interleaved() {
+        let config = GainMapConfig {
+            scale_factor: 2,
+            ..Default::default()
+        };
+
+        let mut encoder =
+            StreamEncoder::new(4, 4, config, ColorGamut::Bt709, ColorGamut::Bt709).unwrap();
+
+        let hdr_row = vec![0.5f32; 4 * 3];
+        let sdr_row = vec![0.18f32; 4 * 3];
+        let mut total_gm_rows = 0;
+
+        // Interleave HDR and SDR rows
+        for _ in 0..4 {
+            encoder.push_hdr_row(&hdr_row).unwrap();
+            encoder.push_sdr_row(&sdr_row).unwrap();
+            // Check for pending gainmap rows after each pair
+            while let Some(gm_row) = encoder.take_gainmap_row() {
+                total_gm_rows += 1;
+                // Gainmap width is 4/2=2, single-channel, so row is 2 bytes
+                assert_eq!(gm_row.len(), 2);
+            }
+        }
+
+        // gm_height = ceil(4/2) = 2, so we should get exactly 2 gainmap rows total
+        assert_eq!(total_gm_rows, 2);
+        assert!(encoder.inputs_complete());
+    }
+
+    #[test]
+    fn test_stream_encoder_drain_pending() {
+        let config = GainMapConfig {
+            scale_factor: 2,
+            ..Default::default()
+        };
+
+        let mut encoder =
+            StreamEncoder::new(4, 4, config, ColorGamut::Bt709, ColorGamut::Bt709).unwrap();
+
+        let hdr_row = vec![0.5f32; 4 * 3];
+        let sdr_row = vec![0.18f32; 4 * 3];
+
+        // Push all rows without draining
+        for _ in 0..4 {
+            encoder.push_hdr_row(&hdr_row).unwrap();
+            encoder.push_sdr_row(&sdr_row).unwrap();
+        }
+
+        // Now drain all pending gainmap rows using take_gainmap_row
+        assert!(encoder.pending_gainmap_rows() > 0);
+        let mut drained = Vec::new();
+        while let Some(row) = encoder.take_gainmap_row() {
+            drained.push(row);
+        }
+
+        // gm_height = ceil(4/2) = 2
+        assert_eq!(drained.len(), 2);
+        assert_eq!(encoder.pending_gainmap_rows(), 0);
+
+        // Each gainmap row should be 2 bytes (gm_width=2, 1 channel)
+        for row in &drained {
+            assert_eq!(row.len(), 2);
+        }
+    }
+
+    #[test]
+    fn test_row_decoder_boost_1() {
+        let gainmap = test_gainmap(128);
+        let metadata = test_metadata();
+
+        // display_boost=1.0 means weight=0 → gain should be exp(0)=1.0 for all pixels
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 1.0, ColorGamut::Bt709).unwrap();
+
+        let sdr_val = 0.5f32;
+        let sdr_row = vec![sdr_val; 4 * 3];
+        let hdr = decoder.process_row(&sdr_row).unwrap();
+
+        // With weight=0 (display_boost=1.0, hdr_capacity_min=1.0), gain = exp(0) = 1.0
+        // apply_gain: (sdr + offset_sdr) * gain - offset_hdr
+        // With offset_sdr=offset_hdr=0.015625 and gain=1.0:
+        //   output = (0.5 + 0.015625) * 1.0 - 0.015625 = 0.5
+        // So output should be very close to input
+        for px in 0..4 {
+            let r = hdr[px * 4];
+            let g = hdr[px * 4 + 1];
+            let b = hdr[px * 4 + 2];
+            let a = hdr[px * 4 + 3];
+
+            assert!(
+                (r - sdr_val).abs() < 0.01,
+                "R at pixel {px}: expected ~{sdr_val}, got {r}"
+            );
+            assert!(
+                (g - sdr_val).abs() < 0.01,
+                "G at pixel {px}: expected ~{sdr_val}, got {g}"
+            );
+            assert!(
+                (b - sdr_val).abs() < 0.01,
+                "B at pixel {px}: expected ~{sdr_val}, got {b}"
+            );
+            assert!(
+                (a - 1.0).abs() < f32::EPSILON,
+                "A at pixel {px}: expected 1.0, got {a}"
+            );
+        }
+    }
 }

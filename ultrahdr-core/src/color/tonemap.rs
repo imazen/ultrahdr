@@ -1356,4 +1356,303 @@ mod tests {
             assert!(pair[1] >= pair[0], "Not monotonic");
         }
     }
+
+    #[test]
+    fn test_bt2390_properties() {
+        // Black stays black
+        assert_eq!(bt2390_tonemap(0.0, 10.0, 1.0), 0.0);
+
+        // When source <= target, passthrough (no tone mapping needed)
+        assert_eq!(bt2390_tonemap(0.5, 1.0, 1.0), 0.5);
+        assert_eq!(bt2390_tonemap(0.5, 1.0, 2.0), 0.5);
+
+        // Monotonically increasing within the above-knee region
+        // (the Hermite spline itself is monotonic for t in [0,1])
+        let source = 10.0;
+        let target = 1.0;
+        let ks = (1.5f32 * target / source - 0.5).clamp(0.0, 1.0); // 0.0 for this ratio
+        let mut prev = bt2390_tonemap(ks + 0.01, source, target);
+        for i in 2..=100 {
+            let l = ks + i as f32 * 0.01;
+            let mapped = bt2390_tonemap(l, source, target);
+            assert!(
+                mapped >= prev - f32::EPSILON,
+                "Not monotonic above knee at {}: {} < {}",
+                l,
+                mapped,
+                prev
+            );
+            prev = mapped;
+        }
+
+        // Never exceeds 1.0 for inputs in [0, 20]
+        for i in 0..=200 {
+            let l = i as f32 * 0.1;
+            let mapped = bt2390_tonemap(l, 10.0, 1.0);
+            assert!(mapped <= 1.0, "Exceeded 1.0 at L={}: {}", l, mapped);
+        }
+    }
+
+    #[test]
+    fn test_bt2390_vs_reinhard() {
+        // Both produce similar results for low HDR values (< 1.0)
+        let peak = 10.0;
+        for i in 1..=10 {
+            let l = i as f32 * 0.1; // 0.1 to 1.0
+            let bt = bt2390_tonemap(l, peak, 1.0);
+            let rh = reinhard_tonemap(l, peak);
+            // Both should map low values somewhat similarly (within 0.5)
+            assert!(
+                (bt - rh).abs() < 0.5,
+                "Large divergence at low L={}: bt2390={}, reinhard={}",
+                l,
+                bt,
+                rh
+            );
+        }
+
+        // BT.2390 should have better highlight compression for very bright values.
+        // At very high input, BT.2390 approaches target_peak/source_peak ratio
+        // while Reinhard approaches 1.0 more slowly.
+        let bright = 8.0;
+        let bt_bright = bt2390_tonemap(bright, peak, 1.0);
+        let rh_bright = reinhard_tonemap(bright, peak);
+        // They should differ noticeably at high values
+        assert!(
+            (bt_bright - rh_bright).abs() > 0.01,
+            "Expected divergence at L={}: bt2390={}, reinhard={}",
+            bright,
+            bt_bright,
+            rh_bright
+        );
+    }
+
+    #[test]
+    fn test_tonemap_pq_to_sdr_black() {
+        let config = ToneMapConfig::default();
+        let result = tonemap_pq_to_sdr([0.0, 0.0, 0.0], &config);
+        assert!(
+            result[0] < 0.01 && result[1] < 0.01 && result[2] < 0.01,
+            "PQ black should map to near-black, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_tonemap_pq_to_sdr_white() {
+        // PQ ~0.58 corresponds to ~203 nits (SDR reference white).
+        // The filmic tonemapper normalizes by hdr_peak_nits (10000) so 203 nits
+        // becomes a small input (~0.08) to the curve. The output will be modest
+        // but should be distinctly brighter than black.
+        let config = ToneMapConfig {
+            target_peak_nits: 203.0,
+            hdr_peak_nits: 10000.0,
+            target_gamut: ColorGamut::Bt709,
+            source_gamut: ColorGamut::Bt2100,
+        };
+        let result = tonemap_pq_to_sdr([0.58, 0.58, 0.58], &config);
+        // Should produce a positive, non-trivial SDR value
+        assert!(
+            result[0] > 0.01 && result[1] > 0.01 && result[2] > 0.01,
+            "PQ 0.58 (203 nits) should produce non-trivial SDR output, got {:?}",
+            result
+        );
+        // Should be significantly brighter than PQ black mapping
+        let black = tonemap_pq_to_sdr([0.0, 0.0, 0.0], &config);
+        assert!(
+            result[0] > black[0] + 0.01,
+            "PQ 0.58 should be distinctly brighter than PQ 0.0: {} vs {}",
+            result[0],
+            black[0]
+        );
+    }
+
+    #[test]
+    fn test_scale_gainmap_identity() {
+        let mut gm = GainMap::new(4, 4).unwrap();
+        for i in 0..16 {
+            gm.data[i] = (i * 15 + 10) as u8;
+        }
+
+        // Scale to same dimensions
+        let scaled = scale_gainmap(&gm, 4, 4).unwrap();
+        assert_eq!(scaled.width, 4);
+        assert_eq!(scaled.height, 4);
+        assert_eq!(scaled.data, gm.data);
+    }
+
+    #[test]
+    fn test_scale_gainmap_double() {
+        let mut gm = GainMap::new(2, 2).unwrap();
+        // 2x2 pattern:
+        //   0  100
+        //  50  200
+        gm.data[0] = 0;
+        gm.data[1] = 100;
+        gm.data[2] = 50;
+        gm.data[3] = 200;
+
+        let scaled = scale_gainmap(&gm, 4, 4).unwrap();
+        assert_eq!(scaled.width, 4);
+        assert_eq!(scaled.height, 4);
+        assert_eq!(scaled.data.len(), 16);
+
+        // Corners should match original values
+        assert_eq!(scaled.data[0], 0); // top-left
+        assert_eq!(scaled.data[3], 100); // top-right maps from (1,0) in source
+
+        // Interior values should be interpolated (smooth, between neighbors)
+        // The pixel at (1,0) in output maps to (0.5, 0) in source — between 0 and 100
+        let mid_top = scaled.data[1];
+        assert!(
+            mid_top > 0 && mid_top < 100,
+            "Expected interpolated value between 0 and 100, got {}",
+            mid_top
+        );
+    }
+
+    #[test]
+    fn test_scale_gainmap_invalid() {
+        let gm = GainMap::new(4, 4).unwrap();
+        // Scale to 0x0 should error (validate_dimensions rejects 0)
+        let result = scale_gainmap(&gm, 0, 0);
+        assert!(result.is_err(), "Scale to 0x0 should return an error");
+    }
+
+    #[test]
+    fn test_crop_gainmap_full() {
+        let mut gm = GainMap::new(4, 4).unwrap();
+        for i in 0..16 {
+            gm.data[i] = (i * 16) as u8;
+        }
+
+        // Crop with rect covering entire image (SDR is same size as gainmap here)
+        let cropped = crop_gainmap(&gm, 4, 4, (0, 0, 4, 4)).unwrap();
+        assert_eq!(cropped.width, gm.width);
+        assert_eq!(cropped.height, gm.height);
+        assert_eq!(cropped.data, gm.data);
+    }
+
+    #[test]
+    fn test_crop_gainmap_quarter() {
+        let mut gm = GainMap::new(4, 4).unwrap();
+        for y in 0..4u32 {
+            for x in 0..4u32 {
+                gm.data[(y * 4 + x) as usize] = (y * 10 + x) as u8;
+            }
+        }
+
+        // Crop top-left 2x2 (SDR coords map 1:1 to gainmap coords)
+        let cropped = crop_gainmap(&gm, 4, 4, (0, 0, 2, 2)).unwrap();
+        assert_eq!(cropped.width, 2);
+        assert_eq!(cropped.height, 2);
+        // Top-left 2x2 of original: [0,1], [10,11]
+        assert_eq!(cropped.data[0], 0);
+        assert_eq!(cropped.data[1], 1);
+        assert_eq!(cropped.data[2], 10);
+        assert_eq!(cropped.data[3], 11);
+    }
+
+    #[test]
+    fn test_crop_gainmap_out_of_bounds() {
+        let gm = GainMap::new(4, 4).unwrap();
+        // Crop rect extends past image — should clamp (not panic)
+        let result = crop_gainmap(&gm, 4, 4, (3, 3, 4, 4));
+        // The function clamps via .min(), so it should succeed with a smaller region
+        assert!(result.is_ok(), "Out-of-bounds crop should clamp, not error");
+        let cropped = result.unwrap();
+        assert!(
+            cropped.width <= 4 && cropped.height <= 4,
+            "Cropped dimensions should be clamped"
+        );
+        assert!(
+            cropped.width >= 1 && cropped.height >= 1,
+            "Cropped dimensions should be at least 1x1"
+        );
+    }
+
+    #[test]
+    fn test_adaptive_tonemapper_all_black() {
+        use crate::PixelFormat;
+
+        let width = 8u32;
+        let height = 8u32;
+
+        // Create all-black HDR (16F) and SDR (RGBA8) images
+        let hdr_data = vec![0u8; (width * height * 8) as usize]; // f16 RGBA = 8 bytes/pixel
+        let sdr_data = vec![0u8; (width * height * 4) as usize]; // RGBA8 = 4 bytes/pixel
+
+        let hdr = RawImage::from_data(
+            width,
+            height,
+            PixelFormat::Rgba16F,
+            ColorGamut::Bt709,
+            ColorTransfer::Linear,
+            hdr_data,
+        )
+        .unwrap();
+
+        let sdr = RawImage::from_data(
+            width,
+            height,
+            PixelFormat::Rgba8,
+            ColorGamut::Bt709,
+            ColorTransfer::Srgb,
+            sdr_data,
+        )
+        .unwrap();
+
+        // Fitting from all-black should fail (no valid pixel pairs)
+        let result = AdaptiveTonemapper::fit(&hdr, &sdr);
+        assert!(
+            result.is_err(),
+            "Fitting from all-black pair should error (no valid pixel pairs)"
+        );
+    }
+
+    #[test]
+    fn test_filmic_vs_reinhard_comparison() {
+        // Both map 0 to 0
+        assert_eq!(filmic_tonemap(0.0), 0.0);
+        assert_eq!(reinhard_tonemap(0.0, 10.0), 0.0);
+
+        // Both map small values (~0.1) similarly
+        let filmic_low = filmic_tonemap(0.1);
+        let reinhard_low = reinhard_tonemap(0.1, 10.0);
+        assert!(
+            (filmic_low - reinhard_low).abs() < 0.15,
+            "Expected similar low-value mapping: filmic={}, reinhard={}",
+            filmic_low,
+            reinhard_low
+        );
+
+        // They diverge at high values
+        let filmic_high = filmic_tonemap(5.0);
+        let reinhard_high = reinhard_tonemap(5.0, 10.0);
+        assert!(
+            (filmic_high - reinhard_high).abs() > 0.01,
+            "Expected divergence at high values: filmic={}, reinhard={}",
+            filmic_high,
+            reinhard_high
+        );
+
+        // Both should stay in [0, 1]
+        for i in 0..=100 {
+            let x = i as f32 * 0.1;
+            let f = filmic_tonemap(x);
+            let r = reinhard_tonemap(x, 10.0);
+            assert!(
+                (0.0..=1.0).contains(&f),
+                "Filmic out of range at {}: {}",
+                x,
+                f
+            );
+            assert!(
+                (0.0..=1.0).contains(&r),
+                "Reinhard out of range at {}: {}",
+                x,
+                r
+            );
+        }
+    }
 }

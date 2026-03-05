@@ -601,6 +601,185 @@ mod tests {
         }
     }
 
+    /// Helper: create an 8x8 HDR image (Rgba32F, Linear, BT.709) filled with a uniform color.
+    fn make_hdr_8x8(r: f32, g: f32, b: f32) -> RawImage {
+        let w = 8u32;
+        let h = 8u32;
+        let pixel_count = (w * h) as usize;
+        let mut data = Vec::with_capacity(pixel_count * 16);
+        for _ in 0..pixel_count {
+            data.extend_from_slice(&r.to_le_bytes());
+            data.extend_from_slice(&g.to_le_bytes());
+            data.extend_from_slice(&b.to_le_bytes());
+            data.extend_from_slice(&1.0f32.to_le_bytes()); // alpha
+        }
+        RawImage::from_data(
+            w,
+            h,
+            PixelFormat::Rgba32F,
+            ColorGamut::Bt709,
+            ColorTransfer::Linear,
+            data,
+        )
+        .unwrap()
+    }
+
+    /// Helper: create an 8x8 SDR image (Rgba8, Srgb, BT.709) filled with a uniform color.
+    fn make_sdr_8x8(r: u8, g: u8, b: u8) -> RawImage {
+        let w = 8u32;
+        let h = 8u32;
+        let pixel_count = (w * h) as usize;
+        let mut data = vec![0u8; pixel_count * 4];
+        for i in 0..pixel_count {
+            data[i * 4] = r;
+            data[i * 4 + 1] = g;
+            data[i * 4 + 2] = b;
+            data[i * 4 + 3] = 255;
+        }
+        RawImage::from_data(
+            w,
+            h,
+            PixelFormat::Rgba8,
+            ColorGamut::Bt709,
+            ColorTransfer::Srgb,
+            data,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_compute_gainmap_multichannel() {
+        let hdr = make_hdr_8x8(0.8, 0.5, 0.3);
+        let sdr = make_sdr_8x8(180, 128, 100);
+
+        let config = GainMapConfig {
+            multi_channel: true,
+            scale_factor: 1,
+            ..Default::default()
+        };
+
+        let (gainmap, _metadata) =
+            compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
+
+        assert_eq!(gainmap.channels, 3);
+        assert_eq!(
+            gainmap.data.len(),
+            (gainmap.width * gainmap.height) as usize * 3
+        );
+    }
+
+    #[test]
+    fn test_compute_gainmap_scale_factor_1() {
+        let hdr = make_hdr_8x8(0.5, 0.5, 0.5);
+        let sdr = make_sdr_8x8(186, 186, 186);
+
+        let config = GainMapConfig {
+            scale_factor: 1,
+            ..Default::default()
+        };
+
+        let (gainmap, _metadata) =
+            compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
+
+        assert_eq!(gainmap.width, 8);
+        assert_eq!(gainmap.height, 8);
+    }
+
+    #[test]
+    fn test_compute_gainmap_scale_factor_8() {
+        let hdr = make_hdr_8x8(0.5, 0.5, 0.5);
+        let sdr = make_sdr_8x8(186, 186, 186);
+
+        let config = GainMapConfig {
+            scale_factor: 8,
+            ..Default::default()
+        };
+
+        let (gainmap, _metadata) =
+            compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
+
+        // 8 / 8 = 1 (div_ceil)
+        assert_eq!(gainmap.width, 8u32.div_ceil(8));
+        assert_eq!(gainmap.height, 8u32.div_ceil(8));
+    }
+
+    #[test]
+    fn test_compute_gainmap_uniform_images() {
+        // Both HDR and SDR are mid-gray: 0.5 linear, 186 sRGB
+        let hdr = make_hdr_8x8(0.5, 0.5, 0.5);
+        let sdr = make_sdr_8x8(186, 186, 186);
+
+        let config = GainMapConfig {
+            scale_factor: 1,
+            ..Default::default()
+        };
+
+        let (gainmap, _metadata) =
+            compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
+
+        // All pixels should have roughly the same encoded value since inputs are uniform
+        let first = gainmap.data[0];
+        for &val in &gainmap.data {
+            assert!(
+                (val as i16 - first as i16).unsigned_abs() <= 1,
+                "non-uniform gainmap: first={}, got={}",
+                first,
+                val
+            );
+        }
+    }
+
+    #[test]
+    fn test_compute_gainmap_bright_hdr() {
+        // HDR is very bright (5.0 linear), SDR is mid (186 sRGB ~ 0.5 linear)
+        let hdr = make_hdr_8x8(5.0, 5.0, 5.0);
+        let sdr = make_sdr_8x8(186, 186, 186);
+
+        let config = GainMapConfig {
+            scale_factor: 1,
+            max_content_boost: 12.0,
+            hdr_capacity_max: 12.0,
+            ..Default::default()
+        };
+
+        let (gainmap, _metadata) =
+            compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
+
+        // Gainmap values should be high — a large positive gain means brighter bytes
+        // The encoding maps min_content_boost → 0, max_content_boost → 255
+        // gain ~= 5.0/0.5 = 10.0, which is well above 1.0 midpoint
+        let avg: f32 =
+            gainmap.data.iter().map(|&v| v as f32).sum::<f32>() / gainmap.data.len() as f32;
+        assert!(
+            avg > 128.0,
+            "bright HDR should produce high gainmap values, got average {}",
+            avg
+        );
+    }
+
+    #[test]
+    fn test_compute_gainmap_dimension_mismatch() {
+        let hdr = make_hdr_8x8(0.5, 0.5, 0.5);
+        // Create a 4x4 SDR image
+        let sdr = RawImage::from_data(
+            4,
+            4,
+            PixelFormat::Rgba8,
+            ColorGamut::Bt709,
+            ColorTransfer::Srgb,
+            vec![128u8; 4 * 4 * 4],
+        )
+        .unwrap();
+
+        let config = GainMapConfig::default();
+        let result = compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::types::Error::DimensionMismatch { .. }
+        ));
+    }
+
     #[test]
     fn test_compute_gainmap_cancellation() {
         /// A Stop implementation that cancels immediately

@@ -1012,7 +1012,7 @@ mod tests {
             0xFF, 0xD9, // EOI
         ];
 
-        let secondary = vec![0xFF, 0xD8, 0xFF, 0xD9];
+        let secondary = [0xFF, 0xD8, 0xFF, 0xD9];
 
         // One secondary, but two types
         let result = assemble(
@@ -1057,23 +1057,23 @@ mod tests {
         // The type_code is extracted as (attr >> 24) & 0x07, so we construct
         // attribute values that place the type code in the correct bits.
         // type_code=1 -> LargeThumbnail
-        let lt = MpfImageType::from_attribute(0x01_00_0000);
+        let lt = MpfImageType::from_attribute(0x0100_0000);
         assert!(matches!(lt, MpfImageType::LargeThumbnail));
 
         // type_code=2 -> MultiFramePanorama
-        let mfp = MpfImageType::from_attribute(0x02_00_0000);
+        let mfp = MpfImageType::from_attribute(0x0200_0000);
         assert!(matches!(mfp, MpfImageType::MultiFramePanorama));
 
         // type_code=3 -> MultiFrameDisparity
-        let mfd = MpfImageType::from_attribute(0x03_00_0000);
+        let mfd = MpfImageType::from_attribute(0x0300_0000);
         assert!(matches!(mfd, MpfImageType::MultiFrameDisparity));
 
         // type_code=4 -> MultiFrameMultiAngle
-        let mfma = MpfImageType::from_attribute(0x04_00_0000);
+        let mfma = MpfImageType::from_attribute(0x0400_0000);
         assert!(matches!(mfma, MpfImageType::MultiFrameMultiAngle));
 
         // type_code=5 and above -> Unknown
-        let unknown = MpfImageType::from_attribute(0x05_00_0000);
+        let unknown = MpfImageType::from_attribute(0x0500_0000);
         assert!(matches!(unknown, MpfImageType::Unknown(_)));
     }
 

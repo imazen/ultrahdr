@@ -655,6 +655,297 @@ mod tests {
         }
     }
 
+    /// Helper: create a 4x4 SDR image (Rgba8, Srgb, BT.709) filled with a uniform color.
+    fn make_sdr_4x4(r: u8, g: u8, b: u8) -> RawImage {
+        let mut data = vec![0u8; 4 * 4 * 4];
+        for i in 0..16 {
+            data[i * 4] = r;
+            data[i * 4 + 1] = g;
+            data[i * 4 + 2] = b;
+            data[i * 4 + 3] = 255;
+        }
+        RawImage::from_data(
+            4,
+            4,
+            PixelFormat::Rgba8,
+            ColorGamut::Bt709,
+            ColorTransfer::Srgb,
+            data,
+        )
+        .unwrap()
+    }
+
+    /// Helper: create a 2x2 single-channel gain map filled with a uniform value.
+    fn make_gainmap_2x2(value: u8) -> GainMap {
+        let mut gm = GainMap::new(2, 2).unwrap();
+        for v in &mut gm.data {
+            *v = value;
+        }
+        gm
+    }
+
+    /// Helper: create standard test metadata.
+    fn test_metadata() -> GainMapMetadata {
+        GainMapMetadata {
+            min_content_boost: [1.0; 3],
+            max_content_boost: [4.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 4.0,
+            use_base_color_space: true,
+        }
+    }
+
+    #[test]
+    fn test_apply_gainmap_linear_float_format() {
+        let sdr = make_sdr_4x4(128, 128, 128);
+        let gainmap = make_gainmap_2x2(128);
+        let metadata = test_metadata();
+
+        let result = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            4.0,
+            HdrOutputFormat::LinearFloat,
+            enough::Unstoppable,
+        )
+        .unwrap();
+
+        assert_eq!(result.format, PixelFormat::Rgba32F);
+        assert_eq!(result.width, 4);
+        assert_eq!(result.height, 4);
+        // Rgba32F: 16 bytes per pixel (4 f32 channels)
+        assert_eq!(result.data.len(), 4 * 4 * 16);
+    }
+
+    #[test]
+    fn test_apply_gainmap_srgb8_format() {
+        let sdr = make_sdr_4x4(128, 128, 128);
+        let gainmap = make_gainmap_2x2(128);
+        let metadata = test_metadata();
+
+        let result = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            4.0,
+            HdrOutputFormat::Srgb8,
+            enough::Unstoppable,
+        )
+        .unwrap();
+
+        assert_eq!(result.format, PixelFormat::Rgba8);
+        assert_eq!(result.width, 4);
+        assert_eq!(result.height, 4);
+    }
+
+    #[test]
+    fn test_apply_gainmap_boost_1() {
+        // display_boost=1.0 → weight=0.0 → gain=1.0 everywhere → output ≈ SDR
+        let sdr = make_sdr_4x4(128, 128, 128);
+        let gainmap = make_gainmap_2x2(200); // High gain value, but weight=0 should negate it
+        let metadata = test_metadata();
+
+        let result = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            1.0,
+            HdrOutputFormat::Srgb8,
+            enough::Unstoppable,
+        )
+        .unwrap();
+
+        // With boost=1.0, weight=0.0, gain=exp(0)=1.0 for all LUT entries.
+        // HDR = (sdr_linear + offset) * 1.0 - offset = sdr_linear
+        // So output should be very close to the input SDR values.
+        for i in 0..16 {
+            let r = result.data[i * 4];
+            let g = result.data[i * 4 + 1];
+            let b = result.data[i * 4 + 2];
+            assert!(
+                (r as i16 - 128).unsigned_abs() <= 2,
+                "boost=1 R should be ~128, got {}",
+                r
+            );
+            assert!(
+                (g as i16 - 128).unsigned_abs() <= 2,
+                "boost=1 G should be ~128, got {}",
+                g
+            );
+            assert!(
+                (b as i16 - 128).unsigned_abs() <= 2,
+                "boost=1 B should be ~128, got {}",
+                b
+            );
+        }
+    }
+
+    #[test]
+    fn test_apply_gainmap_boost_max() {
+        // display_boost = hdr_capacity_max → weight=1.0 → full HDR enhancement
+        let sdr = make_sdr_4x4(128, 128, 128);
+        let gainmap = make_gainmap_2x2(255); // Max gain
+        let metadata = test_metadata();
+
+        let result_max = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            metadata.hdr_capacity_max,
+            HdrOutputFormat::LinearFloat,
+            enough::Unstoppable,
+        )
+        .unwrap();
+
+        // Also compute with boost=1.0 for comparison
+        let result_sdr = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            1.0,
+            HdrOutputFormat::LinearFloat,
+            enough::Unstoppable,
+        )
+        .unwrap();
+
+        // Read first pixel from each
+        let hdr_r = f32::from_le_bytes([
+            result_max.data[0],
+            result_max.data[1],
+            result_max.data[2],
+            result_max.data[3],
+        ]);
+        let sdr_r = f32::from_le_bytes([
+            result_sdr.data[0],
+            result_sdr.data[1],
+            result_sdr.data[2],
+            result_sdr.data[3],
+        ]);
+
+        // Full boost should produce significantly brighter output than no boost
+        assert!(
+            hdr_r > sdr_r * 1.5,
+            "max boost ({}) should be much brighter than sdr ({})",
+            hdr_r,
+            sdr_r
+        );
+    }
+
+    #[test]
+    fn test_gain_map_lut_monotonic() {
+        let metadata = test_metadata();
+        let lut = GainMapLut::new(&metadata, 1.0);
+
+        // LUT values should be monotonically non-decreasing from byte 0 to 255
+        for channel in 0..3 {
+            for i in 1..=255u8 {
+                let prev = lut.lookup(i - 1, channel);
+                let curr = lut.lookup(i, channel);
+                assert!(
+                    curr >= prev,
+                    "LUT not monotonic at byte {} channel {}: {} < {}",
+                    i,
+                    channel,
+                    curr,
+                    prev
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_gain_map_lut_endpoints() {
+        let metadata = test_metadata();
+        let lut = GainMapLut::new(&metadata, 1.0);
+
+        // At weight=1.0:
+        // Byte 0 → normalized=0.0 → log_gain=ln(min_boost)=ln(1.0)=0 → gain=exp(0)=1.0
+        let gain_0 = lut.lookup(0, 0);
+        assert!(
+            (gain_0 - metadata.min_content_boost[0]).abs() < 0.01,
+            "byte 0 should give min_content_boost={}, got {}",
+            metadata.min_content_boost[0],
+            gain_0
+        );
+
+        // Byte 255 → normalized=1.0 → log_gain=ln(max_boost)=ln(4.0) → gain=exp(ln(4))=4.0
+        let gain_255 = lut.lookup(255, 0);
+        assert!(
+            (gain_255 - metadata.max_content_boost[0]).abs() < 0.1,
+            "byte 255 should give max_content_boost={}, got {}",
+            metadata.max_content_boost[0],
+            gain_255
+        );
+    }
+
+    #[test]
+    fn test_apply_gainmap_multichannel() {
+        let sdr = make_sdr_4x4(128, 128, 128);
+
+        // Create a 2x2 multichannel (3-channel) gain map
+        let mut gainmap = GainMap::new_multichannel(2, 2).unwrap();
+        assert_eq!(gainmap.channels, 3);
+        // Fill with different values per channel
+        for i in 0..(2 * 2) {
+            gainmap.data[i * 3] = 200; // R channel - high gain
+            gainmap.data[i * 3 + 1] = 128; // G channel - mid gain
+            gainmap.data[i * 3 + 2] = 50; // B channel - low gain
+        }
+
+        let metadata = test_metadata();
+
+        let result = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            4.0,
+            HdrOutputFormat::LinearFloat,
+            enough::Unstoppable,
+        )
+        .unwrap();
+
+        assert_eq!(result.width, 4);
+        assert_eq!(result.height, 4);
+        assert_eq!(result.format, PixelFormat::Rgba32F);
+        assert_eq!(result.data.len(), 4 * 4 * 16);
+    }
+
+    #[test]
+    fn test_apply_gainmap_invalid_boost() {
+        // display_boost=0.5 (< 1.0) is clamped to 1.0 internally, not an error.
+        // Verify it behaves exactly like boost=1.0.
+        let sdr = make_sdr_4x4(128, 128, 128);
+        let gainmap = make_gainmap_2x2(200);
+        let metadata = test_metadata();
+
+        let result_low = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            0.5,
+            HdrOutputFormat::Srgb8,
+            enough::Unstoppable,
+        )
+        .unwrap();
+
+        let result_one = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            1.0,
+            HdrOutputFormat::Srgb8,
+            enough::Unstoppable,
+        )
+        .unwrap();
+
+        // Both should produce identical output since 0.5 is clamped to 1.0
+        assert_eq!(result_low.data, result_one.data);
+    }
+
     #[test]
     fn test_apply_gainmap_cancellation() {
         /// A Stop implementation that cancels immediately
