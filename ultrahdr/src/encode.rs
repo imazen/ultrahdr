@@ -245,7 +245,7 @@ impl Encoder {
     #[cfg(feature = "_test-helpers")]
     pub fn encode(&self) -> Result<Vec<u8>> {
         // Fast path: if we have raw gain map JPEG bytes, skip gain map processing
-        if let (Some(ref gainmap_jpeg), Some(ref metadata)) =
+        if let (Some(gainmap_jpeg), Some(metadata)) =
             (&self.existing_gainmap_jpeg, &self.existing_metadata)
         {
             let (base_jpeg, gamut) = if let Some(ref compressed) = self.compressed_sdr {

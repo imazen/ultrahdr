@@ -29,4 +29,3 @@ The decoder gracefully handles non-UltraHDR files in code (returns `Ok()` with `
 ## Untracked Files
 
 - `ultrahdr/examples/test_ultrahdr_parse.rs` — ad-hoc MPF debugging script, hardcodes absolute path to zenjpeg fixtures. Not suitable as a proper example without cleanup.
-- `moxcms-0.8.0/` — vendored/reference copy, unrelated to this crate.
