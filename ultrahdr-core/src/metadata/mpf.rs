@@ -346,14 +346,14 @@ pub fn find_jpeg_boundaries(data: &[u8]) -> Vec<(usize, usize)> {
     let mut boundaries = Vec::new();
     let mut pos = 0;
 
-    while pos < data.len() - 1 {
+    while pos + 1 < data.len() {
         // Look for SOI (Start Of Image) marker
         if data[pos] == 0xFF && data[pos + 1] == 0xD8 {
             let start = pos;
 
             // Find EOI (End Of Image) marker
             pos += 2;
-            while pos < data.len() - 1 {
+            while pos + 1 < data.len() {
                 if data[pos] == 0xFF && data[pos + 1] == 0xD9 {
                     boundaries.push((start, pos + 2));
                     pos += 2;
@@ -507,10 +507,13 @@ mod tests {
 
     #[test]
     fn test_find_jpeg_boundaries_empty() {
-        // Empty input triggers subtraction overflow in `data.len() - 1`.
-        // This documents the current behavior: the function panics on empty data.
-        let result = std::panic::catch_unwind(|| find_jpeg_boundaries(&[]));
-        assert!(result.is_err(), "expected panic on empty input");
+        // Empty input should return empty vec, not panic.
+        let boundaries = find_jpeg_boundaries(&[]);
+        assert!(boundaries.is_empty());
+
+        // Single byte — also safe
+        let boundaries = find_jpeg_boundaries(&[0xFF]);
+        assert!(boundaries.is_empty());
     }
 
     #[test]
