@@ -454,4 +454,130 @@ mod tests {
         assert_eq!(boundaries[0], (0, 104));
         assert_eq!(boundaries[1], (104, 158));
     }
+
+    #[test]
+    fn test_parse_mpf_no_marker() {
+        // Data without APP2 marker should error
+        let data = vec![0xFF, 0xD8, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xD9];
+        let result = parse_mpf(&data);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, Error::MpfParse(_)),
+            "expected MpfParse error, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_parse_mpf_data_too_short() {
+        // MPF data < 8 bytes should error (call parse_mpf_data directly)
+        let short_data = [b'M', b'M', 0x00, 0x2A]; // Only 4 bytes
+        let result = parse_mpf_data(&short_data, 0);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("too short"),
+            "expected 'too short' in error, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_parse_mpf_invalid_endianness() {
+        // Neither "MM" nor "II" should error
+        let mut bad_data = vec![0u8; 16];
+        bad_data[0] = b'X';
+        bad_data[1] = b'X';
+        // Fill rest with valid-looking offsets
+        bad_data[4] = 0x00;
+        bad_data[5] = 0x00;
+        bad_data[6] = 0x00;
+        bad_data[7] = 0x08;
+
+        let result = parse_mpf_data(&bad_data, 0);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("endianness"),
+            "expected 'endianness' in error, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_find_jpeg_boundaries_empty() {
+        // Empty input triggers subtraction overflow in `data.len() - 1`.
+        // This documents the current behavior: the function panics on empty data.
+        let result = std::panic::catch_unwind(|| find_jpeg_boundaries(&[]));
+        assert!(result.is_err(), "expected panic on empty input");
+    }
+
+    #[test]
+    fn test_find_jpeg_boundaries_single() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&[0xFF, 0xD8]); // SOI
+        data.extend_from_slice(&[0x00; 20]); // Content
+        data.extend_from_slice(&[0xFF, 0xD9]); // EOI
+
+        let boundaries = find_jpeg_boundaries(&data);
+        assert_eq!(boundaries.len(), 1);
+        assert_eq!(boundaries[0], (0, 24));
+    }
+
+    #[test]
+    fn test_find_jpeg_boundaries_no_eoi() {
+        // SOI without matching EOI should return empty
+        let mut data = Vec::new();
+        data.extend_from_slice(&[0xFF, 0xD8]); // SOI
+        data.extend_from_slice(&[0x00; 50]); // Content, no EOI
+
+        let boundaries = find_jpeg_boundaries(&data);
+        assert!(
+            boundaries.is_empty(),
+            "expected no boundaries for SOI without EOI, got {:?}",
+            boundaries
+        );
+    }
+
+    #[test]
+    fn test_create_mpf_header_structure() {
+        let header = create_mpf_header(50000, 10000, Some(100));
+
+        // Starts with APP2 marker: FF E2
+        assert_eq!(header[0], 0xFF);
+        assert_eq!(header[1], 0xE2);
+
+        // Contains MPF\0 identifier after length bytes
+        let mpf_id_pos = 4; // after FF E2 + 2-byte length
+        assert_eq!(&header[mpf_id_pos..mpf_id_pos + 4], b"MPF\0");
+
+        // TIFF header starts after MPF\0: "MM" for big-endian
+        let tiff_start = mpf_id_pos + 4;
+        assert_eq!(&header[tiff_start..tiff_start + 2], b"MM");
+
+        // Fixed TIFF magic 0x002A
+        assert_eq!(header[tiff_start + 2], 0x00);
+        assert_eq!(header[tiff_start + 3], 0x2A);
+
+        // IFD offset = 8 (from start of TIFF header)
+        let ifd_offset = u32::from_be_bytes([
+            header[tiff_start + 4],
+            header[tiff_start + 5],
+            header[tiff_start + 6],
+            header[tiff_start + 7],
+        ]);
+        assert_eq!(ifd_offset, 8);
+
+        // Number of IFD entries = 3
+        let ifd_pos = tiff_start + 8;
+        let num_entries = u16::from_be_bytes([header[ifd_pos], header[ifd_pos + 1]]);
+        assert_eq!(num_entries, 3);
+    }
+
+    #[test]
+    fn test_mpf_image_types() {
+        assert_eq!(MpImageType::BaselinePrimary as u32, 0x030000);
+        assert_eq!(MpImageType::DependentChild as u32, 0x000000);
+    }
 }

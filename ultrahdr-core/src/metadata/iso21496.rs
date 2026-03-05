@@ -422,4 +422,315 @@ mod tests {
             );
         }
     }
+
+    /// Data too short: 0 bytes and 1 byte should both fail.
+    #[test]
+    fn test_deserialize_truncated_data() {
+        let result_empty = deserialize_iso21496(&[]);
+        assert!(result_empty.is_err(), "0 bytes should fail");
+
+        let result_one = deserialize_iso21496(&[0x00]);
+        assert!(result_one.is_err(), "1 byte should fail");
+    }
+
+    /// Version greater than ISO_VERSION should be rejected.
+    #[test]
+    fn test_deserialize_version_mismatch() {
+        // Build a valid serialized blob, then set version to ISO_VERSION + 1
+        let metadata = GainMapMetadata::new();
+        let mut serialized = serialize_iso21496(&metadata);
+        serialized[0] = ISO_VERSION + 1;
+
+        let result = deserialize_iso21496(&serialized);
+        assert!(result.is_err(), "version > ISO_VERSION should be rejected");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("version") || msg.contains("Version"),
+            "error should mention version: {}",
+            msg
+        );
+    }
+
+    /// Valid header (version + flags) but data truncated mid-fraction.
+    #[test]
+    fn test_deserialize_truncated_fractions() {
+        // 2 bytes: valid version + flags for single-channel
+        // Single-channel needs 2 + 16 + 1*40 = 58 bytes total.
+        // Provide only the header + a few extra bytes (not enough for fractions).
+        let mut data = vec![ISO_VERSION, 0x00]; // version=0, flags=0 (single channel)
+        // Add just 4 bytes - not enough for even one complete fraction (needs 8)
+        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
+
+        let result = deserialize_iso21496(&data);
+        assert!(
+            result.is_err(),
+            "truncated fraction data should fail: got {:?}",
+            result
+        );
+    }
+
+    /// Serialize with backward_dir=false (default), manually set the backward
+    /// direction flag bit, deserialize, verify offset_sdr and offset_hdr are swapped.
+    #[test]
+    fn test_backward_direction_flag() {
+        let original = GainMapMetadata {
+            min_content_boost: [1.0; 3],
+            max_content_boost: [4.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [0.1; 3],
+            offset_hdr: [0.2; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 4.0,
+            use_base_color_space: true,
+        };
+
+        let mut serialized = serialize_iso21496(&original);
+
+        // Verify backward_dir flag is NOT set by default
+        assert_eq!(
+            serialized[1] & FLAG_BACKWARD_DIR,
+            0,
+            "backward_dir should not be set by serialize"
+        );
+
+        // Manually set the backward direction flag (bit 2)
+        serialized[1] |= FLAG_BACKWARD_DIR;
+
+        let parsed = deserialize_iso21496(&serialized).unwrap();
+
+        // With backward_dir set, offset_sdr and offset_hdr should be swapped
+        let tol = 0.001;
+        for i in 0..3 {
+            assert!(
+                (parsed.offset_sdr[i] - original.offset_hdr[i]).abs() < tol,
+                "offset_sdr[{}] should contain original offset_hdr: {} vs {}",
+                i,
+                parsed.offset_sdr[i],
+                original.offset_hdr[i]
+            );
+            assert!(
+                (parsed.offset_hdr[i] - original.offset_sdr[i]).abs() < tol,
+                "offset_hdr[{}] should contain original offset_sdr: {} vs {}",
+                i,
+                parsed.offset_hdr[i],
+                original.offset_sdr[i]
+            );
+        }
+    }
+
+    /// Verify APP2 marker structure: starts with FF E2, correct length,
+    /// contains namespace, contains data.
+    #[test]
+    fn test_create_iso_app2_marker() {
+        let iso_data = serialize_iso21496(&GainMapMetadata::new());
+        let marker = create_iso_app2_marker(&iso_data);
+
+        // Must start with APP2 marker bytes
+        assert_eq!(marker[0], 0xFF, "first byte should be 0xFF");
+        assert_eq!(marker[1], 0xE2, "second byte should be 0xE2 (APP2)");
+
+        // Length field (big-endian u16 at bytes 2..4)
+        let namespace = b"urn:iso:std:iso:ts:21496:-1\0";
+        let expected_length = 2 + namespace.len() + iso_data.len();
+        let actual_length = ((marker[2] as usize) << 8) | (marker[3] as usize);
+        assert_eq!(
+            actual_length, expected_length,
+            "length field mismatch: expected {}, got {}",
+            expected_length, actual_length
+        );
+
+        // Total marker size = 2 (FF E2) + length field content
+        assert_eq!(marker.len(), 2 + expected_length);
+
+        // Namespace is present after the length field
+        let ns_start = 4;
+        let ns_end = ns_start + namespace.len();
+        assert_eq!(
+            &marker[ns_start..ns_end],
+            namespace,
+            "namespace not found at expected position"
+        );
+
+        // ISO data follows the namespace
+        assert_eq!(
+            &marker[ns_end..],
+            &iso_data,
+            "ISO data not found after namespace"
+        );
+    }
+
+    /// Create marker and verify it contains the ISO namespace string.
+    #[test]
+    fn test_create_iso_app2_marker_roundtrip() {
+        let iso_data = serialize_iso21496(&GainMapMetadata::new());
+        let marker = create_iso_app2_marker(&iso_data);
+
+        let namespace_str = b"urn:iso:std:iso:ts:21496:-1\0";
+
+        // Verify the namespace string appears in the marker
+        let found = marker
+            .windows(namespace_str.len())
+            .any(|w| w == namespace_str);
+        assert!(
+            found,
+            "marker should contain the ISO namespace string \"urn:iso:std:iso:ts:21496:-1\\0\""
+        );
+
+        // Extract the ISO payload from the marker (skip 2 marker bytes + 2 length bytes + namespace)
+        let payload_start = 4 + namespace_str.len();
+        let extracted_data = &marker[payload_start..];
+        assert_eq!(
+            extracted_data, &iso_data,
+            "extracted payload should match original ISO data"
+        );
+
+        // Deserialize the extracted payload to verify full roundtrip
+        let parsed = deserialize_iso21496(extracted_data).unwrap();
+        let original = GainMapMetadata::new();
+        assert!(
+            (parsed.hdr_capacity_min - original.hdr_capacity_min).abs() < 0.01,
+            "roundtrip hdr_capacity_min mismatch"
+        );
+        assert!(parsed.use_base_color_space);
+    }
+
+    /// Single-channel metadata should produce identical values in all 3 channels.
+    #[test]
+    fn test_single_channel_all_same() {
+        let original = GainMapMetadata {
+            min_content_boost: [2.0; 3],
+            max_content_boost: [8.0; 3],
+            gamma: [1.5; 3],
+            offset_sdr: [0.03; 3],
+            offset_hdr: [0.05; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 8.0,
+            use_base_color_space: false,
+        };
+
+        // Confirm it serializes as single-channel
+        let serialized = serialize_iso21496(&original);
+        assert_eq!(
+            serialized[1] & FLAG_MULTI_CHANNEL,
+            0,
+            "should serialize as single channel"
+        );
+
+        let parsed = deserialize_iso21496(&serialized).unwrap();
+
+        // All three channels must be identical
+        for i in 1..3 {
+            assert_eq!(
+                parsed.min_content_boost[0], parsed.min_content_boost[i],
+                "min_content_boost[0] != min_content_boost[{}]",
+                i
+            );
+            assert_eq!(
+                parsed.max_content_boost[0], parsed.max_content_boost[i],
+                "max_content_boost[0] != max_content_boost[{}]",
+                i
+            );
+            assert_eq!(parsed.gamma[0], parsed.gamma[i], "gamma[0] != gamma[{}]", i);
+            assert_eq!(
+                parsed.offset_sdr[0], parsed.offset_sdr[i],
+                "offset_sdr[0] != offset_sdr[{}]",
+                i
+            );
+            assert_eq!(
+                parsed.offset_hdr[0], parsed.offset_hdr[i],
+                "offset_hdr[0] != offset_hdr[{}]",
+                i
+            );
+        }
+    }
+
+    /// Fraction::new with denominator 0 should not panic; to_f32 returns 0.0.
+    #[test]
+    fn test_fraction_zero_denominator() {
+        let frac = Fraction::new(42, 0);
+        // Must not panic
+        let val = frac.to_f32();
+        assert_eq!(
+            val, 0.0,
+            "Fraction with denominator 0 should return 0.0, got {}",
+            val
+        );
+
+        let frac_neg = Fraction::new(-100, 0);
+        let val_neg = frac_neg.to_f32();
+        assert_eq!(
+            val_neg, 0.0,
+            "Fraction with negative numerator and denominator 0 should return 0.0, got {}",
+            val_neg
+        );
+    }
+
+    /// Extreme values: very large max_content_boost, very small gamma,
+    /// and hdr_capacity_max of 10000/203.
+    #[test]
+    fn test_serialize_deserialize_extreme_values() {
+        let original = GainMapMetadata {
+            min_content_boost: [0.01; 3],
+            max_content_boost: [10000.0; 3],
+            gamma: [0.01; 3],
+            offset_sdr: [0.0; 3],
+            offset_hdr: [0.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 10000.0 / 203.0, // ~49.26
+            use_base_color_space: true,
+        };
+
+        let serialized = serialize_iso21496(&original);
+        let parsed = deserialize_iso21496(&serialized).unwrap();
+
+        // Large max_content_boost: use relative tolerance
+        let rel_tol = 0.05;
+        assert!(
+            (parsed.max_content_boost[0] - original.max_content_boost[0]).abs()
+                / original.max_content_boost[0]
+                < rel_tol,
+            "max_content_boost: {} vs {}",
+            parsed.max_content_boost[0],
+            original.max_content_boost[0]
+        );
+
+        // Small min_content_boost
+        assert!(
+            (parsed.min_content_boost[0] - original.min_content_boost[0]).abs()
+                / original.min_content_boost[0]
+                < rel_tol,
+            "min_content_boost: {} vs {}",
+            parsed.min_content_boost[0],
+            original.min_content_boost[0]
+        );
+
+        // Very small gamma
+        assert!(
+            (parsed.gamma[0] - original.gamma[0]).abs() < 0.001,
+            "gamma: {} vs {}",
+            parsed.gamma[0],
+            original.gamma[0]
+        );
+
+        // hdr_capacity_max = 10000/203
+        let expected_cap = 10000.0f32 / 203.0;
+        assert!(
+            (parsed.hdr_capacity_max - expected_cap).abs() / expected_cap < rel_tol,
+            "hdr_capacity_max: {} vs {}",
+            parsed.hdr_capacity_max,
+            expected_cap
+        );
+
+        // Zero offsets should roundtrip exactly (or very close)
+        assert!(
+            (parsed.offset_sdr[0]).abs() < 0.001,
+            "offset_sdr should be ~0.0: {}",
+            parsed.offset_sdr[0]
+        );
+        assert!(
+            (parsed.offset_hdr[0]).abs() < 0.001,
+            "offset_hdr should be ~0.0: {}",
+            parsed.offset_hdr[0]
+        );
+    }
 }

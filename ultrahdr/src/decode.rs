@@ -2,10 +2,7 @@
 
 #[cfg(feature = "_test-helpers")]
 use ultrahdr_core::gainmap::apply::{HdrOutputFormat, apply_gainmap};
-use ultrahdr_core::metadata::{
-    mpf::find_jpeg_boundaries,
-    xmp::parse_xmp,
-};
+use ultrahdr_core::metadata::{mpf::find_jpeg_boundaries, xmp::parse_xmp};
 #[cfg(feature = "_test-helpers")]
 use ultrahdr_core::{ColorGamut, ColorTransfer, PixelFormat, Unstoppable};
 use ultrahdr_core::{Error, GainMap, GainMapMetadata, RawImage, Result};
@@ -194,8 +191,7 @@ impl<'a> Decoder<'a> {
 
         // Find XMP metadata with hdrgm namespace
         if let Some(xmp_str) = find_xmp_in_segments(&segments) {
-            if xmp_str.contains("hdrgm:") || xmp_str.contains("http://ns.adobe.com/hdr-gain-map/")
-            {
+            if xmp_str.contains("hdrgm:") || xmp_str.contains("http://ns.adobe.com/hdr-gain-map/") {
                 if let Ok((metadata, _gainmap_len)) = parse_xmp(&xmp_str) {
                     self.metadata = Some(metadata);
                     self.is_ultrahdr = true;
@@ -214,8 +210,7 @@ impl<'a> Decoder<'a> {
                     // Secondary images (gain map)
                     let secondaries = container::extract_secondary_images(self.data, &mpf_dir);
                     if let Some(gm) = secondaries.first() {
-                        let gm_start =
-                            gm.as_ptr() as usize - self.data.as_ptr() as usize;
+                        let gm_start = gm.as_ptr() as usize - self.data.as_ptr() as usize;
                         self.gainmap_jpeg = Some((gm_start, gm_start + gm.len()));
                         self.is_ultrahdr = true;
                     }
@@ -458,5 +453,96 @@ mod tests {
     fn test_find_xmp_in_segments_none() {
         let segments: Vec<AppSegment> = vec![];
         assert!(find_xmp_in_segments(&segments).is_none());
+    }
+
+    #[test]
+    fn test_decoder_xmp_without_hdrgm() {
+        // Build a fake JPEG with XMP APP1 containing valid XML but no hdrgm namespace
+        let xmp_ns = b"http://ns.adobe.com/xap/1.0/\0";
+        let xmp_body = b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:creator>test</dc:creator></rdf:Description></rdf:RDF></x:xmpmeta>";
+        let segment_data_len = xmp_ns.len() + xmp_body.len();
+        let segment_len = (segment_data_len + 2) as u16; // +2 for length field itself
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&[0xFF, 0xD8]); // SOI
+        data.push(0xFF);
+        data.push(0xE1); // APP1
+        data.extend_from_slice(&segment_len.to_be_bytes());
+        data.extend_from_slice(xmp_ns);
+        data.extend_from_slice(xmp_body);
+        data.extend_from_slice(&[0xFF, 0xD9]); // EOI
+
+        let decoder = Decoder::new(&data).unwrap();
+        assert!(!decoder.is_ultrahdr());
+        assert!(decoder.metadata().is_none());
+    }
+
+    #[test]
+    fn test_decoder_primary_jpeg_is_full_data_when_no_mpf() {
+        // Plain JPEG with no MPF — primary_jpeg() should return the entire data
+        let data = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xE0, 0x00, 0x07, // APP0 length 7
+            b'J', b'F', b'I', b'F', 0x00, // JFIF
+            0xFF, 0xD9, // EOI
+        ];
+        let decoder = Decoder::new(&data).unwrap();
+        let primary = decoder.primary_jpeg().unwrap();
+        assert_eq!(primary.len(), data.len());
+        assert_eq!(primary, &data[..]);
+    }
+
+    #[test]
+    fn test_decoder_gainmap_none_on_plain_jpeg() {
+        // Plain JPEG with no secondary images — gainmap_jpeg() should be None
+        let data = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xE0, 0x00, 0x07, // APP0 length 7
+            b'J', b'F', b'I', b'F', 0x00, // JFIF
+            0xFF, 0xD9, // EOI
+        ];
+        let decoder = Decoder::new(&data).unwrap();
+        assert!(decoder.gainmap_jpeg().is_none());
+    }
+
+    #[test]
+    fn test_find_xmp_in_segments_with_non_xmp() {
+        // APP1 segment that does NOT start with the XMP namespace (e.g., EXIF)
+        let segments = vec![AppSegment {
+            marker_num: 1,
+            data: b"Exif\0\0some_exif_data_here".to_vec(),
+            offset: 0,
+        }];
+        assert!(find_xmp_in_segments(&segments).is_none());
+
+        // APP1 with arbitrary data (not XMP, not EXIF)
+        let segments = vec![AppSegment {
+            marker_num: 1,
+            data: b"SomeRandomPrefix\0and_data".to_vec(),
+            offset: 0,
+        }];
+        assert!(find_xmp_in_segments(&segments).is_none());
+    }
+
+    #[test]
+    fn test_find_xmp_in_segments_with_xmp() {
+        let xmp_ns = b"http://ns.adobe.com/xap/1.0/\0";
+        let xmp_xml = b"<x:xmpmeta><rdf:RDF><rdf:Description/></rdf:RDF></x:xmpmeta>";
+
+        let mut segment_data = Vec::new();
+        segment_data.extend_from_slice(xmp_ns);
+        segment_data.extend_from_slice(xmp_xml);
+
+        let segments = vec![AppSegment {
+            marker_num: 1,
+            data: segment_data,
+            offset: 10,
+        }];
+
+        let result = find_xmp_in_segments(&segments);
+        assert!(result.is_some());
+        let xmp_str = result.unwrap();
+        assert!(xmp_str.contains("<x:xmpmeta>"));
+        assert!(xmp_str.contains("<rdf:RDF>"));
     }
 }

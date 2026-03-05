@@ -276,4 +276,168 @@ mod tests {
         );
         assert_eq!(extract_attribute(xmp, "hdrgm:Missing"), None);
     }
+
+    #[test]
+    fn test_parse_xmp_not_ultrahdr() {
+        // XMP without hdrgm namespace should return NotUltraHdr
+        let xmp = r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+        xmlns:dc="http://purl.org/dc/elements/1.1/"
+        dc:creator="SomeCamera"/>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#;
+
+        let result = parse_xmp(xmp);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::NotUltraHdr));
+    }
+
+    #[test]
+    fn test_parse_xmp_multi_channel() {
+        // Generate XMP with different per-channel values
+        let metadata = GainMapMetadata {
+            min_content_boost: [1.0, 2.0, 3.0],
+            max_content_boost: [4.0, 5.0, 6.0],
+            gamma: [1.0, 1.2, 1.5],
+            offset_sdr: [0.015625; 3],
+            offset_hdr: [0.015625; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 6.0,
+            use_base_color_space: true,
+        };
+
+        let xmp = generate_xmp(&metadata, 5000);
+        let (parsed, _) = parse_xmp(&xmp).unwrap();
+
+        // Verify channels differ for min_content_boost
+        assert!(
+            (parsed.min_content_boost[0] - parsed.min_content_boost[1]).abs() > 0.01,
+            "channels 0 and 1 should differ"
+        );
+        assert!(
+            (parsed.min_content_boost[1] - parsed.min_content_boost[2]).abs() > 0.01,
+            "channels 1 and 2 should differ"
+        );
+
+        // Verify approximate values (log2 roundtrip)
+        assert!((parsed.min_content_boost[0] - 1.0).abs() < 0.01);
+        assert!((parsed.min_content_boost[1] - 2.0).abs() < 0.01);
+        assert!((parsed.min_content_boost[2] - 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_xmp_values_empty() {
+        assert_eq!(parse_xmp_values(""), [0.0; 3]);
+    }
+
+    #[test]
+    fn test_parse_xmp_values_single() {
+        assert_eq!(parse_xmp_values("1.5"), [1.5, 1.5, 1.5]);
+    }
+
+    #[test]
+    fn test_parse_xmp_values_three() {
+        assert_eq!(parse_xmp_values("1.0, 2.0, 3.0"), [1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_create_xmp_app1_marker() {
+        let xmp = "<x:xmpmeta>test</x:xmpmeta>";
+        let marker = create_xmp_app1_marker(xmp);
+
+        // Starts with FF E1
+        assert_eq!(marker[0], 0xFF);
+        assert_eq!(marker[1], 0xE1);
+
+        // Length field (bytes 2-3) is big-endian u16
+        let length = u16::from_be_bytes([marker[2], marker[3]]) as usize;
+        let namespace = b"http://ns.adobe.com/xap/1.0/\0";
+        let expected_length = 2 + namespace.len() + xmp.len();
+        assert_eq!(length, expected_length);
+
+        // Contains XMP namespace after the length field
+        let namespace_start = 4;
+        let namespace_end = namespace_start + namespace.len();
+        assert_eq!(&marker[namespace_start..namespace_end], namespace);
+
+        // Total marker size = 2 (marker) + 2 (length) + namespace + xmp
+        assert_eq!(marker.len(), 4 + namespace.len() + xmp.len());
+    }
+
+    #[test]
+    fn test_extract_attribute_element_format() {
+        // Test element format: <hdrgm:Gamma>1.0</hdrgm:Gamma>
+        let xmp = r#"<rdf:Description>
+  <hdrgm:Gamma>1.0</hdrgm:Gamma>
+  <hdrgm:OffsetSDR>0.015625</hdrgm:OffsetSDR>
+</rdf:Description>"#;
+
+        assert_eq!(extract_attribute(xmp, "hdrgm:Gamma"), Some("1.0".into()));
+        assert_eq!(
+            extract_attribute(xmp, "hdrgm:OffsetSDR"),
+            Some("0.015625".into())
+        );
+        assert_eq!(extract_attribute(xmp, "hdrgm:Missing"), None);
+    }
+
+    #[test]
+    fn test_generate_xmp_contains_required_fields() {
+        let metadata = GainMapMetadata {
+            min_content_boost: [1.0; 3],
+            max_content_boost: [4.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [0.015625; 3],
+            offset_hdr: [0.015625; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 4.0,
+            use_base_color_space: true,
+        };
+
+        let xmp = generate_xmp(&metadata, 8000);
+
+        // All required hdrgm fields must be present
+        assert!(xmp.contains("hdrgm:Version="), "missing Version");
+        assert!(xmp.contains("hdrgm:GainMapMin="), "missing GainMapMin");
+        assert!(xmp.contains("hdrgm:GainMapMax="), "missing GainMapMax");
+        assert!(xmp.contains("hdrgm:Gamma="), "missing Gamma");
+        assert!(xmp.contains("hdrgm:OffsetSDR="), "missing OffsetSDR");
+        assert!(xmp.contains("hdrgm:OffsetHDR="), "missing OffsetHDR");
+        assert!(
+            xmp.contains("hdrgm:HDRCapacityMin="),
+            "missing HDRCapacityMin"
+        );
+        assert!(
+            xmp.contains("hdrgm:HDRCapacityMax="),
+            "missing HDRCapacityMax"
+        );
+        assert!(
+            xmp.contains("hdrgm:BaseRenditionIsHDR="),
+            "missing BaseRenditionIsHDR"
+        );
+
+        // Namespace declarations
+        assert!(xmp.contains(HDRGM_NAMESPACE), "missing hdrgm namespace");
+        assert!(
+            xmp.contains(CONTAINER_NAMESPACE),
+            "missing container namespace"
+        );
+        assert!(xmp.contains(ITEM_NAMESPACE), "missing item namespace");
+
+        // Container directory structure
+        assert!(
+            xmp.contains("Item:Semantic=\"Primary\""),
+            "missing primary item"
+        );
+        assert!(
+            xmp.contains("Item:Semantic=\"GainMap\""),
+            "missing gainmap item"
+        );
+        assert!(
+            xmp.contains("Item:Length=\"8000\""),
+            "missing/wrong item length"
+        );
+    }
 }

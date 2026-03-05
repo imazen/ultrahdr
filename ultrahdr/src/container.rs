@@ -805,4 +805,309 @@ mod tests {
         // Should contain "MPF\0"
         assert!(mpf_data.windows(4).any(|w| w == b"MPF\0"));
     }
+
+    #[test]
+    fn test_scan_segments_empty() {
+        let segments = scan_segments(&[]);
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn test_scan_segments_not_jpeg() {
+        // PNG header
+        let png_header = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        let segments = scan_segments(&png_header);
+        assert!(segments.is_empty());
+
+        // Random data
+        let random = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05];
+        let segments = scan_segments(&random);
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn test_scan_segments_only_soi() {
+        // JPEG with SOI + DQT (non-APP marker) + EOI — no APP segments
+        let jpeg = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xDB, 0x00, 0x05, // DQT with length 5
+            0x00, 0x01, 0x02, // DQT data
+            0xFF, 0xD9, // EOI
+        ];
+        let segments = scan_segments(&jpeg);
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn test_primary_bounds_not_jpeg() {
+        assert!(primary_bounds(&[]).is_none());
+        assert!(primary_bounds(&[0x00, 0x01, 0x02, 0x03]).is_none());
+        assert!(primary_bounds(&[0x89, 0x50, 0x4E, 0x47]).is_none()); // PNG
+    }
+
+    #[test]
+    fn test_primary_bounds_no_eoi() {
+        // JPEG with SOI but no EOI
+        let data = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xE0, 0x00, 0x07, // APP0 with length 7
+            b'J', b'F', b'I', b'F', 0x00, // JFIF identifier
+        ];
+        assert!(primary_bounds(&data).is_none());
+    }
+
+    #[test]
+    fn test_app_segment_type_checks() {
+        // MPF segment (APP2 with "MPF\0")
+        let mpf = AppSegment {
+            marker_num: 2,
+            data: b"MPF\0some_data".to_vec(),
+            offset: 0,
+        };
+        assert!(mpf.is_mpf());
+        assert!(!mpf.is_xmp());
+        assert!(!mpf.is_exif());
+        assert!(!mpf.is_icc());
+        assert!(!mpf.is_jfif());
+
+        // XMP segment (APP1 with XMP namespace)
+        let xmp = AppSegment {
+            marker_num: 1,
+            data: b"http://ns.adobe.com/xap/1.0/\0<xmp>test</xmp>".to_vec(),
+            offset: 0,
+        };
+        assert!(!xmp.is_mpf());
+        assert!(xmp.is_xmp());
+        assert!(!xmp.is_exif());
+        assert!(!xmp.is_icc());
+        assert!(!xmp.is_jfif());
+
+        // EXIF segment (APP1 with "Exif\0\0")
+        let exif = AppSegment {
+            marker_num: 1,
+            data: b"Exif\0\0some_exif".to_vec(),
+            offset: 0,
+        };
+        assert!(!exif.is_mpf());
+        assert!(!exif.is_xmp());
+        assert!(exif.is_exif());
+        assert!(!exif.is_icc());
+        assert!(!exif.is_jfif());
+
+        // ICC segment (APP2 with "ICC_PROFILE\0")
+        let icc = AppSegment {
+            marker_num: 2,
+            data: b"ICC_PROFILE\0chunk_data".to_vec(),
+            offset: 0,
+        };
+        assert!(!icc.is_mpf());
+        assert!(!icc.is_xmp());
+        assert!(!icc.is_exif());
+        assert!(icc.is_icc());
+        assert!(!icc.is_jfif());
+
+        // JFIF segment (APP0 with "JFIF\0")
+        let jfif = AppSegment {
+            marker_num: 0,
+            data: b"JFIF\0\x01\x01".to_vec(),
+            offset: 0,
+        };
+        assert!(!jfif.is_mpf());
+        assert!(!jfif.is_xmp());
+        assert!(!jfif.is_exif());
+        assert!(!jfif.is_icc());
+        assert!(jfif.is_jfif());
+
+        // Wrong marker_num — APP1 with "MPF\0" is NOT an MPF segment
+        let wrong_marker = AppSegment {
+            marker_num: 1,
+            data: b"MPF\0data".to_vec(),
+            offset: 0,
+        };
+        assert!(!wrong_marker.is_mpf());
+
+        // APP2 without "MPF\0" prefix
+        let app2_not_mpf = AppSegment {
+            marker_num: 2,
+            data: b"SOMETHING_ELSE".to_vec(),
+            offset: 0,
+        };
+        assert!(!app2_not_mpf.is_mpf());
+        assert!(!app2_not_mpf.is_icc());
+    }
+
+    #[test]
+    fn test_parse_mpf_segment_too_short() {
+        // Less than 8 bytes after skipping "MPF\0"
+        let short_data = b"MPF\0MM\x00";
+        let result = parse_mpf_segment(short_data, 0);
+        assert!(result.is_err());
+
+        // Completely empty
+        let result = parse_mpf_segment(&[], 0);
+        assert!(result.is_err());
+
+        // Just 4 bytes (no TIFF header at all after stripping identifier)
+        let result = parse_mpf_segment(b"MPF\0ABCD", 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_mpf_segment_invalid_endian() {
+        // Valid length but bad endianness marker ("XX" instead of "MM" or "II")
+        let mut data = b"MPF\0".to_vec();
+        data.extend_from_slice(b"XX"); // bad endian
+        data.extend_from_slice(&[0x00, 0x2A]); // TIFF magic
+        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x08]); // IFD offset
+        let result = parse_mpf_segment(&data, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_secondary_images_out_of_bounds() {
+        // Small data, but entry points past end
+        let data = vec![0xFF, 0xD8, 0xFF, 0xD9]; // 4 bytes
+
+        let mpf = MpfDirectory {
+            entries: vec![
+                MpfEntry {
+                    image_type: MpfImageType::Primary,
+                    size: 4,
+                    offset: 0,
+                    index: 0,
+                },
+                MpfEntry {
+                    image_type: MpfImageType::GainMap,
+                    size: 1000,  // way past end
+                    offset: 100, // way past end
+                    index: 1,
+                },
+            ],
+            mpf_marker_offset: 0,
+        };
+
+        let secondaries = extract_secondary_images(&data, &mpf);
+        assert!(secondaries.is_empty());
+    }
+
+    #[test]
+    fn test_assemble_no_secondaries() {
+        let primary = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xE0, 0x00, 0x07, // APP0
+            b'J', b'F', b'I', b'F', 0x00, // JFIF
+            0xFF, 0xD9, // EOI
+        ];
+
+        let result = assemble(&primary, &[], &[]).unwrap();
+        assert_eq!(result, primary);
+    }
+
+    #[test]
+    fn test_assemble_mismatched_counts() {
+        let primary = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xE0, 0x00, 0x07, // APP0
+            b'J', b'F', b'I', b'F', 0x00, // JFIF
+            0xFF, 0xD9, // EOI
+        ];
+
+        let secondary = vec![0xFF, 0xD8, 0xFF, 0xD9];
+
+        // One secondary, but two types
+        let result = assemble(
+            &primary,
+            &[&secondary[..]],
+            &[MpfImageType::GainMap, MpfImageType::DepthMap],
+        );
+        assert!(result.is_err());
+
+        // Two secondaries, but one type
+        let result = assemble(
+            &primary,
+            &[&secondary[..], &secondary[..]],
+            &[MpfImageType::GainMap],
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mpf_image_type_unknown() {
+        // A value that doesn't match any known pattern
+        let attr = 0xDEAD_BEEFu32;
+        let img_type = MpfImageType::from_attribute(attr);
+        assert!(matches!(img_type, MpfImageType::Unknown(_)));
+        if let MpfImageType::Unknown(v) = img_type {
+            assert_eq!(v, 0xDEAD_BEEF);
+        }
+
+        // Roundtrip
+        assert_eq!(img_type.to_attribute(), 0xDEAD_BEEF);
+    }
+
+    #[test]
+    fn test_mpf_image_type_all_variants() {
+        // Verify to_attribute returns expected values for each variant
+        assert_eq!(MpfImageType::LargeThumbnail.to_attribute(), 0x01_0001);
+        assert_eq!(MpfImageType::MultiFramePanorama.to_attribute(), 0x02_0002);
+        assert_eq!(MpfImageType::MultiFrameDisparity.to_attribute(), 0x03_0003);
+        assert_eq!(MpfImageType::MultiFrameMultiAngle.to_attribute(), 0x04_0004);
+
+        // Verify from_attribute decodes type_code (bits 26-24) correctly.
+        // The type_code is extracted as (attr >> 24) & 0x07, so we construct
+        // attribute values that place the type code in the correct bits.
+        // type_code=1 -> LargeThumbnail
+        let lt = MpfImageType::from_attribute(0x01_00_0000);
+        assert!(matches!(lt, MpfImageType::LargeThumbnail));
+
+        // type_code=2 -> MultiFramePanorama
+        let mfp = MpfImageType::from_attribute(0x02_00_0000);
+        assert!(matches!(mfp, MpfImageType::MultiFramePanorama));
+
+        // type_code=3 -> MultiFrameDisparity
+        let mfd = MpfImageType::from_attribute(0x03_00_0000);
+        assert!(matches!(mfd, MpfImageType::MultiFrameDisparity));
+
+        // type_code=4 -> MultiFrameMultiAngle
+        let mfma = MpfImageType::from_attribute(0x04_00_0000);
+        assert!(matches!(mfma, MpfImageType::MultiFrameMultiAngle));
+
+        // type_code=5 and above -> Unknown
+        let unknown = MpfImageType::from_attribute(0x05_00_0000);
+        assert!(matches!(unknown, MpfImageType::Unknown(_)));
+    }
+
+    #[test]
+    fn test_generate_mpf_basic() {
+        let mpf_data = generate_mpf(
+            10000,
+            &[5000, 3000],
+            &[MpfImageType::GainMap, MpfImageType::DepthMap],
+            50,
+        );
+
+        // Must be APP2 marker
+        assert_eq!(mpf_data[0], 0xFF);
+        assert_eq!(mpf_data[1], 0xE2);
+
+        // Length field (bytes 2-3) should be consistent with actual data
+        let length = u16::from_be_bytes([mpf_data[2], mpf_data[3]]) as usize;
+        assert_eq!(length + 2, mpf_data.len()); // +2 for marker bytes
+
+        // Must contain "MPF\0" identifier
+        assert_eq!(&mpf_data[4..8], b"MPF\0");
+
+        // Must contain big-endian TIFF header "MM"
+        assert_eq!(&mpf_data[8..10], b"MM");
+
+        // TIFF magic number 0x002A
+        assert_eq!(mpf_data[10], 0x00);
+        assert_eq!(mpf_data[11], 0x2A);
+
+        // 3 images total (primary + 2 secondaries), so entry count should appear
+        // The IFD at offset 8 from TIFF start should have 3 entries
+        let ifd_offset = 8 + 8; // TIFF header start + IFD offset (8)
+        let num_ifd_entries = u16::from_be_bytes([mpf_data[ifd_offset], mpf_data[ifd_offset + 1]]);
+        assert_eq!(num_ifd_entries, 3); // Version, NumberOfImages, MPEntry
+    }
 }
