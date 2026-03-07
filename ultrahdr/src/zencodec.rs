@@ -15,15 +15,15 @@
 //!
 //! ```ignore
 //! use ultrahdr::zencodec::UltraHdrDecoderConfig;
-//! use zencodec_types::DecoderConfig;
+//! use zencodec_types::decode::DecoderConfig;
 //!
 //! let config = UltraHdrDecoderConfig;
 //! let job = config.job();
-//! let dec = job.decoder(ultrahdr_bytes, &[])?;
+//! let dec = job.decoder(data.into(), &[])?;
 //! let output = dec.decode()?;
 //!
 //! // SDR primary image as pixels
-//! let rgb8 = output.as_rgb8().unwrap();
+//! let rgb8 = output.pixels();
 //!
 //! // Gain map data
 //! if let Some(extras) = output.extras::<ultrahdr::zencodec::UltraHdrExtras>() {
@@ -32,14 +32,21 @@
 //! }
 //! ```
 
-use zencodec_types::{
-    CodecCapabilities, Decode, DecodeJob, DecodeOutput, DecoderConfig, FrameDecode,
-    ImageFormat as ZenImageFormat, ImageInfo as ZenImageInfo, OutputInfo, ResourceLimits,
-    StreamingDecode, UnsupportedOperation,
+use alloc::borrow::Cow;
+
+use zencodec_types::decode::{
+    DecodeCapabilities, DecodeJob, DecodeOutput, DecoderConfig, FullFrameDecoder, OutputInfo,
+    StreamingDecode, push_decoder_via_full_decode,
 };
-use zenpixels::{PixelBuffer, PixelDescriptor, PixelSlice};
+use zencodec_types::{
+    Decode, ImageFormat as ZenImageFormat, ImageInfo as ZenImageInfo, ResourceLimits,
+    Unsupported, UnsupportedOperation,
+};
+use zenpixels::{PixelBuffer, PixelDescriptor};
 
 use crate::Decoder;
+
+extern crate alloc;
 
 /// Extra data from Ultra HDR decode.
 ///
@@ -64,6 +71,9 @@ pub enum ZenDecodeError {
     /// JPEG decode error.
     #[error("JPEG decode: {0}")]
     Jpeg(String),
+    /// Decode row sink error.
+    #[error("sink error: {0}")]
+    Sink(zencodec_types::decode::SinkError),
 }
 
 /// Reusable Ultra HDR decoder configuration.
@@ -81,11 +91,11 @@ impl DecoderConfig for UltraHdrDecoderConfig {
     }
 
     fn supported_descriptors() -> &'static [PixelDescriptor] {
-        &[PixelDescriptor::RGB8, PixelDescriptor::RGBA8]
+        &[PixelDescriptor::RGB8_SRGB, PixelDescriptor::RGBA8_SRGB]
     }
 
-    fn capabilities() -> &'static CodecCapabilities {
-        static CAPS: CodecCapabilities = CodecCapabilities::EMPTY;
+    fn capabilities() -> &'static DecodeCapabilities {
+        static CAPS: DecodeCapabilities = DecodeCapabilities::new();
         &CAPS
     }
 
@@ -106,10 +116,10 @@ pub struct UltraHdrDecodeJob<'a> {
 impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
     type Error = ZenDecodeError;
     type Dec = UltraHdrDecoder<'a>;
-    type StreamDec = NoStreamingDecode;
-    type FrameDec = NoFrameDecode;
+    type StreamDec = Unsupported<ZenDecodeError>;
+    type FullFrameDec = Unsupported<ZenDecodeError>;
 
-    fn with_stop(self, _stop: &'a dyn zencodec_types::Stop) -> Self {
+    fn with_stop(self, _stop: &'a dyn zencodec_types::enough::Stop) -> Self {
         self // cancellation not yet wired
     }
 
@@ -131,12 +141,12 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
         let _decoder = Decoder::new(data)?;
         // We'd need to parse JPEG headers for dimensions without full decode.
         // For now return a placeholder — callers use probe() or just decode.
-        Ok(OutputInfo::full_decode(0, 0, PixelDescriptor::RGB8))
+        Ok(OutputInfo::full_decode(0, 0, PixelDescriptor::RGB8_SRGB))
     }
 
     fn decoder(
         self,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<Self::Dec, Self::Error> {
         let want_rgba = preferred.iter().any(|d| d.layout().has_alpha());
@@ -144,26 +154,37 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
         Ok(UltraHdrDecoder { data, want_rgba })
     }
 
+    fn push_decoder(
+        self,
+        data: Cow<'a, [u8]>,
+        sink: &mut dyn zencodec_types::decode::DecodeRowSink,
+        preferred: &[PixelDescriptor],
+    ) -> Result<OutputInfo, Self::Error> {
+        push_decoder_via_full_decode(self, data, sink, preferred, |e| {
+            ZenDecodeError::Sink(e)
+        })
+    }
+
     fn streaming_decoder(
         self,
-        _data: &'a [u8],
+        _data: Cow<'a, [u8]>,
         _preferred: &[PixelDescriptor],
     ) -> Result<Self::StreamDec, Self::Error> {
         Err(UnsupportedOperation::RowLevelDecode.into())
     }
 
-    fn frame_decoder(
+    fn full_frame_decoder(
         self,
-        _data: &'a [u8],
+        _data: Cow<'a, [u8]>,
         _preferred: &[PixelDescriptor],
-    ) -> Result<Self::FrameDec, Self::Error> {
+    ) -> Result<Self::FullFrameDec, Self::Error> {
         Err(UnsupportedOperation::AnimationDecode.into())
     }
 }
 
 /// One-shot Ultra HDR decoder.
 pub struct UltraHdrDecoder<'a> {
-    data: &'a [u8],
+    data: Cow<'a, [u8]>,
     want_rgba: bool,
 }
 
@@ -173,7 +194,7 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
     fn decode(self) -> Result<DecodeOutput, Self::Error> {
         use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
 
-        let uhdr = Decoder::new(self.data)?;
+        let uhdr = Decoder::new(&self.data)?;
         if !uhdr.is_ultrahdr() {
             return Err(ultrahdr_core::Error::NotUltraHdr.into());
         }
@@ -201,9 +222,9 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
             .ok_or_else(|| ZenDecodeError::Jpeg("no pixel data".into()))?;
 
         let descriptor = if self.want_rgba {
-            PixelDescriptor::RGBA8
+            PixelDescriptor::RGBA8_SRGB
         } else {
-            PixelDescriptor::RGB8
+            PixelDescriptor::RGB8_SRGB
         };
 
         let pixel_buf = PixelBuffer::from_vec(pixels_u8.to_vec(), width, height, descriptor)
@@ -223,33 +244,5 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
         }
 
         Ok(output)
-    }
-}
-
-// --- Rejection types for unsupported decode modes ---
-
-/// Rejection stub: Ultra HDR does not support streaming decode.
-pub struct NoStreamingDecode;
-
-impl StreamingDecode for NoStreamingDecode {
-    type Error = ZenDecodeError;
-
-    fn next_batch(&mut self) -> Result<Option<(u32, PixelSlice<'_>)>, Self::Error> {
-        Err(UnsupportedOperation::RowLevelDecode.into())
-    }
-
-    fn info(&self) -> &ZenImageInfo {
-        panic!("streaming decode not supported for Ultra HDR")
-    }
-}
-
-/// Rejection stub: Ultra HDR does not support animation decode.
-pub struct NoFrameDecode;
-
-impl FrameDecode for NoFrameDecode {
-    type Error = ZenDecodeError;
-
-    fn next_frame(&mut self) -> Result<Option<zencodec_types::DecodeFrame>, Self::Error> {
-        Err(UnsupportedOperation::AnimationDecode.into())
     }
 }
