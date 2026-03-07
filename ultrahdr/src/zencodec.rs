@@ -76,8 +76,8 @@ impl DecoderConfig for UltraHdrDecoderConfig {
     type Error = ZenDecodeError;
     type Job<'a> = UltraHdrDecodeJob<'a>;
 
-    fn format() -> ZenImageFormat {
-        ZenImageFormat::Jpeg // Ultra HDR is JPEG-based
+    fn formats() -> &'static [ZenImageFormat] {
+        &[ZenImageFormat::Jpeg] // Ultra HDR is JPEG-based
     }
 
     fn supported_descriptors() -> &'static [PixelDescriptor] {
