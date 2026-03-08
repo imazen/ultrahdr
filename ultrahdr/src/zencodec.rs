@@ -77,6 +77,9 @@ pub enum ZenDecodeError {
     /// Resource limit exceeded.
     #[error("{0}")]
     LimitExceeded(#[from] LimitExceeded),
+    /// Operation stopped by cooperative cancellation.
+    #[error("stopped: {0:?}")]
+    Stopped(enough::StopReason),
 }
 
 /// Reusable Ultra HDR decoder configuration.
@@ -106,6 +109,7 @@ impl DecoderConfig for UltraHdrDecoderConfig {
         UltraHdrDecodeJob {
             _config: self,
             limits: None,
+            stop: None,
         }
     }
 }
@@ -114,6 +118,7 @@ impl DecoderConfig for UltraHdrDecoderConfig {
 pub struct UltraHdrDecodeJob<'a> {
     _config: &'a UltraHdrDecoderConfig,
     limits: Option<ResourceLimits>,
+    stop: Option<&'a dyn zc::enough::Stop>,
 }
 
 impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
@@ -122,8 +127,9 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
     type StreamDec = Unsupported<ZenDecodeError>;
     type FullFrameDec = Unsupported<ZenDecodeError>;
 
-    fn with_stop(self, _stop: &'a dyn zc::enough::Stop) -> Self {
-        self // cancellation not yet wired
+    fn with_stop(mut self, stop: &'a dyn zc::enough::Stop) -> Self {
+        self.stop = Some(stop);
+        self
     }
 
     fn with_limits(mut self, limits: ResourceLimits) -> Self {
@@ -179,6 +185,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
             data,
             want_rgba,
             limits,
+            stop: self.stop,
         })
     }
 
@@ -213,6 +220,7 @@ pub struct UltraHdrDecoder<'a> {
     data: Cow<'a, [u8]>,
     want_rgba: bool,
     limits: ResourceLimits,
+    stop: Option<&'a dyn zc::enough::Stop>,
 }
 
 impl<'a> Decode for UltraHdrDecoder<'a> {
@@ -241,9 +249,12 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
             JpegPixelFormat::Rgb
         };
 
+        let stop: &dyn enough::Stop = self.stop.unwrap_or(&enough::Unstoppable);
+        stop.check().map_err(ZenDecodeError::Stopped)?;
+
         let decoded = JpegDecoder::new()
             .output_format(output_fmt)
-            .decode(primary_jpeg, enough::Unstoppable)
+            .decode(primary_jpeg, stop)
             .map_err(|e| ZenDecodeError::Jpeg(e.to_string()))?;
 
         let width = decoded.width();
