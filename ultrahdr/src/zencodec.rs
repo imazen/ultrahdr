@@ -15,7 +15,7 @@
 //!
 //! ```ignore
 //! use ultrahdr::zencodec::UltraHdrDecoderConfig;
-//! use zencodec_types::decode::DecoderConfig;
+//! use zc::decode::DecoderConfig;
 //!
 //! let config = UltraHdrDecoderConfig;
 //! let job = config.job();
@@ -34,12 +34,12 @@
 
 use alloc::borrow::Cow;
 
-use zencodec_types::decode::{
-    DecodeCapabilities, DecodeJob, DecodeOutput, DecoderConfig, FullFrameDecoder, OutputInfo,
-    StreamingDecode, push_decoder_via_full_decode,
+use zc::decode::{
+    Decode, DecodeCapabilities, DecodeJob, DecodeOutput, DecoderConfig, OutputInfo,
+    push_decoder_via_full_decode,
 };
-use zencodec_types::{
-    Decode, ImageFormat as ZenImageFormat, ImageInfo as ZenImageInfo, ResourceLimits,
+use zc::{
+    ImageFormat as ZenImageFormat, ImageInfo as ZenImageInfo, ResourceLimits,
     Unsupported, UnsupportedOperation,
 };
 use zenpixels::{PixelBuffer, PixelDescriptor};
@@ -56,7 +56,7 @@ pub struct UltraHdrExtras {
     /// Raw gain map JPEG bytes.
     pub gainmap_jpeg: Vec<u8>,
     /// Gain map metadata in zencodec-types log2 domain.
-    pub metadata: zencodec_types::GainMapMetadata,
+    pub metadata: zc::GainMapMetadata,
 }
 
 /// Error type for zencodec Ultra HDR operations.
@@ -73,7 +73,7 @@ pub enum ZenDecodeError {
     Jpeg(String),
     /// Decode row sink error.
     #[error("sink error: {0}")]
-    Sink(zencodec_types::decode::SinkError),
+    Sink(zc::decode::SinkError),
 }
 
 /// Reusable Ultra HDR decoder configuration.
@@ -119,7 +119,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
     type StreamDec = Unsupported<ZenDecodeError>;
     type FullFrameDec = Unsupported<ZenDecodeError>;
 
-    fn with_stop(self, _stop: &'a dyn zencodec_types::enough::Stop) -> Self {
+    fn with_stop(self, _stop: &'a dyn zc::enough::Stop) -> Self {
         self // cancellation not yet wired
     }
 
@@ -157,7 +157,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
     fn push_decoder(
         self,
         data: Cow<'a, [u8]>,
-        sink: &mut dyn zencodec_types::decode::DecodeRowSink,
+        sink: &mut dyn zc::decode::DecodeRowSink,
         preferred: &[PixelDescriptor],
     ) -> Result<OutputInfo, Self::Error> {
         push_decoder_via_full_decode(self, data, sink, preferred, |e| {
@@ -236,7 +236,7 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
 
         // Attach gain map data as extras
         if let (Some(gm_jpeg), Some(metadata)) = (uhdr.gainmap_jpeg(), uhdr.metadata()) {
-            let zen_metadata: zencodec_types::GainMapMetadata = metadata.clone().into();
+            let zen_metadata: zc::GainMapMetadata = metadata.clone().into();
             output = output.with_extras(UltraHdrExtras {
                 gainmap_jpeg: gm_jpeg.to_vec(),
                 metadata: zen_metadata,
