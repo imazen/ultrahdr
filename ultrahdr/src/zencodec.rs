@@ -39,7 +39,7 @@ use zc::decode::{
     push_decoder_via_full_decode,
 };
 use zc::{
-    ImageFormat as ZenImageFormat, ImageInfo as ZenImageInfo, ResourceLimits,
+    ImageFormat as ZenImageFormat, ImageInfo as ZenImageInfo, LimitExceeded, ResourceLimits,
     Unsupported, UnsupportedOperation,
 };
 use zenpixels::{PixelBuffer, PixelDescriptor};
@@ -74,6 +74,9 @@ pub enum ZenDecodeError {
     /// Decode row sink error.
     #[error("sink error: {0}")]
     Sink(zc::decode::SinkError),
+    /// Resource limit exceeded.
+    #[error("{0}")]
+    LimitExceeded(#[from] LimitExceeded),
 }
 
 /// Reusable Ultra HDR decoder configuration.
@@ -129,10 +132,26 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
     }
 
     fn probe(&self, data: &[u8]) -> Result<ZenImageInfo, Self::Error> {
+        if let Some(ref limits) = self.limits {
+            limits.check_input_size(data.len() as u64)?;
+        }
+
         let decoder = Decoder::new(data)?;
         let mut info = ZenImageInfo::new(0, 0, ZenImageFormat::Jpeg);
         if decoder.is_ultrahdr() {
             info = info.with_frame_count(1);
+
+            // Try to read dimensions from the primary JPEG header for limit checks
+            if let Some(primary) = decoder.primary_jpeg()
+                && let Ok(jpeg_info) = zenjpeg::decoder::Decoder::new().read_info(primary)
+            {
+                let w = jpeg_info.dimensions.width;
+                let h = jpeg_info.dimensions.height;
+                info = ZenImageInfo::new(w, h, ZenImageFormat::Jpeg).with_frame_count(1);
+                if let Some(ref limits) = self.limits {
+                    limits.check_dimensions(w, h)?;
+                }
+            }
         }
         Ok(info)
     }
@@ -149,9 +168,18 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
         data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<Self::Dec, Self::Error> {
+        let limits = self.limits.unwrap_or(ResourceLimits::none());
+
+        // Check input size before proceeding
+        limits.check_input_size(data.len() as u64)?;
+
         let want_rgba = preferred.iter().any(|d| d.layout().has_alpha());
 
-        Ok(UltraHdrDecoder { data, want_rgba })
+        Ok(UltraHdrDecoder {
+            data,
+            want_rgba,
+            limits,
+        })
     }
 
     fn push_decoder(
@@ -160,9 +188,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
         sink: &mut dyn zc::decode::DecodeRowSink,
         preferred: &[PixelDescriptor],
     ) -> Result<OutputInfo, Self::Error> {
-        push_decoder_via_full_decode(self, data, sink, preferred, |e| {
-            ZenDecodeError::Sink(e)
-        })
+        push_decoder_via_full_decode(self, data, sink, preferred, ZenDecodeError::Sink)
     }
 
     fn streaming_decoder(
@@ -186,6 +212,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
 pub struct UltraHdrDecoder<'a> {
     data: Cow<'a, [u8]>,
     want_rgba: bool,
+    limits: ResourceLimits,
 }
 
 impl<'a> Decode for UltraHdrDecoder<'a> {
@@ -193,6 +220,10 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
 
     fn decode(self) -> Result<DecodeOutput, Self::Error> {
         use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
+
+        // Input size was already checked in decoder(), but check again for
+        // callers that construct UltraHdrDecoder directly.
+        self.limits.check_input_size(self.data.len() as u64)?;
 
         let uhdr = Decoder::new(&self.data)?;
         if !uhdr.is_ultrahdr() {
@@ -217,6 +248,15 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
 
         let width = decoded.width();
         let height = decoded.height();
+
+        // Check dimensions after parsing JPEG headers
+        self.limits.check_dimensions(width, height)?;
+
+        // Check memory before pixel buffer allocation
+        let bpp = if self.want_rgba { 4u64 } else { 3u64 };
+        self.limits
+            .check_memory(width as u64 * height as u64 * bpp)?;
+
         let pixels_u8 = decoded
             .pixels_u8()
             .ok_or_else(|| ZenDecodeError::Jpeg("no pixel data".into()))?;
