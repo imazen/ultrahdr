@@ -44,7 +44,7 @@ rgb = { version = "0.8", features = ["as-bytes"] }
 linear-srgb = { path = "../linear-srgb", default-features = false, features = ["transfer"] }
 
 # Zen ecosystem interop
-zenpixels = { version = "0.1", default-features = false }
+zenpixels = { path = "../zenpixels/zenpixels", default-features = false }
 zencodec-types = { path = "../zencodec-types" }
 
 # Testing

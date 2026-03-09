@@ -101,7 +101,14 @@ impl DecoderConfig for UltraHdrDecoderConfig {
     }
 
     fn capabilities() -> &'static DecodeCapabilities {
-        static CAPS: DecodeCapabilities = DecodeCapabilities::new();
+        static CAPS: DecodeCapabilities = DecodeCapabilities::new()
+            .with_cancel(true)
+            .with_enforces_max_pixels(true)
+            .with_enforces_max_memory(true)
+            .with_enforces_max_input_bytes(true)
+            .with_cheap_probe(true)
+            .with_hdr(true)
+            .with_xmp(true);
         &CAPS
     }
 
@@ -158,15 +165,28 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
                     limits.check_dimensions(w, h)?;
                 }
             }
+
+            // Attach gain map presence and metadata
+            if let Some(metadata) = decoder.metadata() {
+                let zen_meta: zc::GainMapMetadata = metadata.clone().into();
+                info = info.with_gain_map_metadata(zen_meta);
+            } else {
+                info = info.with_gain_map(true);
+            }
         }
         Ok(info)
     }
 
     fn output_info(&self, data: &[u8]) -> Result<OutputInfo, Self::Error> {
-        let _decoder = Decoder::new(data)?;
-        // We'd need to parse JPEG headers for dimensions without full decode.
-        // For now return a placeholder — callers use probe() or just decode.
-        Ok(OutputInfo::full_decode(0, 0, PixelDescriptor::RGB8_SRGB))
+        let decoder = Decoder::new(data)?;
+        let (w, h) = if let Some(primary) = decoder.primary_jpeg()
+            && let Ok(jpeg_info) = zenjpeg::decoder::Decoder::new().read_info(primary)
+        {
+            (jpeg_info.dimensions.width, jpeg_info.dimensions.height)
+        } else {
+            (0, 0)
+        };
+        Ok(OutputInfo::full_decode(w, h, PixelDescriptor::RGB8_SRGB))
     }
 
     fn decoder(
@@ -281,7 +301,11 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
         let pixel_buf = PixelBuffer::from_vec(pixels_u8.to_vec(), width, height, descriptor)
             .map_err(|e| ZenDecodeError::Jpeg(format!("pixel buffer: {e}")))?;
 
-        let zen_info = ZenImageInfo::new(width, height, ZenImageFormat::Jpeg).with_frame_count(1);
+        let zen_info = ZenImageInfo::new(width, height, ZenImageFormat::Jpeg)
+            .with_frame_count(1)
+            .with_alpha(self.want_rgba)
+            .with_cicp(zc::Cicp::SRGB)
+            .with_bit_depth(8);
 
         let mut output = DecodeOutput::new(pixel_buf, zen_info);
 
