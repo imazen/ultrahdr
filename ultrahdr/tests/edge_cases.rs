@@ -2,6 +2,8 @@
 //!
 //! Tests unusual dimensions, extreme values, and boundary conditions.
 
+#![cfg(feature = "_test-helpers")]
+
 mod common;
 
 use common::{create_hdr_solid, create_sdr_solid};

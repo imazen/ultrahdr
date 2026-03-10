@@ -2,6 +2,8 @@
 //!
 //! Tests encoding using synthetically generated images.
 
+#![cfg(feature = "_test-helpers")]
+
 mod common;
 
 use common::{

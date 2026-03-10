@@ -2,6 +2,8 @@
 //!
 //! Tests that encode → decode produces consistent results.
 
+#![cfg(feature = "_test-helpers")]
+
 mod common;
 
 use common::{

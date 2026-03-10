@@ -4,6 +4,7 @@
 //! (backwards compatibility) and verifies the SDR base image is correct.
 
 #![cfg(not(target_arch = "wasm32"))]
+#![cfg(feature = "_test-helpers")]
 
 mod common;
 

@@ -2,6 +2,8 @@
 //!
 //! Tests the decoder against the existing test_ultrahdr.jpg sample file.
 
+#![cfg(feature = "_test-helpers")]
+
 use ultrahdr_rs::{Decoder, PixelFormat};
 
 const TEST_ULTRAHDR: &[u8] = include_bytes!("../../test_ultrahdr.jpg");

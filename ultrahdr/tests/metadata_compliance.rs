@@ -2,6 +2,8 @@
 //!
 //! Tests XMP serialization, ISO 21496-1 binary format, and MPF structure.
 
+#![cfg(feature = "_test-helpers")]
+
 mod common;
 
 use common::{create_hdr_gradient, create_sdr_gradient, create_test_metadata};
