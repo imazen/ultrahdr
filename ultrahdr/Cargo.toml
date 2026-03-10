@@ -51,9 +51,9 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
-zune-image = { path = "../../zune-image/crates/zune-image" }
-zune-core = { path = "../../zune-image/crates/zune-core" }
-zune-jpeg = { path = "../../zune-image/crates/zune-jpeg" }
+zune-image = "0.5"
+zune-core = "0.5"
+zune-jpeg = "0.5"
 
 [features]
 default = []
