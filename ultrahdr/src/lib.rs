@@ -71,7 +71,7 @@ pub mod jpeg;
 
 /// zencodec trait integration (requires `zencodec` feature).
 #[cfg(feature = "zencodec")]
-pub mod zencodec;
+pub mod codec;
 
 mod decode;
 mod encode;

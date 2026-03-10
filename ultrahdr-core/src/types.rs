@@ -544,12 +544,12 @@ mod zencodec_interop {
         }
     }
 
-    // --- GainMapMetadata ↔ zc::GainMapMetadata ---
+    // --- GainMapMetadata ↔ zencodec::GainMapMetadata ---
     //
     // ultrahdr uses linear domain: max_content_boost=4.0, hdr_capacity_max=4.0
     // zencodec uses log2 domain:   gain_map_max=2.0,       hdr_capacity_max=2.0
 
-    impl From<GainMapMetadata> for zc::GainMapMetadata {
+    impl From<GainMapMetadata> for zencodec::GainMapMetadata {
         fn from(m: GainMapMetadata) -> Self {
             Self {
                 base_rendition_is_hdr: false, // Ultra HDR always has SDR base
@@ -565,8 +565,8 @@ mod zencodec_interop {
         }
     }
 
-    impl From<zc::GainMapMetadata> for GainMapMetadata {
-        fn from(m: zc::GainMapMetadata) -> Self {
+    impl From<zencodec::GainMapMetadata> for GainMapMetadata {
+        fn from(m: zencodec::GainMapMetadata) -> Self {
             Self {
                 min_content_boost: m.gain_map_min.map(f32::exp2),
                 max_content_boost: m.gain_map_max.map(f32::exp2),
@@ -917,7 +917,7 @@ mod zencodec_tests {
             use_base_color_space: true,
         };
 
-        let zen: zc::GainMapMetadata = uhdr.into();
+        let zen: zencodec::GainMapMetadata = uhdr.into();
 
         // log2(4.0) = 2.0
         assert!((zen.gain_map_max[0] - 2.0).abs() < 1e-6);
@@ -935,7 +935,7 @@ mod zencodec_tests {
 
     #[test]
     fn test_gainmap_metadata_from_zencodec() {
-        let zen = zc::GainMapMetadata {
+        let zen = zencodec::GainMapMetadata {
             base_rendition_is_hdr: false,
             gain_map_max: [2.0; 3], // log2(4.0)
             gain_map_min: [0.0; 3], // log2(1.0)
@@ -972,7 +972,7 @@ mod zencodec_tests {
             use_base_color_space: false,
         };
 
-        let zen: zc::GainMapMetadata = original.clone().into();
+        let zen: zencodec::GainMapMetadata = original.clone().into();
         let roundtrip: GainMapMetadata = zen.into();
 
         for i in 0..3 {

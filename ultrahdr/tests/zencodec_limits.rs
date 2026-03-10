@@ -7,10 +7,10 @@
 
 use std::borrow::Cow;
 
-use zc::ResourceLimits;
-use zc::decode::{Decode, DecodeJob, DecoderConfig};
+use zencodec::ResourceLimits;
+use zencodec::decode::{Decode, DecodeJob, DecoderConfig};
 
-use ultrahdr_rs::zencodec::UltraHdrDecoderConfig;
+use ultrahdr_rs::codec::UltraHdrDecoderConfig;
 
 const TEST_ULTRAHDR: &[u8] = include_bytes!("../../test_ultrahdr.jpg");
 

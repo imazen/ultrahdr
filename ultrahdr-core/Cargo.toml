@@ -33,7 +33,7 @@ linear-srgb = { workspace = true, optional = true }
 
 # Zen ecosystem interop (optional)
 zenpixels = { workspace = true, optional = true }
-zc = { workspace = true, optional = true }
+zencodec = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Property testing
@@ -57,6 +57,6 @@ default = ["std", "transfer"]
 std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb?/std"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
 transfer = ["dep:linear-srgb"]  # Transfer functions (sRGB, PQ, HLG) via linear-srgb.
-zencodec = ["dep:zenpixels", "dep:zc"]  # From conversions for zen* ecosystem types.
+zencodec = ["dep:zenpixels", "dep:zencodec"]  # From conversions for zen* ecosystem types.
 # Future: alloc-only support
 # alloc = ["enough/alloc"]

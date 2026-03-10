@@ -14,8 +14,8 @@
 //! # Example
 //!
 //! ```ignore
-//! use ultrahdr::zencodec::UltraHdrDecoderConfig;
-//! use zc::decode::DecoderConfig;
+//! use ultrahdr::codec::UltraHdrDecoderConfig;
+//! use zencodec::decode::DecoderConfig;
 //!
 //! let config = UltraHdrDecoderConfig;
 //! let job = config.job();
@@ -26,7 +26,7 @@
 //! let rgb8 = output.pixels();
 //!
 //! // Gain map data
-//! if let Some(extras) = output.extras::<ultrahdr::zencodec::UltraHdrExtras>() {
+//! if let Some(extras) = output.extras::<ultrahdr::codec::UltraHdrExtras>() {
 //!     let gainmap_jpeg = &extras.gainmap_jpeg;
 //!     let metadata = &extras.metadata;
 //! }
@@ -34,11 +34,11 @@
 
 use alloc::borrow::Cow;
 
-use zc::decode::{
+use zencodec::decode::{
     Decode, DecodeCapabilities, DecodeJob, DecodeOutput, DecoderConfig, OutputInfo,
     push_decoder_via_full_decode,
 };
-use zc::{
+use zencodec::{
     ImageFormat as ZenImageFormat, ImageInfo as ZenImageInfo, LimitExceeded, ResourceLimits,
     Unsupported, UnsupportedOperation,
 };
@@ -56,7 +56,7 @@ pub struct UltraHdrExtras {
     /// Raw gain map JPEG bytes.
     pub gainmap_jpeg: Vec<u8>,
     /// Gain map metadata in zencodec log2 domain.
-    pub metadata: zc::GainMapMetadata,
+    pub metadata: zencodec::GainMapMetadata,
 }
 
 /// Error type for zencodec Ultra HDR operations.
@@ -73,7 +73,7 @@ pub enum ZenDecodeError {
     Jpeg(String),
     /// Decode row sink error.
     #[error("sink error: {0}")]
-    Sink(zc::decode::SinkError),
+    Sink(zencodec::decode::SinkError),
     /// Resource limit exceeded.
     #[error("{0}")]
     LimitExceeded(#[from] LimitExceeded),
@@ -125,7 +125,7 @@ impl DecoderConfig for UltraHdrDecoderConfig {
 pub struct UltraHdrDecodeJob<'a> {
     _config: &'a UltraHdrDecoderConfig,
     limits: Option<ResourceLimits>,
-    stop: Option<&'a dyn zc::enough::Stop>,
+    stop: Option<&'a dyn zencodec::enough::Stop>,
 }
 
 impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
@@ -134,7 +134,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
     type StreamDec = Unsupported<ZenDecodeError>;
     type FullFrameDec = Unsupported<ZenDecodeError>;
 
-    fn with_stop(mut self, stop: &'a dyn zc::enough::Stop) -> Self {
+    fn with_stop(mut self, stop: &'a dyn zencodec::enough::Stop) -> Self {
         self.stop = Some(stop);
         self
     }
@@ -168,7 +168,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
 
             // Attach gain map presence and metadata
             if let Some(metadata) = decoder.metadata() {
-                let zen_meta: zc::GainMapMetadata = metadata.clone().into();
+                let zen_meta: zencodec::GainMapMetadata = metadata.clone().into();
                 info = info.with_gain_map_metadata(zen_meta);
             } else {
                 info = info.with_gain_map(true);
@@ -212,7 +212,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
     fn push_decoder(
         self,
         data: Cow<'a, [u8]>,
-        sink: &mut dyn zc::decode::DecodeRowSink,
+        sink: &mut dyn zencodec::decode::DecodeRowSink,
         preferred: &[PixelDescriptor],
     ) -> Result<OutputInfo, Self::Error> {
         push_decoder_via_full_decode(self, data, sink, preferred, ZenDecodeError::Sink)
@@ -240,7 +240,7 @@ pub struct UltraHdrDecoder<'a> {
     data: Cow<'a, [u8]>,
     want_rgba: bool,
     limits: ResourceLimits,
-    stop: Option<&'a dyn zc::enough::Stop>,
+    stop: Option<&'a dyn zencodec::enough::Stop>,
 }
 
 impl<'a> Decode for UltraHdrDecoder<'a> {
@@ -304,14 +304,14 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
         let zen_info = ZenImageInfo::new(width, height, ZenImageFormat::Jpeg)
             .with_frame_count(1)
             .with_alpha(self.want_rgba)
-            .with_cicp(zc::Cicp::SRGB)
+            .with_cicp(zencodec::Cicp::SRGB)
             .with_bit_depth(8);
 
         let mut output = DecodeOutput::new(pixel_buf, zen_info);
 
         // Attach gain map data as extras
         if let (Some(gm_jpeg), Some(metadata)) = (uhdr.gainmap_jpeg(), uhdr.metadata()) {
-            let zen_metadata: zc::GainMapMetadata = metadata.clone().into();
+            let zen_metadata: zencodec::GainMapMetadata = metadata.clone().into();
             output = output.with_extras(UltraHdrExtras {
                 gainmap_jpeg: gm_jpeg.to_vec(),
                 metadata: zen_metadata,
