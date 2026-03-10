@@ -151,15 +151,13 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
         let decoder = Decoder::new(data)?;
         let mut info = ZenImageInfo::new(0, 0, ZenImageFormat::Jpeg);
         if decoder.is_ultrahdr() {
-            info = info.with_frame_count(1);
-
             // Try to read dimensions from the primary JPEG header for limit checks
             if let Some(primary) = decoder.primary_jpeg()
                 && let Ok(jpeg_info) = zenjpeg::decoder::Decoder::new().read_info(primary)
             {
                 let w = jpeg_info.dimensions.width;
                 let h = jpeg_info.dimensions.height;
-                info = ZenImageInfo::new(w, h, ZenImageFormat::Jpeg).with_frame_count(1);
+                info = ZenImageInfo::new(w, h, ZenImageFormat::Jpeg);
                 if let Some(ref limits) = self.limits {
                     limits.check_dimensions(w, h)?;
                 }
@@ -296,8 +294,7 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
             .map_err(|e| ZenDecodeError::Jpeg(format!("pixel buffer: {e}")))?;
 
         let zen_info = ZenImageInfo::new(width, height, ZenImageFormat::Jpeg)
-            .with_frame_count(1)
-            .with_alpha(self.want_rgba)
+                        .with_alpha(self.want_rgba)
             .with_cicp(zencodec::Cicp::SRGB)
             .with_bit_depth(8);
 
