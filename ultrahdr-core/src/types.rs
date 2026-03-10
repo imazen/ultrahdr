@@ -488,7 +488,7 @@ impl GainMapMetadata {
 }
 
 // ============================================================================
-// zencodec interop: From conversions for zenpixels / zencodec-types
+// zencodec interop: From conversions for zenpixels / zencodec
 // ============================================================================
 
 #[cfg(feature = "zencodec")]

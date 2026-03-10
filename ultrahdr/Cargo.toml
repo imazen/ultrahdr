@@ -60,13 +60,13 @@ default = []
 simd = ["ultrahdr-core/simd"]  # Enable explicit SIMD optimizations
 ffi-tests = ["libultrahdr"]  # Enable FFI parity tests with libultrahdr C++
 _test-helpers = ["dep:zenjpeg"]  # Internal: enables test helper methods (underscore prefix = not public API)
-zencodec = ["ultrahdr-core/zencodec", "dep:zencodec-types", "dep:zenpixels", "dep:zenjpeg"]  # zencodec-types trait integration
+zencodec = ["ultrahdr-core/zencodec", "dep:zc", "dep:zenpixels", "dep:zenjpeg"]  # zencodec trait integration
 
 [dependencies.zenjpeg]
 workspace = true
 optional = true
 
-[dependencies.zencodec-types]
+[dependencies.zc]
 workspace = true
 optional = true
 

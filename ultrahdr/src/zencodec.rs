@@ -1,4 +1,4 @@
-//! zencodec-types trait implementation for Ultra HDR.
+//! zencodec trait implementation for Ultra HDR.
 //!
 //! Implements the zencodec decode traits so Ultra HDR images can be decoded
 //! through the generic zencodec pipeline. The primary JPEG is decoded to
@@ -9,7 +9,7 @@
 //!
 //! After decoding, call `output.extras::<UltraHdrExtras>()` to retrieve:
 //! - `gainmap_jpeg`: raw gain map JPEG bytes
-//! - `metadata`: gain map metadata in zencodec-types log2 domain
+//! - `metadata`: gain map metadata in zencodec log2 domain
 //!
 //! # Example
 //!
@@ -55,7 +55,7 @@ extern crate alloc;
 pub struct UltraHdrExtras {
     /// Raw gain map JPEG bytes.
     pub gainmap_jpeg: Vec<u8>,
-    /// Gain map metadata in zencodec-types log2 domain.
+    /// Gain map metadata in zencodec log2 domain.
     pub metadata: zc::GainMapMetadata,
 }
 

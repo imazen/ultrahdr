@@ -69,7 +69,7 @@ pub use ultrahdr_core::{
 pub mod container;
 pub mod jpeg;
 
-/// zencodec-types trait integration (requires `zencodec` feature).
+/// zencodec trait integration (requires `zencodec` feature).
 #[cfg(feature = "zencodec")]
 pub mod zencodec;
 
