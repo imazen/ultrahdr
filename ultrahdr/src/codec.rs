@@ -9,7 +9,7 @@
 //!
 //! After decoding, call `output.extras::<UltraHdrExtras>()` to retrieve:
 //! - `gainmap_jpeg`: raw gain map JPEG bytes
-//! - `metadata`: gain map metadata in zencodec log2 domain
+//! - `metadata`: gain map metadata (linear domain)
 //!
 //! # Example
 //!
@@ -36,7 +36,6 @@ use alloc::borrow::Cow;
 
 use zencodec::decode::{
     Decode, DecodeCapabilities, DecodeJob, DecodeOutput, DecoderConfig, OutputInfo,
-    push_decoder_via_full_decode,
 };
 use zencodec::{
     ImageFormat as ZenImageFormat, ImageInfo as ZenImageInfo, LimitExceeded, ResourceLimits,
@@ -55,8 +54,8 @@ extern crate alloc;
 pub struct UltraHdrExtras {
     /// Raw gain map JPEG bytes.
     pub gainmap_jpeg: Vec<u8>,
-    /// Gain map metadata in zencodec log2 domain.
-    pub metadata: zencodec::GainMapMetadata,
+    /// Gain map metadata (linear domain, ultrahdr-core types).
+    pub metadata: ultrahdr_core::GainMapMetadata,
 }
 
 /// Error type for zencodec Ultra HDR operations.
@@ -102,7 +101,7 @@ impl DecoderConfig for UltraHdrDecoderConfig {
 
     fn capabilities() -> &'static DecodeCapabilities {
         static CAPS: DecodeCapabilities = DecodeCapabilities::new()
-            .with_cancel(true)
+            .with_stop(true)
             .with_enforces_max_pixels(true)
             .with_enforces_max_memory(true)
             .with_enforces_max_input_bytes(true)
@@ -166,13 +165,8 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
                 }
             }
 
-            // Attach gain map presence and metadata
-            if let Some(metadata) = decoder.metadata() {
-                let zen_meta: zencodec::GainMapMetadata = metadata.clone().into();
-                info = info.with_gain_map_metadata(zen_meta);
-            } else {
-                info = info.with_gain_map(true);
-            }
+            // Ultra HDR always has a gain map (detected via is_ultrahdr above)
+            // Gain map metadata is available via UltraHdrExtras after decode
         }
         Ok(info)
     }
@@ -215,7 +209,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
         sink: &mut dyn zencodec::decode::DecodeRowSink,
         preferred: &[PixelDescriptor],
     ) -> Result<OutputInfo, Self::Error> {
-        push_decoder_via_full_decode(self, data, sink, preferred, ZenDecodeError::Sink)
+        zencodec::helpers::copy_decode_to_sink(self, data, sink, preferred, ZenDecodeError::Sink)
     }
 
     fn streaming_decoder(
@@ -311,10 +305,9 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
 
         // Attach gain map data as extras
         if let (Some(gm_jpeg), Some(metadata)) = (uhdr.gainmap_jpeg(), uhdr.metadata()) {
-            let zen_metadata: zencodec::GainMapMetadata = metadata.clone().into();
             output = output.with_extras(UltraHdrExtras {
                 gainmap_jpeg: gm_jpeg.to_vec(),
-                metadata: zen_metadata,
+                metadata: metadata.clone(),
             });
         }
 
