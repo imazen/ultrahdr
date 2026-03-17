@@ -222,15 +222,19 @@ fn test_iso21496_flags() {
 
     let serialized = serialize_iso21496(&metadata);
 
-    // Second byte is flags
-    let flags = serialized[1];
+    // ISO 21496-1 wire format: version(1) + minimum_version(2) + writer_version(2) + flags(1)
+    // Flags byte is at offset 5
+    let flags = serialized[5];
 
-    // Bit 1 (USE_BASE_CG) should be set
-    assert!(flags & 0x02 != 0, "USE_BASE_CG flag should be set");
-
-    // Bit 0 (MULTI_CHANNEL) should NOT be set for single channel
+    // Bit 6 (USE_BASE_COLOUR_SPACE) should be set
     assert!(
-        flags & 0x01 == 0,
+        flags & 0x40 != 0,
+        "USE_BASE_COLOUR_SPACE flag should be set"
+    );
+
+    // Bit 7 (MULTI_CHANNEL) should NOT be set for single channel
+    assert!(
+        flags & 0x80 == 0,
         "MULTI_CHANNEL flag should not be set for single channel"
     );
 }

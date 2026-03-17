@@ -57,7 +57,7 @@ mod types;
 // Re-export core types
 pub use types::{
     ColorGamut, ColorTransfer, Error, Fraction, GainMap, GainMapMetadata, PixelFormat, RawImage,
-    Result, luminance,
+    Result, UnsignedFraction, luminance,
 };
 
 // Re-export enough for convenience

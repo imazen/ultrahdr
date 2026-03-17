@@ -1,168 +1,177 @@
 //! ISO 21496-1 binary metadata format for gain maps.
 //!
-//! This is the standardized binary format for gain map metadata,
-//! as an alternative to XMP.
+//! This implements the standardized binary format used in AVIF `tmap` item
+//! payloads and JXL `jhgm` boxes. The wire format matches the reference
+//! implementation in `zenavif-parse::parse_tone_map_image()`.
+//!
+//! # Wire format (all multi-byte integers are big-endian)
+//!
+//! ```text
+//! version:          u8   (must be 0)
+//! minimum_version:  u16  (must be 0)
+//! writer_version:   u16  (>= minimum_version)
+//! flags:            u8   (bit 7 = multichannel, bit 6 = use_base_colour_space)
+//!
+//! base_hdr_headroom_n:      u32
+//! base_hdr_headroom_d:      u32
+//! alternate_hdr_headroom_n: u32
+//! alternate_hdr_headroom_d: u32
+//!
+//! Per channel (1 or 3 times):
+//!   gain_map_min_n:      i32
+//!   gain_map_min_d:      u32
+//!   gain_map_max_n:      i32
+//!   gain_map_max_d:      u32
+//!   gamma_n:             u32
+//!   gamma_d:             u32
+//!   base_offset_n:       i32
+//!   base_offset_d:       u32
+//!   alternate_offset_n:  i32
+//!   alternate_offset_d:  u32
+//! ```
 
 use alloc::format;
 use alloc::vec::Vec;
-use core::mem;
 
-use crate::types::{Error, Fraction, GainMapMetadata, Result};
+use crate::types::{Error, Fraction, GainMapMetadata, Result, UnsignedFraction};
 
-/// ISO 21496-1 metadata version.
+/// Current ISO 21496-1 metadata version.
 pub const ISO_VERSION: u8 = 0;
 
-/// Flags byte layout:
-/// - Bit 0: Multi-channel gain map (0 = single channel)
-/// - Bit 1: Use base color space (1 = gain map uses base image color space)
-/// - Bit 2: Backward direction (0 = base is SDR, 1 = base is HDR)
-/// - Bits 3-7: Reserved
-const FLAG_MULTI_CHANNEL: u8 = 0x01;
-const FLAG_USE_BASE_CG: u8 = 0x02;
-const FLAG_BACKWARD_DIR: u8 = 0x04;
+/// Flag bit: multichannel gain map (bit 7 of flags byte).
+const FLAG_MULTI_CHANNEL: u8 = 0x80;
 
-/// Serialize gain map metadata to ISO 21496-1 binary format.
-pub fn serialize_iso21496(metadata: &GainMapMetadata) -> Vec<u8> {
-    let mut data = Vec::with_capacity(128);
+/// Flag bit: gain map uses base image colour space (bit 6 of flags byte).
+const FLAG_USE_BASE_COLOUR_SPACE: u8 = 0x40;
 
-    // Version (1 byte)
-    data.push(ISO_VERSION);
+/// Header size: version (1) + minimum_version (2) + writer_version (2) + flags (1).
+const HEADER_SIZE: usize = 6;
 
-    // Flags (1 byte)
-    let mut flags = 0u8;
-    if !metadata.is_single_channel() {
-        flags |= FLAG_MULTI_CHANNEL;
-    }
-    if metadata.use_base_color_space {
-        flags |= FLAG_USE_BASE_CG;
-    }
-    // Backward direction is false (base is SDR)
-    data.push(flags);
+/// Size of one fraction pair (numerator + denominator = 8 bytes).
+const FRACTION_SIZE: usize = 8;
 
-    let channels = if flags & FLAG_MULTI_CHANNEL != 0 {
-        3
-    } else {
-        1
-    };
+/// Number of fraction pairs in the headroom section (base + alternate).
+const HEADROOM_FRACTIONS: usize = 2;
 
-    // Base HDR headroom (fraction) - log2(hdr_capacity_min)
-    let base_headroom = Fraction::from_f32(metadata.hdr_capacity_min.log2());
-    write_fraction(&mut data, base_headroom);
+/// Number of fraction pairs per channel (min, max, gamma, base_offset, alt_offset).
+const FRACTIONS_PER_CHANNEL: usize = 5;
 
-    // Alternate HDR headroom (fraction) - log2(hdr_capacity_max)
-    let alt_headroom = Fraction::from_f32(metadata.hdr_capacity_max.log2());
-    write_fraction(&mut data, alt_headroom);
-
-    // Per-channel values
-    for i in 0..channels {
-        // Gain map min (fraction) - log2(min_content_boost)
-        let min_val = Fraction::from_f32(metadata.min_content_boost[i].log2());
-        write_fraction(&mut data, min_val);
-
-        // Gain map max (fraction) - log2(max_content_boost)
-        let max_val = Fraction::from_f32(metadata.max_content_boost[i].log2());
-        write_fraction(&mut data, max_val);
-
-        // Gamma (fraction)
-        let gamma = Fraction::from_f32(metadata.gamma[i]);
-        write_fraction(&mut data, gamma);
-
-        // Base offset (fraction) - offset_sdr
-        let base_offset = Fraction::from_f32(metadata.offset_sdr[i]);
-        write_fraction(&mut data, base_offset);
-
-        // Alternate offset (fraction) - offset_hdr
-        let alt_offset = Fraction::from_f32(metadata.offset_hdr[i]);
-        write_fraction(&mut data, alt_offset);
-    }
-
-    data
-}
-
-/// Deserialize ISO 21496-1 binary metadata.
-pub fn deserialize_iso21496(data: &[u8]) -> Result<GainMapMetadata> {
-    if data.len() < 2 {
-        return Err(Error::InvalidMetadata("ISO metadata too short".into()));
+/// Parse ISO 21496-1 binary gain map metadata.
+///
+/// This is the format used in AVIF `tmap` item payloads and JXL `jhgm` boxes.
+/// The wire format matches `zenavif-parse::parse_tone_map_image()`.
+pub fn parse_iso21496(data: &[u8]) -> Result<GainMapMetadata> {
+    if data.len() < HEADER_SIZE {
+        return Err(Error::IsoParse(format!(
+            "data too short: need at least {} bytes, got {}",
+            HEADER_SIZE,
+            data.len()
+        )));
     }
 
     let mut pos = 0;
 
-    // Version
+    // version (u8) — must be 0
     let version = data[pos];
     pos += 1;
-    if version > ISO_VERSION {
-        return Err(Error::InvalidMetadata(format!(
-            "Unsupported ISO version: {}",
-            version
+    if version != ISO_VERSION {
+        return Err(Error::IsoParse(format!(
+            "unsupported version {}, expected {}",
+            version, ISO_VERSION
         )));
     }
 
-    // Flags
-    let flags = data[pos];
-    pos += 1;
-    let multi_channel = flags & FLAG_MULTI_CHANNEL != 0;
-    let use_base_cg = flags & FLAG_USE_BASE_CG != 0;
-    let backward_dir = flags & FLAG_BACKWARD_DIR != 0;
-
-    let channels = if multi_channel { 3 } else { 1 };
-
-    // We need at least: 2 + 8*2 (headrooms) + channels * 5 * 8 (per-channel fractions)
-    let min_size = 2 + 16 + channels * 40;
-    if data.len() < min_size {
-        return Err(Error::InvalidMetadata("ISO metadata truncated".into()));
+    // minimum_version (u16 BE) — must be 0
+    let minimum_version = read_u16_be(data, pos);
+    pos += 2;
+    if minimum_version > 0 {
+        return Err(Error::IsoParse(format!(
+            "unsupported minimum_version {}",
+            minimum_version
+        )));
     }
 
-    // Base HDR headroom
-    let (base_headroom, new_pos) = read_fraction(data, pos)?;
-    pos = new_pos;
-    let hdr_capacity_min = 2.0f32.powf(base_headroom.to_f32());
+    // writer_version (u16 BE) — informational, must be >= minimum_version
+    let writer_version = read_u16_be(data, pos);
+    pos += 2;
+    if writer_version < minimum_version {
+        return Err(Error::IsoParse(format!(
+            "writer_version {} < minimum_version {}",
+            writer_version, minimum_version
+        )));
+    }
 
-    // Alternate HDR headroom
-    let (alt_headroom, new_pos) = read_fraction(data, pos)?;
+    // flags (u8)
+    let flags = data[pos];
+    pos += 1;
+    let is_multichannel = (flags & FLAG_MULTI_CHANNEL) != 0;
+    let use_base_colour_space = (flags & FLAG_USE_BASE_COLOUR_SPACE) != 0;
+
+    let channel_count: usize = if is_multichannel { 3 } else { 1 };
+
+    // Validate remaining data length
+    let required = HEADER_SIZE
+        + HEADROOM_FRACTIONS * FRACTION_SIZE
+        + channel_count * FRACTIONS_PER_CHANNEL * FRACTION_SIZE;
+    if data.len() < required {
+        return Err(Error::IsoParse(format!(
+            "data truncated: need {} bytes for {} channel(s), got {}",
+            required,
+            channel_count,
+            data.len()
+        )));
+    }
+
+    // base_hdr_headroom (u32/u32)
+    let (base_headroom, new_pos) = read_unsigned_fraction(data, pos)?;
     pos = new_pos;
+
+    // alternate_hdr_headroom (u32/u32)
+    let (alt_headroom, new_pos) = read_unsigned_fraction(data, pos)?;
+    pos = new_pos;
+
+    let hdr_capacity_min = 2.0f32.powf(base_headroom.to_f32());
     let hdr_capacity_max = 2.0f32.powf(alt_headroom.to_f32());
 
     let mut metadata = GainMapMetadata {
         hdr_capacity_min,
         hdr_capacity_max,
-        use_base_color_space: use_base_cg,
+        use_base_color_space: use_base_colour_space,
         ..Default::default()
     };
 
     // Per-channel values
-    for i in 0..channels {
-        let idx = if multi_channel { i } else { 0 };
-
-        // Gain map min
-        let (min_frac, new_pos) = read_fraction(data, pos)?;
+    for ch in 0..channel_count {
+        // gain_map_min (i32/u32)
+        let (min_frac, new_pos) = read_signed_fraction(data, pos)?;
         pos = new_pos;
         let min_val = 2.0f32.powf(min_frac.to_f32());
 
-        // Gain map max
-        let (max_frac, new_pos) = read_fraction(data, pos)?;
+        // gain_map_max (i32/u32)
+        let (max_frac, new_pos) = read_signed_fraction(data, pos)?;
         pos = new_pos;
         let max_val = 2.0f32.powf(max_frac.to_f32());
 
-        // Gamma
-        let (gamma_frac, new_pos) = read_fraction(data, pos)?;
+        // gamma (u32/u32)
+        let (gamma_frac, new_pos) = read_unsigned_fraction(data, pos)?;
         pos = new_pos;
 
-        // Base offset
-        let (base_offset_frac, new_pos) = read_fraction(data, pos)?;
+        // base_offset (i32/u32)
+        let (base_offset_frac, new_pos) = read_signed_fraction(data, pos)?;
         pos = new_pos;
 
-        // Alternate offset
-        let (alt_offset_frac, new_pos) = read_fraction(data, pos)?;
+        // alternate_offset (i32/u32)
+        let (alt_offset_frac, new_pos) = read_signed_fraction(data, pos)?;
         pos = new_pos;
 
-        if multi_channel {
-            metadata.min_content_boost[idx] = min_val;
-            metadata.max_content_boost[idx] = max_val;
-            metadata.gamma[idx] = gamma_frac.to_f32();
-            metadata.offset_sdr[idx] = base_offset_frac.to_f32();
-            metadata.offset_hdr[idx] = alt_offset_frac.to_f32();
+        if is_multichannel {
+            metadata.min_content_boost[ch] = min_val;
+            metadata.max_content_boost[ch] = max_val;
+            metadata.gamma[ch] = gamma_frac.to_f32();
+            metadata.offset_sdr[ch] = base_offset_frac.to_f32();
+            metadata.offset_hdr[ch] = alt_offset_frac.to_f32();
         } else {
-            // Single channel - apply to all
+            // Single channel — replicate to all three
             metadata.min_content_boost = [min_val; 3];
             metadata.max_content_boost = [max_val; 3];
             metadata.gamma = [gamma_frac.to_f32(); 3];
@@ -171,31 +180,78 @@ pub fn deserialize_iso21496(data: &[u8]) -> Result<GainMapMetadata> {
         }
     }
 
-    // Handle backward direction (swap SDR/HDR interpretation)
-    if backward_dir {
-        mem::swap(&mut metadata.offset_sdr, &mut metadata.offset_hdr);
-    }
-
     Ok(metadata)
 }
 
-/// Write a fraction to the buffer (8 bytes: 4 for numerator, 4 for denominator).
-fn write_fraction(buf: &mut Vec<u8>, frac: Fraction) {
-    buf.extend_from_slice(&frac.numerator.to_be_bytes());
-    buf.extend_from_slice(&frac.denominator.to_be_bytes());
-}
+/// Serialize gain map metadata to ISO 21496-1 binary format.
+///
+/// Produces a blob suitable for AVIF `tmap` item payloads or JXL `jhgm` boxes.
+/// The wire format matches `zenavif-parse::parse_tone_map_image()`.
+pub fn serialize_iso21496(metadata: &GainMapMetadata) -> Vec<u8> {
+    let is_multichannel = !metadata.is_single_channel();
+    let channel_count: usize = if is_multichannel { 3 } else { 1 };
 
-/// Read a fraction from the buffer.
-fn read_fraction(data: &[u8], pos: usize) -> Result<(Fraction, usize)> {
-    if pos + 8 > data.len() {
-        return Err(Error::InvalidMetadata("Unexpected end of ISO data".into()));
+    let capacity = HEADER_SIZE
+        + HEADROOM_FRACTIONS * FRACTION_SIZE
+        + channel_count * FRACTIONS_PER_CHANNEL * FRACTION_SIZE;
+    let mut buf = Vec::with_capacity(capacity);
+
+    // version (u8)
+    buf.push(ISO_VERSION);
+
+    // minimum_version (u16 BE)
+    buf.extend_from_slice(&0u16.to_be_bytes());
+
+    // writer_version (u16 BE)
+    buf.extend_from_slice(&0u16.to_be_bytes());
+
+    // flags (u8)
+    let mut flags = 0u8;
+    if is_multichannel {
+        flags |= FLAG_MULTI_CHANNEL;
+    }
+    if metadata.use_base_color_space {
+        flags |= FLAG_USE_BASE_COLOUR_SPACE;
+    }
+    buf.push(flags);
+
+    // base_hdr_headroom (u32/u32) — log2(hdr_capacity_min)
+    let base_headroom = UnsignedFraction::from_f32(metadata.hdr_capacity_min.log2());
+    write_unsigned_fraction(&mut buf, base_headroom);
+
+    // alternate_hdr_headroom (u32/u32) — log2(hdr_capacity_max)
+    let alt_headroom = UnsignedFraction::from_f32(metadata.hdr_capacity_max.log2());
+    write_unsigned_fraction(&mut buf, alt_headroom);
+
+    // Per-channel values
+    for ch in 0..channel_count {
+        // gain_map_min (i32/u32) — log2(min_content_boost)
+        let min_val = Fraction::from_f32(metadata.min_content_boost[ch].log2());
+        write_signed_fraction(&mut buf, min_val);
+
+        // gain_map_max (i32/u32) — log2(max_content_boost)
+        let max_val = Fraction::from_f32(metadata.max_content_boost[ch].log2());
+        write_signed_fraction(&mut buf, max_val);
+
+        // gamma (u32/u32)
+        let gamma = UnsignedFraction::from_f32(metadata.gamma[ch]);
+        write_unsigned_fraction(&mut buf, gamma);
+
+        // base_offset (i32/u32) — offset_sdr
+        let base_offset = Fraction::from_f32(metadata.offset_sdr[ch]);
+        write_signed_fraction(&mut buf, base_offset);
+
+        // alternate_offset (i32/u32) — offset_hdr
+        let alt_offset = Fraction::from_f32(metadata.offset_hdr[ch]);
+        write_signed_fraction(&mut buf, alt_offset);
     }
 
-    let numerator = i32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
-    let denominator =
-        u32::from_be_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]]);
+    buf
+}
 
-    Ok((Fraction::new(numerator, denominator), pos + 8))
+/// Alias for backward compatibility.
+pub fn deserialize_iso21496(data: &[u8]) -> Result<GainMapMetadata> {
+    parse_iso21496(data)
 }
 
 /// Create APP2 marker with ISO 21496-1 data.
@@ -216,12 +272,90 @@ pub fn create_iso_app2_marker(iso_data: &[u8]) -> Vec<u8> {
     marker
 }
 
+// ============================================================================
+// Internal helpers
+// ============================================================================
+
+/// Read a u16 big-endian from a byte slice at the given offset.
+#[inline]
+fn read_u16_be(data: &[u8], pos: usize) -> u16 {
+    u16::from_be_bytes([data[pos], data[pos + 1]])
+}
+
+/// Read a signed fraction (i32 numerator, u32 denominator) from the buffer.
+fn read_signed_fraction(data: &[u8], pos: usize) -> Result<(Fraction, usize)> {
+    if pos + FRACTION_SIZE > data.len() {
+        return Err(Error::IsoParse(
+            "unexpected end of data reading fraction".into(),
+        ));
+    }
+
+    let numerator = i32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+    let denominator =
+        u32::from_be_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]]);
+
+    if denominator == 0 {
+        return Err(Error::IsoParse(
+            "zero denominator in signed fraction".into(),
+        ));
+    }
+
+    Ok((Fraction::new(numerator, denominator), pos + FRACTION_SIZE))
+}
+
+/// Read an unsigned fraction (u32 numerator, u32 denominator) from the buffer.
+fn read_unsigned_fraction(data: &[u8], pos: usize) -> Result<(UnsignedFraction, usize)> {
+    if pos + FRACTION_SIZE > data.len() {
+        return Err(Error::IsoParse(
+            "unexpected end of data reading unsigned fraction".into(),
+        ));
+    }
+
+    let numerator = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+    let denominator =
+        u32::from_be_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]]);
+
+    if denominator == 0 {
+        return Err(Error::IsoParse(
+            "zero denominator in unsigned fraction".into(),
+        ));
+    }
+
+    Ok((
+        UnsignedFraction::new(numerator, denominator),
+        pos + FRACTION_SIZE,
+    ))
+}
+
+/// Write a signed fraction (i32 numerator, u32 denominator) to the buffer.
+fn write_signed_fraction(buf: &mut Vec<u8>, frac: Fraction) {
+    buf.extend_from_slice(&frac.numerator.to_be_bytes());
+    buf.extend_from_slice(&frac.denominator.to_be_bytes());
+}
+
+/// Write an unsigned fraction (u32 numerator, u32 denominator) to the buffer.
+fn write_unsigned_fraction(buf: &mut Vec<u8>, frac: UnsignedFraction) {
+    buf.extend_from_slice(&frac.numerator.to_be_bytes());
+    buf.extend_from_slice(&frac.denominator.to_be_bytes());
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Byte offset of the flags byte in the serialized format.
+    const FLAGS_OFFSET: usize = 5;
+
+    // ========================================================================
+    // Roundtrip tests
+    // ========================================================================
+
     #[test]
-    fn test_serialize_deserialize_single_channel() {
+    fn test_roundtrip_single_channel() {
         let original = GainMapMetadata {
             min_content_boost: [1.0; 3],
             max_content_boost: [4.0; 3],
@@ -234,39 +368,18 @@ mod tests {
         };
 
         let serialized = serialize_iso21496(&original);
-        let parsed = deserialize_iso21496(&serialized).unwrap();
+        let parsed = parse_iso21496(&serialized).unwrap();
 
-        // Check values match (with tolerance for fraction conversion)
         assert!((parsed.max_content_boost[0] - 4.0).abs() < 0.01);
+        assert!((parsed.min_content_boost[0] - 1.0).abs() < 0.01);
         assert!((parsed.hdr_capacity_max - 4.0).abs() < 0.01);
         assert!((parsed.gamma[0] - 1.0).abs() < 0.01);
+        assert!((parsed.offset_sdr[0] - 0.015625).abs() < 0.001);
         assert!(parsed.use_base_color_space);
     }
 
     #[test]
-    fn test_fraction_roundtrip() {
-        let values = [0.0, 0.5, 1.0, 2.0, -1.0, 0.015625];
-
-        for &v in &values {
-            let frac = Fraction::from_f32(v);
-            let back = frac.to_f32();
-            assert!(
-                (v - back).abs() < 0.0001,
-                "Fraction roundtrip failed for {}: got {}",
-                v,
-                back
-            );
-        }
-    }
-
-    /// Multi-channel roundtrip with C++ libultrahdr reference values.
-    ///
-    /// Per-channel: max_content_boost=[100.5, 101.5, 102.5],
-    /// min_content_boost=[1.5, 1.6, 1.7], gamma=[1.0, 1.01, 1.02],
-    /// offset_sdr/hdr=[0.0625, 0.0875, 0.1125],
-    /// hdr_capacity_max=10000.0/203.0, use_base_cg=false
-    #[test]
-    fn test_iso21496_multichannel_cpp_reference() {
+    fn test_roundtrip_multi_channel() {
         let original = GainMapMetadata {
             max_content_boost: [100.5, 101.5, 102.5],
             min_content_boost: [1.5, 1.6, 1.7],
@@ -274,27 +387,26 @@ mod tests {
             offset_sdr: [0.0625, 0.0875, 0.1125],
             offset_hdr: [0.0625, 0.0875, 0.1125],
             hdr_capacity_min: 1.0,
-            hdr_capacity_max: 10000.0 / 203.0, // ~49.26
+            hdr_capacity_max: 10000.0 / 203.0,
             use_base_color_space: false,
         };
 
         let serialized = serialize_iso21496(&original);
-        let parsed = deserialize_iso21496(&serialized).unwrap();
+        let parsed = parse_iso21496(&serialized).unwrap();
 
-        // Verify flags: multi-channel set, use_base_cg NOT set
-        assert_eq!(
-            serialized[1] & 0x01,
-            0x01,
+        // Verify multichannel flag is set
+        assert_ne!(
+            serialized[FLAGS_OFFSET] & FLAG_MULTI_CHANNEL,
+            0,
             "MULTI_CHANNEL flag should be set"
         );
         assert_eq!(
-            serialized[1] & 0x02,
-            0x00,
-            "USE_BASE_CG flag should NOT be set"
+            serialized[FLAGS_OFFSET] & FLAG_USE_BASE_COLOUR_SPACE,
+            0,
+            "USE_BASE_COLOUR_SPACE flag should NOT be set"
         );
         assert!(!parsed.use_base_color_space);
 
-        // Per-channel values must roundtrip within fraction precision
         let tol = 0.05;
         for i in 0..3 {
             assert!(
@@ -338,27 +450,13 @@ mod tests {
             );
         }
 
-        // HDR capacity roundtrip
-        assert!(
-            (parsed.hdr_capacity_max - original.hdr_capacity_max).abs() / original.hdr_capacity_max
-                < tol,
-            "hdr_capacity_max: {} vs {}",
-            parsed.hdr_capacity_max,
-            original.hdr_capacity_max
-        );
-
-        // Verify channels are distinct (not collapsed to single)
+        // Verify channels are distinct
         assert_ne!(parsed.max_content_boost[0], parsed.max_content_boost[1]);
         assert_ne!(parsed.max_content_boost[1], parsed.max_content_boost[2]);
-        assert_ne!(parsed.min_content_boost[0], parsed.min_content_boost[1]);
     }
 
-    /// Multi-channel with negative offsets, C++ libultrahdr reference.
-    ///
-    /// offset_sdr/hdr=[-0.0625, -0.0615, -0.0605],
-    /// hdr_capacity_max=1000.0/203.0, use_base_cg=true
     #[test]
-    fn test_iso21496_negative_offsets_cpp_reference() {
+    fn test_roundtrip_negative_offsets() {
         let original = GainMapMetadata {
             max_content_boost: [10.0, 11.0, 12.0],
             min_content_boost: [0.5, 0.6, 0.7],
@@ -366,23 +464,15 @@ mod tests {
             offset_sdr: [-0.0625, -0.0615, -0.0605],
             offset_hdr: [-0.0625, -0.0615, -0.0605],
             hdr_capacity_min: 1.0,
-            hdr_capacity_max: 1000.0 / 203.0, // ~4.926
+            hdr_capacity_max: 1000.0 / 203.0,
             use_base_color_space: true,
         };
 
         let serialized = serialize_iso21496(&original);
-        let parsed = deserialize_iso21496(&serialized).unwrap();
+        let parsed = parse_iso21496(&serialized).unwrap();
 
-        // Verify flags: multi-channel set, use_base_cg set
-        assert_eq!(
-            serialized[1] & 0x01,
-            0x01,
-            "MULTI_CHANNEL flag should be set"
-        );
-        assert_eq!(serialized[1] & 0x02, 0x02, "USE_BASE_CG flag should be set");
         assert!(parsed.use_base_color_space);
 
-        // Negative offsets must survive roundtrip
         let tol = 0.001;
         for i in 0..3 {
             assert!(
@@ -400,203 +490,136 @@ mod tests {
                 original.offset_hdr[i]
             );
         }
-
-        // Verify all per-channel values roundtrip
-        let rel_tol = 0.05;
-        for i in 0..3 {
-            assert!(
-                (parsed.max_content_boost[i] - original.max_content_boost[i]).abs()
-                    / original.max_content_boost[i]
-                    < rel_tol,
-                "max_content_boost[{}]: {} vs {}",
-                i,
-                parsed.max_content_boost[i],
-                original.max_content_boost[i]
-            );
-            assert!(
-                (parsed.gamma[i] - original.gamma[i]).abs() < 0.01,
-                "gamma[{}]: {} vs {}",
-                i,
-                parsed.gamma[i],
-                original.gamma[i]
-            );
-        }
     }
 
-    /// Data too short: 0 bytes and 1 byte should both fail.
-    #[test]
-    fn test_deserialize_truncated_data() {
-        let result_empty = deserialize_iso21496(&[]);
-        assert!(result_empty.is_err(), "0 bytes should fail");
+    // ========================================================================
+    // Wire format verification
+    // ========================================================================
 
-        let result_one = deserialize_iso21496(&[0x00]);
-        assert!(result_one.is_err(), "1 byte should fail");
-    }
-
-    /// Version greater than ISO_VERSION should be rejected.
     #[test]
-    fn test_deserialize_version_mismatch() {
-        // Build a valid serialized blob, then set version to ISO_VERSION + 1
+    fn test_header_layout() {
         let metadata = GainMapMetadata::new();
-        let mut serialized = serialize_iso21496(&metadata);
-        serialized[0] = ISO_VERSION + 1;
+        let serialized = serialize_iso21496(&metadata);
 
-        let result = deserialize_iso21496(&serialized);
-        assert!(result.is_err(), "version > ISO_VERSION should be rejected");
-        let msg = result.unwrap_err().to_string();
-        assert!(
-            msg.contains("version") || msg.contains("Version"),
-            "error should mention version: {}",
-            msg
-        );
+        // Byte 0: version
+        assert_eq!(serialized[0], ISO_VERSION);
+
+        // Bytes 1-2: minimum_version (u16 BE) = 0
+        assert_eq!(&serialized[1..3], &[0, 0]);
+
+        // Bytes 3-4: writer_version (u16 BE) = 0
+        assert_eq!(&serialized[3..5], &[0, 0]);
+
+        // Byte 5: flags
+        let flags = serialized[FLAGS_OFFSET];
+        // Default metadata is single-channel, use_base_color_space=true
+        assert_eq!(flags & FLAG_MULTI_CHANNEL, 0);
+        assert_ne!(flags & FLAG_USE_BASE_COLOUR_SPACE, 0);
     }
 
-    /// Valid header (version + flags) but data truncated mid-fraction.
     #[test]
-    fn test_deserialize_truncated_fractions() {
-        // 2 bytes: valid version + flags for single-channel
-        // Single-channel needs 2 + 16 + 1*40 = 58 bytes total.
-        // Provide only the header + a few extra bytes (not enough for fractions).
-        let mut data = vec![ISO_VERSION, 0x00]; // version=0, flags=0 (single channel)
-        // Add just 4 bytes - not enough for even one complete fraction (needs 8)
-        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
+    fn test_single_channel_size() {
+        let metadata = GainMapMetadata::new();
+        let serialized = serialize_iso21496(&metadata);
 
-        let result = deserialize_iso21496(&data);
-        assert!(
-            result.is_err(),
-            "truncated fraction data should fail: got {:?}",
-            result
+        // Header (6) + headroom (2*8=16) + 1 channel * 5 fractions * 8 = 62
+        assert_eq!(
+            serialized.len(),
+            HEADER_SIZE
+                + HEADROOM_FRACTIONS * FRACTION_SIZE
+                + FRACTIONS_PER_CHANNEL * FRACTION_SIZE
         );
+        assert_eq!(serialized.len(), 62);
     }
 
-    /// Serialize with backward_dir=false (default), manually set the backward
-    /// direction flag bit, deserialize, verify offset_sdr and offset_hdr are swapped.
     #[test]
-    fn test_backward_direction_flag() {
-        let original = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
-            gamma: [1.0; 3],
-            offset_sdr: [0.1; 3],
-            offset_hdr: [0.2; 3],
+    fn test_multi_channel_size() {
+        let metadata = GainMapMetadata {
+            max_content_boost: [4.0, 5.0, 6.0],
+            min_content_boost: [1.0, 1.5, 2.0],
+            gamma: [1.0, 1.1, 1.2],
+            offset_sdr: [0.01; 3],
+            offset_hdr: [0.01; 3],
             hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            hdr_capacity_max: 6.0,
             use_base_color_space: true,
         };
+        let serialized = serialize_iso21496(&metadata);
 
-        let mut serialized = serialize_iso21496(&original);
-
-        // Verify backward_dir flag is NOT set by default
+        // Header (6) + headroom (16) + 3 channels * 5 fractions * 8 = 142
         assert_eq!(
-            serialized[1] & FLAG_BACKWARD_DIR,
-            0,
-            "backward_dir should not be set by serialize"
+            serialized.len(),
+            HEADER_SIZE
+                + HEADROOM_FRACTIONS * FRACTION_SIZE
+                + 3 * FRACTIONS_PER_CHANNEL * FRACTION_SIZE
         );
-
-        // Manually set the backward direction flag (bit 2)
-        serialized[1] |= FLAG_BACKWARD_DIR;
-
-        let parsed = deserialize_iso21496(&serialized).unwrap();
-
-        // With backward_dir set, offset_sdr and offset_hdr should be swapped
-        let tol = 0.001;
-        for i in 0..3 {
-            assert!(
-                (parsed.offset_sdr[i] - original.offset_hdr[i]).abs() < tol,
-                "offset_sdr[{}] should contain original offset_hdr: {} vs {}",
-                i,
-                parsed.offset_sdr[i],
-                original.offset_hdr[i]
-            );
-            assert!(
-                (parsed.offset_hdr[i] - original.offset_sdr[i]).abs() < tol,
-                "offset_hdr[{}] should contain original offset_sdr: {} vs {}",
-                i,
-                parsed.offset_hdr[i],
-                original.offset_sdr[i]
-            );
-        }
+        assert_eq!(serialized.len(), 142);
     }
 
-    /// Verify APP2 marker structure: starts with FF E2, correct length,
-    /// contains namespace, contains data.
+    // ========================================================================
+    // Known-value test: hand-crafted binary blob
+    // ========================================================================
+
     #[test]
-    fn test_create_iso_app2_marker() {
-        let iso_data = serialize_iso21496(&GainMapMetadata::new());
-        let marker = create_iso_app2_marker(&iso_data);
+    fn test_parse_known_blob() {
+        // Single-channel blob with known values:
+        // version=0, min_ver=0, writer_ver=0,
+        // flags=0x40 (use_base_colour_space, single channel)
+        // base_hdr_headroom = 0/1 (log2(1.0) = 0 → 2^0 = 1.0)
+        // alt_hdr_headroom  = 2/1 (log2(4.0) = 2 → 2^2 = 4.0)
+        // gain_map_min = 0/1 (log2(1.0) = 0 → 2^0 = 1.0)
+        // gain_map_max = 2/1 (log2(4.0) = 2 → 2^2 = 4.0)
+        // gamma = 1/1 (1.0)
+        // base_offset = 1/64 (0.015625)
+        // alt_offset  = 1/64 (0.015625)
+        #[rustfmt::skip]
+        let blob: Vec<u8> = [
+            // Header
+            0x00,                   // version = 0
+            0x00, 0x00,             // minimum_version = 0
+            0x00, 0x00,             // writer_version = 0
+            0x40,                   // flags = 0x40 (use_base_colour_space)
+            // base_hdr_headroom = 0/1
+            0x00, 0x00, 0x00, 0x00, // numerator = 0
+            0x00, 0x00, 0x00, 0x01, // denominator = 1
+            // alt_hdr_headroom = 2/1
+            0x00, 0x00, 0x00, 0x02, // numerator = 2
+            0x00, 0x00, 0x00, 0x01, // denominator = 1
+            // gain_map_min = 0/1
+            0x00, 0x00, 0x00, 0x00, // numerator = 0 (i32)
+            0x00, 0x00, 0x00, 0x01, // denominator = 1
+            // gain_map_max = 2/1
+            0x00, 0x00, 0x00, 0x02, // numerator = 2 (i32)
+            0x00, 0x00, 0x00, 0x01, // denominator = 1
+            // gamma = 1/1
+            0x00, 0x00, 0x00, 0x01, // numerator = 1
+            0x00, 0x00, 0x00, 0x01, // denominator = 1
+            // base_offset = 1/64
+            0x00, 0x00, 0x00, 0x01, // numerator = 1 (i32)
+            0x00, 0x00, 0x00, 0x40, // denominator = 64
+            // alt_offset = 1/64
+            0x00, 0x00, 0x00, 0x01, // numerator = 1 (i32)
+            0x00, 0x00, 0x00, 0x40, // denominator = 64
+        ].to_vec();
 
-        // Must start with APP2 marker bytes
-        assert_eq!(marker[0], 0xFF, "first byte should be 0xFF");
-        assert_eq!(marker[1], 0xE2, "second byte should be 0xE2 (APP2)");
+        let parsed = parse_iso21496(&blob).unwrap();
 
-        // Length field (big-endian u16 at bytes 2..4)
-        let namespace = b"urn:iso:std:iso:ts:21496:-1\0";
-        let expected_length = 2 + namespace.len() + iso_data.len();
-        let actual_length = ((marker[2] as usize) << 8) | (marker[3] as usize);
-        assert_eq!(
-            actual_length, expected_length,
-            "length field mismatch: expected {}, got {}",
-            expected_length, actual_length
-        );
-
-        // Total marker size = 2 (FF E2) + length field content
-        assert_eq!(marker.len(), 2 + expected_length);
-
-        // Namespace is present after the length field
-        let ns_start = 4;
-        let ns_end = ns_start + namespace.len();
-        assert_eq!(
-            &marker[ns_start..ns_end],
-            namespace,
-            "namespace not found at expected position"
-        );
-
-        // ISO data follows the namespace
-        assert_eq!(
-            &marker[ns_end..],
-            &iso_data,
-            "ISO data not found after namespace"
-        );
-    }
-
-    /// Create marker and verify it contains the ISO namespace string.
-    #[test]
-    fn test_create_iso_app2_marker_roundtrip() {
-        let iso_data = serialize_iso21496(&GainMapMetadata::new());
-        let marker = create_iso_app2_marker(&iso_data);
-
-        let namespace_str = b"urn:iso:std:iso:ts:21496:-1\0";
-
-        // Verify the namespace string appears in the marker
-        let found = marker
-            .windows(namespace_str.len())
-            .any(|w| w == namespace_str);
-        assert!(
-            found,
-            "marker should contain the ISO namespace string \"urn:iso:std:iso:ts:21496:-1\\0\""
-        );
-
-        // Extract the ISO payload from the marker (skip 2 marker bytes + 2 length bytes + namespace)
-        let payload_start = 4 + namespace_str.len();
-        let extracted_data = &marker[payload_start..];
-        assert_eq!(
-            extracted_data, &iso_data,
-            "extracted payload should match original ISO data"
-        );
-
-        // Deserialize the extracted payload to verify full roundtrip
-        let parsed = deserialize_iso21496(extracted_data).unwrap();
-        let original = GainMapMetadata::new();
-        assert!(
-            (parsed.hdr_capacity_min - original.hdr_capacity_min).abs() < 0.01,
-            "roundtrip hdr_capacity_min mismatch"
-        );
+        assert_eq!(parsed.hdr_capacity_min, 1.0); // 2^0
+        assert!((parsed.hdr_capacity_max - 4.0).abs() < 0.001); // 2^2
+        assert_eq!(parsed.min_content_boost, [1.0; 3]); // 2^0
+        assert!((parsed.max_content_boost[0] - 4.0).abs() < 0.001); // 2^2
+        assert_eq!(parsed.gamma, [1.0; 3]);
+        assert_eq!(parsed.offset_sdr, [0.015625; 3]); // 1/64
+        assert_eq!(parsed.offset_hdr, [0.015625; 3]); // 1/64
         assert!(parsed.use_base_color_space);
     }
 
-    /// Single-channel metadata should produce identical values in all 3 channels.
+    // ========================================================================
+    // Single-channel replication
+    // ========================================================================
+
     #[test]
-    fn test_single_channel_all_same() {
+    fn test_single_channel_replicates_to_all() {
         let original = GainMapMetadata {
             min_content_boost: [2.0; 3],
             max_content_boost: [8.0; 3],
@@ -608,67 +631,80 @@ mod tests {
             use_base_color_space: false,
         };
 
-        // Confirm it serializes as single-channel
         let serialized = serialize_iso21496(&original);
         assert_eq!(
-            serialized[1] & FLAG_MULTI_CHANNEL,
+            serialized[FLAGS_OFFSET] & FLAG_MULTI_CHANNEL,
             0,
             "should serialize as single channel"
         );
 
-        let parsed = deserialize_iso21496(&serialized).unwrap();
+        let parsed = parse_iso21496(&serialized).unwrap();
 
-        // All three channels must be identical
         for i in 1..3 {
             assert_eq!(
                 parsed.min_content_boost[0], parsed.min_content_boost[i],
-                "min_content_boost[0] != min_content_boost[{}]",
+                "min_content_boost[0] != [{}]",
                 i
             );
             assert_eq!(
                 parsed.max_content_boost[0], parsed.max_content_boost[i],
-                "max_content_boost[0] != max_content_boost[{}]",
+                "max_content_boost[0] != [{}]",
                 i
             );
-            assert_eq!(parsed.gamma[0], parsed.gamma[i], "gamma[0] != gamma[{}]", i);
+            assert_eq!(parsed.gamma[0], parsed.gamma[i], "gamma[0] != [{}]", i);
             assert_eq!(
                 parsed.offset_sdr[0], parsed.offset_sdr[i],
-                "offset_sdr[0] != offset_sdr[{}]",
+                "offset_sdr[0] != [{}]",
                 i
             );
             assert_eq!(
                 parsed.offset_hdr[0], parsed.offset_hdr[i],
-                "offset_hdr[0] != offset_hdr[{}]",
+                "offset_hdr[0] != [{}]",
                 i
             );
         }
     }
 
-    /// Fraction::new with denominator 0 should not panic; to_f32 returns 0.0.
-    #[test]
-    fn test_fraction_zero_denominator() {
-        let frac = Fraction::new(42, 0);
-        // Must not panic
-        let val = frac.to_f32();
-        assert_eq!(
-            val, 0.0,
-            "Fraction with denominator 0 should return 0.0, got {}",
-            val
-        );
+    // ========================================================================
+    // Edge cases
+    // ========================================================================
 
-        let frac_neg = Fraction::new(-100, 0);
-        let val_neg = frac_neg.to_f32();
-        assert_eq!(
-            val_neg, 0.0,
-            "Fraction with negative numerator and denominator 0 should return 0.0, got {}",
-            val_neg
-        );
+    #[test]
+    fn test_zero_headroom() {
+        // hdr_capacity_min = 1.0 → log2 = 0.0, hdr_capacity_max = 1.0 → log2 = 0.0
+        let original = GainMapMetadata {
+            min_content_boost: [1.0; 3],
+            max_content_boost: [1.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [0.0; 3],
+            offset_hdr: [0.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 1.0,
+            use_base_color_space: true,
+        };
+
+        let serialized = serialize_iso21496(&original);
+        let parsed = parse_iso21496(&serialized).unwrap();
+
+        assert!((parsed.hdr_capacity_min - 1.0).abs() < 0.001);
+        assert!((parsed.hdr_capacity_max - 1.0).abs() < 0.001);
     }
 
-    /// Extreme values: very large max_content_boost, very small gamma,
-    /// and hdr_capacity_max of 10000/203.
     #[test]
-    fn test_serialize_deserialize_extreme_values() {
+    fn test_gamma_one() {
+        let original = GainMapMetadata {
+            gamma: [1.0; 3],
+            ..GainMapMetadata::new()
+        };
+
+        let serialized = serialize_iso21496(&original);
+        let parsed = parse_iso21496(&serialized).unwrap();
+
+        assert!((parsed.gamma[0] - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_extreme_boost_values() {
         let original = GainMapMetadata {
             min_content_boost: [0.01; 3],
             max_content_boost: [10000.0; 3],
@@ -676,61 +712,197 @@ mod tests {
             offset_sdr: [0.0; 3],
             offset_hdr: [0.0; 3],
             hdr_capacity_min: 1.0,
-            hdr_capacity_max: 10000.0 / 203.0, // ~49.26
+            hdr_capacity_max: 10000.0 / 203.0,
             use_base_color_space: true,
         };
 
         let serialized = serialize_iso21496(&original);
-        let parsed = deserialize_iso21496(&serialized).unwrap();
+        let parsed = parse_iso21496(&serialized).unwrap();
 
-        // Large max_content_boost: use relative tolerance
         let rel_tol = 0.05;
         assert!(
-            (parsed.max_content_boost[0] - original.max_content_boost[0]).abs()
-                / original.max_content_boost[0]
-                < rel_tol,
-            "max_content_boost: {} vs {}",
-            parsed.max_content_boost[0],
-            original.max_content_boost[0]
+            (parsed.max_content_boost[0] - 10000.0).abs() / 10000.0 < rel_tol,
+            "max_content_boost: {} vs 10000.0",
+            parsed.max_content_boost[0]
         );
+        assert!(
+            (parsed.min_content_boost[0] - 0.01).abs() / 0.01 < rel_tol,
+            "min_content_boost: {} vs 0.01",
+            parsed.min_content_boost[0]
+        );
+        assert!(
+            (parsed.gamma[0] - 0.01).abs() < 0.001,
+            "gamma: {} vs 0.01",
+            parsed.gamma[0]
+        );
+    }
 
-        // Small min_content_boost
-        assert!(
-            (parsed.min_content_boost[0] - original.min_content_boost[0]).abs()
-                / original.min_content_boost[0]
-                < rel_tol,
-            "min_content_boost: {} vs {}",
-            parsed.min_content_boost[0],
-            original.min_content_boost[0]
-        );
+    // ========================================================================
+    // Error cases
+    // ========================================================================
 
-        // Very small gamma
-        assert!(
-            (parsed.gamma[0] - original.gamma[0]).abs() < 0.001,
-            "gamma: {} vs {}",
-            parsed.gamma[0],
-            original.gamma[0]
-        );
+    #[test]
+    fn test_empty_data() {
+        assert!(parse_iso21496(&[]).is_err());
+    }
 
-        // hdr_capacity_max = 10000/203
-        let expected_cap = 10000.0f32 / 203.0;
-        assert!(
-            (parsed.hdr_capacity_max - expected_cap).abs() / expected_cap < rel_tol,
-            "hdr_capacity_max: {} vs {}",
-            parsed.hdr_capacity_max,
-            expected_cap
-        );
+    #[test]
+    fn test_too_short() {
+        // Just the version byte — not enough for the full header
+        assert!(parse_iso21496(&[0x00]).is_err());
+        assert!(parse_iso21496(&[0x00, 0x00]).is_err());
+        assert!(parse_iso21496(&[0x00, 0x00, 0x00, 0x00, 0x00]).is_err());
+    }
 
-        // Zero offsets should roundtrip exactly (or very close)
+    #[test]
+    fn test_invalid_version() {
+        let mut blob = vec![0u8; 62];
+        blob[0] = 1; // version 1 — unsupported
+        let result = parse_iso21496(&blob);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
         assert!(
-            (parsed.offset_sdr[0]).abs() < 0.001,
-            "offset_sdr should be ~0.0: {}",
-            parsed.offset_sdr[0]
+            msg.contains("version"),
+            "error should mention version: {}",
+            msg
         );
+    }
+
+    #[test]
+    fn test_truncated_fractions() {
+        // Valid 6-byte header, but not enough data for headroom fractions
+        let data = vec![
+            0x00, // version
+            0x00, 0x00, // minimum_version
+            0x00, 0x00, // writer_version
+            0x00, // flags (single channel)
+            0x00, 0x00, 0x00, 0x01, // partial headroom
+        ];
+        assert!(parse_iso21496(&data).is_err());
+    }
+
+    #[test]
+    fn test_zero_denominator_in_headroom() {
+        // Build a valid-length blob but with zero denominator in base_hdr_headroom
+        let mut data = vec![0u8; 62];
+        data[0] = 0; // version
+        // min_ver, writer_ver, flags all 0
+        // base_hdr_headroom: numerator=0, denominator=0
+        // denominator bytes at offset 10..14 are already 0
+        let result = parse_iso21496(&data);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
         assert!(
-            (parsed.offset_hdr[0]).abs() < 0.001,
-            "offset_hdr should be ~0.0: {}",
-            parsed.offset_hdr[0]
+            msg.contains("denominator"),
+            "error should mention denominator: {}",
+            msg
         );
+    }
+
+    #[test]
+    fn test_zero_denominator_in_channel_fraction() {
+        // Build a blob with valid headroom but zero denominator in gain_map_min_d
+        let metadata = GainMapMetadata::new();
+        let mut data = serialize_iso21496(&metadata);
+        // gain_map_min_d is at offset: 6 (header) + 16 (headroom) + 4 (min_n) = 26..30
+        data[26] = 0;
+        data[27] = 0;
+        data[28] = 0;
+        data[29] = 0;
+        let result = parse_iso21496(&data);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("denominator"),
+            "error should mention denominator: {}",
+            msg
+        );
+    }
+
+    // ========================================================================
+    // APP2 marker tests
+    // ========================================================================
+
+    #[test]
+    fn test_app2_marker_structure() {
+        let iso_data = serialize_iso21496(&GainMapMetadata::new());
+        let marker = create_iso_app2_marker(&iso_data);
+
+        assert_eq!(marker[0], 0xFF);
+        assert_eq!(marker[1], 0xE2); // APP2
+
+        let namespace = b"urn:iso:std:iso:ts:21496:-1\0";
+        let expected_length = 2 + namespace.len() + iso_data.len();
+        let actual_length = ((marker[2] as usize) << 8) | (marker[3] as usize);
+        assert_eq!(actual_length, expected_length);
+
+        assert_eq!(marker.len(), 2 + expected_length);
+
+        let ns_start = 4;
+        let ns_end = ns_start + namespace.len();
+        assert_eq!(&marker[ns_start..ns_end], namespace);
+        assert_eq!(&marker[ns_end..], &iso_data);
+    }
+
+    #[test]
+    fn test_app2_marker_roundtrip() {
+        let iso_data = serialize_iso21496(&GainMapMetadata::new());
+        let marker = create_iso_app2_marker(&iso_data);
+
+        let namespace = b"urn:iso:std:iso:ts:21496:-1\0";
+        let payload_start = 4 + namespace.len();
+        let extracted = &marker[payload_start..];
+        assert_eq!(extracted, &iso_data);
+
+        let parsed = parse_iso21496(extracted).unwrap();
+        let original = GainMapMetadata::new();
+        assert!((parsed.hdr_capacity_min - original.hdr_capacity_min).abs() < 0.01);
+        assert!(parsed.use_base_color_space);
+    }
+
+    // ========================================================================
+    // Fraction tests
+    // ========================================================================
+
+    #[test]
+    fn test_fraction_roundtrip() {
+        let values = [0.0, 0.5, 1.0, 2.0, -1.0, 0.015625];
+        for &v in &values {
+            let frac = Fraction::from_f32(v);
+            let back = frac.to_f32();
+            assert!(
+                (v - back).abs() < 0.0001,
+                "Fraction roundtrip failed for {}: got {}",
+                v,
+                back
+            );
+        }
+    }
+
+    #[test]
+    fn test_unsigned_fraction_roundtrip() {
+        let values = [0.0, 0.5, 1.0, 2.0, 0.015625, 49.26];
+        for &v in &values {
+            let frac = UnsignedFraction::from_f32(v);
+            let back = frac.to_f32();
+            assert!(
+                (v - back).abs() < 0.001,
+                "UnsignedFraction roundtrip failed for {}: got {}",
+                v,
+                back
+            );
+        }
+    }
+
+    #[test]
+    fn test_unsigned_fraction_clamps_negative() {
+        let frac = UnsignedFraction::from_f32(-5.0);
+        assert_eq!(frac.numerator, 0);
+    }
+
+    #[test]
+    fn test_unsigned_fraction_zero_denominator() {
+        let frac = UnsignedFraction::new(42, 0);
+        assert_eq!(frac.to_f32(), 0.0);
     }
 }

@@ -591,6 +591,51 @@ impl Fraction {
     }
 }
 
+/// An unsigned fraction for ISO 21496-1 metadata encoding.
+///
+/// Used for fields that are always non-negative (gamma, HDR headroom).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnsignedFraction {
+    /// The numerator of the fraction.
+    pub numerator: u32,
+    /// The denominator of the fraction (must be non-zero for valid fractions).
+    pub denominator: u32,
+}
+
+impl UnsignedFraction {
+    /// Create a new unsigned fraction with the given numerator and denominator.
+    pub fn new(numerator: u32, denominator: u32) -> Self {
+        Self {
+            numerator,
+            denominator,
+        }
+    }
+
+    /// Convert a non-negative floating-point value to an unsigned fraction.
+    ///
+    /// Uses a fixed denominator of 1,000,000 for reasonable precision.
+    /// Negative values are clamped to zero.
+    pub fn from_f32(value: f32) -> Self {
+        let denominator = 1_000_000u32;
+        let numerator = (value.max(0.0) * denominator as f32).round() as u32;
+        Self {
+            numerator,
+            denominator,
+        }
+    }
+
+    /// Convert the fraction to a floating-point value.
+    ///
+    /// Returns 0.0 if the denominator is zero.
+    pub fn to_f32(self) -> f32 {
+        if self.denominator == 0 {
+            0.0
+        } else {
+            self.numerator as f32 / self.denominator as f32
+        }
+    }
+}
+
 /// Reference display luminance values (in nits).
 pub mod luminance {
     /// SDR reference white (diffuse white)
