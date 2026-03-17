@@ -697,6 +697,7 @@ fn interpolate_curve(points: &[(f32, f32)], x: f32) -> f32 {
 /// linear interpolation between entries.
 ///
 /// Can be applied per-channel or luminance-preserving.
+#[derive(Clone, Debug)]
 pub struct ProfileToneCurve {
     /// 4097 entries (4096 + 1 for endpoint), mapping \[0,1\] → \[0,1\]
     lut: Vec<f32>,
