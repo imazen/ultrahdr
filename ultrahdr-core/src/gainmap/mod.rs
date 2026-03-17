@@ -4,9 +4,11 @@
 //! allowing reconstruction of HDR content from the SDR base image.
 
 pub mod apply;
+pub mod apply_simd;
 pub mod compute;
 pub mod streaming;
 
 pub use apply::*;
+pub use apply_simd::*;
 pub use compute::*;
 pub use streaming::*;
