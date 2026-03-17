@@ -657,6 +657,156 @@ impl CompiledFilmicSpline {
 }
 
 // ============================================================================
+// ProfileToneCurve — DNG Camera Profile Tone Curve
+// ============================================================================
+
+/// Linear interpolation in a sorted list of (x,y) control points.
+fn interpolate_curve(points: &[(f32, f32)], x: f32) -> f32 {
+    if points.is_empty() {
+        return x;
+    }
+    if x <= points[0].0 {
+        return points[0].1;
+    }
+    if x >= points[points.len() - 1].0 {
+        return points[points.len() - 1].1;
+    }
+    // Binary search for the segment
+    let mut lo = 0;
+    let mut hi = points.len() - 1;
+    while hi - lo > 1 {
+        let mid = (lo + hi) / 2;
+        if points[mid].0 <= x {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let dx = points[hi].0 - points[lo].0;
+    if dx <= 0.0 {
+        return points[lo].1;
+    }
+    let t = (x - points[lo].0) / dx;
+    points[lo].1 * (1.0 - t) + points[hi].1 * t
+}
+
+/// DNG ProfileToneCurve — a precomputed LUT-based tone curve.
+///
+/// Built from 257 (x,y) control points from DNG camera profiles.
+/// Maps linear \[0,1\] → \[0,1\] via a 4096-entry lookup table with
+/// linear interpolation between entries.
+///
+/// Can be applied per-channel or luminance-preserving.
+pub struct ProfileToneCurve {
+    /// 4097 entries (4096 + 1 for endpoint), mapping \[0,1\] → \[0,1\]
+    lut: Vec<f32>,
+}
+
+impl ProfileToneCurve {
+    /// Build from raw DNG data (257 x,y pairs = 514 floats).
+    pub fn from_xy_pairs(tc_data: &[f32]) -> Option<Self> {
+        let n_points = tc_data.len() / 2;
+        if n_points < 2 {
+            return None;
+        }
+        let points: Vec<(f32, f32)> = (0..n_points)
+            .map(|i| (tc_data[i * 2], tc_data[i * 2 + 1]))
+            .collect();
+        let lut_size = 4096usize;
+        let lut: Vec<f32> = (0..=lut_size)
+            .map(|i| {
+                let x = i as f32 / lut_size as f32;
+                interpolate_curve(&points, x)
+            })
+            .collect();
+        Some(Self { lut })
+    }
+
+    /// Build from a pre-built LUT (must have 4097 entries).
+    pub fn from_lut(lut: Vec<f32>) -> Option<Self> {
+        if lut.len() != 4097 {
+            return None;
+        }
+        Some(Self { lut })
+    }
+
+    /// Build a linear identity curve (passthrough).
+    pub fn identity() -> Self {
+        let lut: Vec<f32> = (0..=4096).map(|i| i as f32 / 4096.0).collect();
+        Self { lut }
+    }
+
+    /// Evaluate the curve at a single value in \[0,1\].
+    #[inline]
+    pub fn eval(&self, x: f32) -> f32 {
+        let x = x.clamp(0.0, 1.0);
+        let idx_f = x * 4096.0;
+        let idx = (idx_f as usize).min(4095);
+        let frac = idx_f - idx as f32;
+        self.lut[idx] * (1.0 - frac) + self.lut[idx + 1] * frac
+    }
+
+    /// Apply per-channel to an RGB triple.
+    #[inline]
+    pub fn apply_per_channel(&self, rgb: [f32; 3]) -> [f32; 3] {
+        [self.eval(rgb[0]), self.eval(rgb[1]), self.eval(rgb[2])]
+    }
+
+    /// Apply luminance-preserving to an RGB triple.
+    ///
+    /// Maps the luminance through the curve, then scales all channels
+    /// by the same ratio, preserving color. Uses provided luma coefficients.
+    #[inline]
+    pub fn apply_lum_preserving(&self, rgb: [f32; 3], luma_coeffs: [f32; 3]) -> [f32; 3] {
+        let lum = rgb[0] * luma_coeffs[0] + rgb[1] * luma_coeffs[1] + rgb[2] * luma_coeffs[2];
+        if lum <= 1e-10 {
+            return [0.0, 0.0, 0.0];
+        }
+        let mapped = self.eval(lum.min(1.0));
+        let ratio = mapped / lum;
+        [
+            (rgb[0] * ratio).min(1.0),
+            (rgb[1] * ratio).min(1.0),
+            (rgb[2] * ratio).min(1.0),
+        ]
+    }
+
+    /// Apply to a full row of interleaved pixel data (per-channel mode).
+    pub fn apply_row_per_channel(&self, row: &mut [f32], channels: usize) {
+        for chunk in row.chunks_exact_mut(channels) {
+            chunk[0] = self.eval(chunk[0]);
+            chunk[1] = self.eval(chunk[1]);
+            chunk[2] = self.eval(chunk[2]);
+            // Alpha (channel 3+) left unchanged
+        }
+    }
+
+    /// Apply to a full row of interleaved pixel data (luminance-preserving mode).
+    pub fn apply_row_lum_preserving(
+        &self,
+        row: &mut [f32],
+        channels: usize,
+        luma_coeffs: [f32; 3],
+    ) {
+        for chunk in row.chunks_exact_mut(channels) {
+            let lum =
+                chunk[0] * luma_coeffs[0] + chunk[1] * luma_coeffs[1] + chunk[2] * luma_coeffs[2];
+            if lum > 1e-10 {
+                let mapped = self.eval(lum.min(1.0));
+                let ratio = mapped / lum;
+                chunk[0] = (chunk[0] * ratio).min(1.0);
+                chunk[1] = (chunk[1] * ratio).min(1.0);
+                chunk[2] = (chunk[2] * ratio).min(1.0);
+            } else {
+                chunk[0] = 0.0;
+                chunk[1] = 0.0;
+                chunk[2] = 0.0;
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Unified Tone Map Curve Enum
 // ============================================================================
 
@@ -2814,5 +2964,121 @@ mod tests {
                 assert!(v.is_finite(), "{:?}: produced non-finite {}", curve, v);
             }
         }
+    }
+
+    // ========================================================================
+    // ProfileToneCurve tests
+    // ========================================================================
+
+    #[test]
+    fn test_profile_curve_identity() {
+        let curve = ProfileToneCurve::identity();
+        // Identity should be ~passthrough
+        for i in 0..=100 {
+            let x = i as f32 / 100.0;
+            let y = curve.eval(x);
+            assert!((y - x).abs() < 0.001, "Identity at {}: got {}", x, y);
+        }
+    }
+
+    #[test]
+    fn test_profile_curve_from_xy_pairs() {
+        // Simple 2-point linear curve: (0,0) to (1,1)
+        let data = [0.0f32, 0.0, 1.0, 1.0];
+        let curve = ProfileToneCurve::from_xy_pairs(&data).unwrap();
+        assert!((curve.eval(0.0) - 0.0).abs() < 0.001);
+        assert!((curve.eval(0.5) - 0.5).abs() < 0.001);
+        assert!((curve.eval(1.0) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_profile_curve_gamma() {
+        // 3-point curve: dark lift (0,0.1), mid (0.5,0.6), white (1.0,1.0)
+        let data = [0.0, 0.1, 0.5, 0.6, 1.0, 1.0];
+        let curve = ProfileToneCurve::from_xy_pairs(&data).unwrap();
+        // Should lift blacks
+        assert!(curve.eval(0.0) > 0.05, "Black lift: {}", curve.eval(0.0));
+        // Mid should be boosted
+        assert!(curve.eval(0.5) > 0.55, "Mid boost: {}", curve.eval(0.5));
+        // White stays white
+        assert!((curve.eval(1.0) - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_profile_curve_per_channel() {
+        let curve = ProfileToneCurve::identity();
+        let result = curve.apply_per_channel([0.3, 0.5, 0.8]);
+        assert!((result[0] - 0.3).abs() < 0.001);
+        assert!((result[1] - 0.5).abs() < 0.001);
+        assert!((result[2] - 0.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_profile_curve_lum_preserving() {
+        let curve = ProfileToneCurve::identity();
+        let luma = [0.2126f32, 0.7152, 0.0722];
+        let result = curve.apply_lum_preserving([0.3, 0.5, 0.8], luma);
+        // Identity curve in lum-preserving mode should approximately preserve values
+        assert!((result[0] - 0.3).abs() < 0.05, "R: {}", result[0]);
+        assert!((result[1] - 0.5).abs() < 0.05, "G: {}", result[1]);
+        assert!((result[2] - 0.8).abs() < 0.05, "B: {}", result[2]);
+    }
+
+    #[test]
+    fn test_profile_curve_lum_preserving_black() {
+        let curve = ProfileToneCurve::identity();
+        let luma = [0.2126f32, 0.7152, 0.0722];
+        let result = curve.apply_lum_preserving([0.0, 0.0, 0.0], luma);
+        assert_eq!(result, [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_profile_curve_row_per_channel() {
+        let curve = ProfileToneCurve::identity();
+        let mut row = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+        curve.apply_row_per_channel(&mut row, 3);
+        assert!((row[0] - 0.1).abs() < 0.001);
+        assert!((row[3] - 0.4).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_profile_curve_row_4ch_alpha() {
+        let curve = ProfileToneCurve::identity();
+        let mut row = vec![0.3, 0.5, 0.7, 0.99, 0.1, 0.2, 0.3, 0.88];
+        curve.apply_row_per_channel(&mut row, 4);
+        // Alpha should be preserved
+        assert_eq!(row[3], 0.99);
+        assert_eq!(row[7], 0.88);
+    }
+
+    #[test]
+    fn test_profile_curve_monotonic() {
+        // S-curve: boost shadows, compress highlights
+        let data = [0.0, 0.0, 0.25, 0.35, 0.5, 0.55, 0.75, 0.8, 1.0, 1.0];
+        let curve = ProfileToneCurve::from_xy_pairs(&data).unwrap();
+        let mut prev = 0.0f32;
+        for i in 0..=100 {
+            let x = i as f32 / 100.0;
+            let y = curve.eval(x);
+            assert!(y >= prev - 1e-6, "Not monotonic at {}: {} < {}", x, y, prev);
+            prev = y;
+        }
+    }
+
+    #[test]
+    fn test_profile_curve_from_lut_validation() {
+        // Wrong size should fail
+        assert!(ProfileToneCurve::from_lut(vec![0.0; 100]).is_none());
+        // Right size should work
+        assert!(ProfileToneCurve::from_lut(vec![0.0; 4097]).is_some());
+    }
+
+    #[test]
+    fn test_profile_curve_too_few_points() {
+        // Single point (1 pair = 2 floats / 2 = 1 point, < 2) should fail
+        let data = [0.5, 0.5];
+        assert!(ProfileToneCurve::from_xy_pairs(&data).is_none());
+        // Empty should fail
+        assert!(ProfileToneCurve::from_xy_pairs(&[]).is_none());
     }
 }
