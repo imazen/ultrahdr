@@ -27,7 +27,7 @@ use core::cmp::Ordering;
 
 use crate::RawImage;
 use crate::color::gamut::{convert_gamut, rgb_to_luminance, soft_clip_gamut};
-use crate::color::transfer::{hlg_eotf, pq_eotf, srgb_eotf, srgb_oetf};
+use crate::color::transfer::{hlg_eotf, pq_eotf, pq_oetf, srgb_eotf, srgb_oetf};
 use crate::types::{ColorGamut, ColorTransfer, Error, GainMap, GainMapMetadata, Result};
 
 // ============================================================================
@@ -99,37 +99,686 @@ pub fn filmic_tonemap(x: f32) -> f32 {
 /// Based on ITU-R BT.2390 reference EETF.
 #[inline]
 pub fn bt2390_tonemap(scene_linear: f32, source_peak: f32, target_peak: f32) -> f32 {
+    bt2390_tonemap_ext(scene_linear, source_peak, target_peak, None)
+}
+
+/// BT.2390 EETF with optional min_lum black crush correction.
+///
+/// The `min_lum` parameter adds the ITU-R BT.2390 black crush prevention term:
+/// `e3 = min_lum * (1 - e2)^4 + e2`, which lifts near-black values slightly to
+/// prevent shadow detail loss during tone mapping.
+#[inline]
+pub fn bt2390_tonemap_ext(
+    scene_linear: f32,
+    source_peak: f32,
+    target_peak: f32,
+    min_lum: Option<f32>,
+) -> f32 {
     if source_peak <= target_peak {
         return scene_linear;
     }
 
-    // Knee point and slope calculations per BT.2390
     let ks = 1.5 * target_peak / source_peak - 0.5;
     let ks = ks.clamp(0.0, 1.0);
 
     let e1 = scene_linear;
-    if e1 < ks {
-        // Below knee: linear pass-through
+    let e2 = if e1 < ks {
         e1
     } else {
-        // Above knee: soft roll-off
         let t = (e1 - ks) / (1.0 - ks);
         let t2 = t * t;
         let t3 = t2 * t;
-
-        // Hermite spline interpolation
         let p0 = ks;
         let p1 = 1.0;
         let m0 = 1.0 - ks;
         let m1 = 0.0;
-
         let a = 2.0 * t3 - 3.0 * t2 + 1.0;
         let b = t3 - 2.0 * t2 + t;
         let c = -2.0 * t3 + 3.0 * t2;
         let d = t3 - t2;
+        a * p0 + b * m0 + c * p1 + d * m1
+    };
 
-        let result = a * p0 + b * m0 + c * p1 + d * m1;
-        result * target_peak / source_peak
+    let e3 = if let Some(ml) = min_lum {
+        let one_minus_e2 = 1.0 - e2;
+        let one_minus_e2_2 = one_minus_e2 * one_minus_e2;
+        ml * (one_minus_e2_2 * one_minus_e2_2) + e2
+    } else {
+        e2
+    };
+
+    e3 * target_peak / source_peak
+}
+
+// ============================================================================
+// BT.2408 PQ-domain Tonemapper (ITU-R BT.2408)
+// ============================================================================
+
+/// BT.2408 tone mapper operating in PQ perceptual domain.
+///
+/// Precomputes PQ-domain constants from content and display peak nits.
+/// Operates in the perceptual PQ domain for better shadow/highlight handling
+/// than scene-linear BT.2390.
+pub struct Bt2408Tonemapper {
+    content_min_pq: f32,
+    content_range_pq: f32,
+    inv_content_range_pq: f32,
+    min_lum: f32,
+    max_lum: f32,
+    ks: f32,
+    inv_one_minus_ks: f32,
+    one_minus_ks: f32,
+    normalizer: f32,
+    inv_display_max: f32,
+    content_max_nits: f32,
+    display_max_nits: f32,
+}
+
+impl Bt2408Tonemapper {
+    /// Create a new BT.2408 tonemapper.
+    ///
+    /// `content_max_nits`: Peak luminance of source content (e.g. 4000.0)
+    /// `display_max_nits`: Peak luminance of target display (e.g. 1000.0)
+    pub fn new(content_max_nits: f32, display_max_nits: f32) -> Self {
+        let content_min_pq = pq_oetf(0.0);
+        let content_max_pq = pq_oetf(content_max_nits / 10000.0);
+        let content_range_pq = content_max_pq - content_min_pq;
+        let inv_content_range_pq = if content_range_pq > 0.0 {
+            1.0 / content_range_pq
+        } else {
+            1.0
+        };
+        let min_lum = (pq_oetf(0.0) - content_min_pq) * inv_content_range_pq;
+        let max_lum = (pq_oetf(display_max_nits / 10000.0) - content_min_pq) * inv_content_range_pq;
+        let ks = 1.5 * max_lum - 0.5;
+        Self {
+            content_min_pq,
+            content_range_pq,
+            inv_content_range_pq,
+            min_lum,
+            max_lum,
+            ks,
+            inv_one_minus_ks: 1.0 / (1.0 - ks).max(1e-6),
+            one_minus_ks: 1.0 - ks,
+            normalizer: content_max_nits / display_max_nits,
+            inv_display_max: 1.0 / display_max_nits,
+            content_max_nits,
+            display_max_nits,
+        }
+    }
+
+    /// Tone map a single luminance value (in nits).
+    #[inline]
+    pub fn tonemap_luminance(&self, nits: f32) -> f32 {
+        if nits <= 0.0 {
+            return 0.0;
+        }
+        let scale = self.make_luma_scale(nits);
+        (nits * scale).min(self.display_max_nits).max(0.0)
+    }
+
+    /// Tone map an RGB triple (linear light, normalized to 10000 nits).
+    #[inline]
+    pub fn tonemap_rgb(&self, rgb: [f32; 3]) -> [f32; 3] {
+        let luma = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+        let luma_nits = luma * self.content_max_nits;
+        if luma_nits <= 0.0 {
+            return [0.0, 0.0, 0.0];
+        }
+        let scale = self.make_luma_scale(luma_nits);
+        [rgb[0] * scale, rgb[1] * scale, rgb[2] * scale]
+    }
+
+    #[inline(always)]
+    fn t(&self, a: f32) -> f32 {
+        (a - self.ks) * self.inv_one_minus_ks
+    }
+
+    #[inline]
+    fn hermite_spline(&self, b: f32) -> f32 {
+        let t_b = self.t(b);
+        let t_b_2 = t_b * t_b;
+        let t_b_3 = t_b_2 * t_b;
+        (2.0 * t_b_3 - 3.0 * t_b_2 + 1.0) * self.ks
+            + (t_b_3 - 2.0 * t_b_2 + t_b) * self.one_minus_ks
+            + (-2.0 * t_b_3 + 3.0 * t_b_2) * self.max_lum
+    }
+
+    #[inline(always)]
+    fn make_luma_scale(&self, luma_nits: f32) -> f32 {
+        let s = pq_oetf(luma_nits / 10000.0);
+        let normalized_pq = ((s - self.content_min_pq) * self.inv_content_range_pq).min(1.0);
+        let e2 = if normalized_pq < self.ks {
+            normalized_pq
+        } else {
+            self.hermite_spline(normalized_pq)
+        };
+        let one_minus_e2 = 1.0 - e2;
+        let one_minus_e2_2 = one_minus_e2 * one_minus_e2;
+        let e3 = self.min_lum * (one_minus_e2_2 * one_minus_e2_2) + e2;
+        let e4 = e3 * self.content_range_pq + self.content_min_pq;
+        let d4 = pq_eotf(e4) * 10000.0;
+        let new_luminance = d4.min(self.display_max_nits).max(0.0);
+        let min_luminance = 1e-6;
+        if luma_nits <= min_luminance {
+            new_luminance * self.inv_display_max
+        } else {
+            (new_luminance / luma_nits.max(min_luminance)) * self.normalizer
+        }
+    }
+}
+
+// ============================================================================
+// Simple Tone Mapping Curves
+// ============================================================================
+
+/// Simple per-channel Reinhard: `x / (1 + x)`.
+#[inline]
+pub fn reinhard_simple(x: f32) -> f32 {
+    x / (1.0 + x)
+}
+
+/// Clamp tone map: simply clamps to `[0, 1]`.
+#[inline]
+pub fn clamp_tonemap(x: f32) -> f32 {
+    x.clamp(0.0, 1.0)
+}
+
+/// Reinhard-Jodie tone mapping.
+///
+/// Mixes per-channel Reinhard with luminance-based Reinhard using the
+/// per-channel result as the blend factor.
+pub fn reinhard_jodie(rgb: [f32; 3], luma_coeffs: [f32; 3]) -> [f32; 3] {
+    let luma = rgb[0] * luma_coeffs[0] + rgb[1] * luma_coeffs[1] + rgb[2] * luma_coeffs[2];
+    if luma <= 0.0 {
+        return [0.0, 0.0, 0.0];
+    }
+    let luma_scale = 1.0 / (1.0 + luma);
+    let mut out = [0.0f32; 3];
+    for i in 0..3 {
+        let tv = rgb[i] / (1.0 + rgb[i]);
+        out[i] = ((1.0 - tv) * (rgb[i] * luma_scale) + tv * tv).min(1.0);
+    }
+    out
+}
+
+/// Tuned Reinhard with display-aware parameters.
+pub fn tuned_reinhard(luma: f32, content_max: f32, display_max: f32) -> f32 {
+    let white_point = 203.0;
+    let ld = content_max / white_point;
+    let w_a = (display_max / white_point) / (ld * ld);
+    let w_b = 1.0 / (display_max / white_point);
+    (1.0 + w_a * luma) / (1.0 + w_b * luma)
+}
+
+// ============================================================================
+// Complex Tone Mapping Curves
+// ============================================================================
+
+/// Uncharted 2 filmic tone mapping (Hable).
+pub fn uncharted2_filmic(v: f32) -> f32 {
+    #[inline(always)]
+    fn partial(x: f32) -> f32 {
+        const A: f32 = 0.15;
+        const B: f32 = 0.50;
+        const C: f32 = 0.10;
+        const D: f32 = 0.20;
+        const E: f32 = 0.02;
+        const F: f32 = 0.30;
+        ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F
+    }
+    const EXPOSURE_BIAS: f32 = 2.0;
+    const W: f32 = 11.2;
+    const W_SCALE: f32 = 1.0 / partial_const(W);
+    (partial(v * EXPOSURE_BIAS) * W_SCALE).min(1.0)
+}
+
+#[inline(always)]
+const fn partial_const(x: f32) -> f32 {
+    const A: f32 = 0.15;
+    const B: f32 = 0.50;
+    const C: f32 = 0.10;
+    const D: f32 = 0.20;
+    const E: f32 = 0.02;
+    const F: f32 = 0.30;
+    ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F
+}
+
+/// ACES AP1 filmic tone mapping.
+#[allow(clippy::excessive_precision)]
+pub fn aces_ap1(rgb: [f32; 3]) -> [f32; 3] {
+    let a = 0.59719 * rgb[0] + 0.35458 * rgb[1] + 0.04823 * rgb[2];
+    let b = 0.07600 * rgb[0] + 0.90834 * rgb[1] + 0.01566 * rgb[2];
+    let c = 0.02840 * rgb[0] + 0.13383 * rgb[1] + 0.83777 * rgb[2];
+    let ra = a * (a + 0.0245786) - 0.000090537;
+    let rb = a * (a * 0.983729 + 0.4329510) + 0.238081;
+    let ga = b * (b + 0.0245786) - 0.000090537;
+    let gb = b * (b * 0.983729 + 0.4329510) + 0.238081;
+    let ba = c * (c + 0.0245786) - 0.000090537;
+    let bb = c * (c * 0.983729 + 0.4329510) + 0.238081;
+    let mr = ra / rb;
+    let mg = ga / gb;
+    let mb = ba / bb;
+    [
+        (1.60475 * mr - 0.53108 * mg - 0.07367 * mb).min(1.0),
+        (-0.10208 * mr + 1.10813 * mg - 0.00605 * mb).min(1.0),
+        (-0.00327 * mr - 0.07276 * mg + 1.07602 * mb).min(1.0),
+    ]
+}
+
+/// AgX look preset.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AgxLook {
+    /// Default AgX (no look applied).
+    Default,
+    /// Punchy: increased saturation (1.4x).
+    Punchy,
+    /// Golden: warm tone with reduced blue.
+    Golden,
+}
+
+/// AgX tone mapping (Blender).
+///
+/// Operates in a log2 domain with a polynomial contrast curve.
+#[allow(clippy::excessive_precision)]
+pub fn agx_tonemap(rgb: [f32; 3], look: AgxLook) -> [f32; 3] {
+    const AGX_MIN_EV: f32 = -12.47393;
+    const AGX_MAX_EV: f32 = 4.026069;
+    const RECIP_EV: f32 = 1.0 / (AGX_MAX_EV - AGX_MIN_EV);
+
+    let z = [rgb[0].abs(), rgb[1].abs(), rgb[2].abs()];
+    let z0 = [
+        0.856627153315983 * z[0] + 0.137318972929847 * z[1] + 0.11189821299995 * z[2],
+        0.0951212405381588 * z[0] + 0.761241990602591 * z[1] + 0.0767994186031903 * z[2],
+        0.0482516061458583 * z[0] + 0.101439036467562 * z[1] + 0.811302368396859 * z[2],
+    ];
+    let z1 = [
+        z0[0].max(1e-10).log2().clamp(AGX_MIN_EV, AGX_MAX_EV),
+        z0[1].max(1e-10).log2().clamp(AGX_MIN_EV, AGX_MAX_EV),
+        z0[2].max(1e-10).log2().clamp(AGX_MIN_EV, AGX_MAX_EV),
+    ];
+    let z2 = [
+        (z1[0] - AGX_MIN_EV) * RECIP_EV,
+        (z1[1] - AGX_MIN_EV) * RECIP_EV,
+        (z1[2] - AGX_MIN_EV) * RECIP_EV,
+    ];
+    let z3 = [
+        agx_contrast(z2[0]),
+        agx_contrast(z2[1]),
+        agx_contrast(z2[2]),
+    ];
+    let z4 = agx_apply_look(z3, look);
+    [
+        (1.19687900512017 * z4[0] - 0.0528968517574562 * z4[1] - 0.0529716355144438 * z4[2])
+            .clamp(0.0, 1.0),
+        (-0.0980208811401368 * z4[0] + 1.15190312990417 * z4[1] - 0.0505349770312032 * z4[2])
+            .clamp(0.0, 1.0),
+        (-0.0990297440797205 * z4[0] - 0.0989611768448433 * z4[1] + 1.15107367264116 * z4[2])
+            .clamp(0.0, 1.0),
+    ]
+}
+
+#[inline]
+fn agx_contrast(x: f32) -> f32 {
+    let x2 = x * x;
+    let x4 = x2 * x2;
+    let x6 = x4 * x2;
+    let w0 = 0.002857 * x - 0.1718;
+    let w1 = 4.361 * x - 28.72;
+    let w2 = 92.06 * x - 126.7;
+    let w3 = 78.01 * x - 17.86;
+    let z0 = w0 * x2 + w1;
+    let z1 = x4 * w2 * x6 + w3;
+    z1 + z0
+}
+
+fn agx_apply_look(rgb: [f32; 3], look: AgxLook) -> [f32; 3] {
+    let (slope, power, saturation) = match look {
+        AgxLook::Default => return rgb,
+        AgxLook::Punchy => ([1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.4, 1.4, 1.4]),
+        AgxLook::Golden => ([1.0, 0.9, 0.5], [0.8, 0.8, 0.8], [1.2, 1.2, 1.2]),
+    };
+    let dot = [
+        (slope[0] * rgb[0]).max(0.0),
+        (slope[1] * rgb[1]).max(0.0),
+        (slope[2] * rgb[2]).max(0.0),
+    ];
+    let z = [
+        dot[0].powf(power[0]),
+        dot[1].powf(power[1]),
+        dot[2].powf(power[2]),
+    ];
+    let luma = 0.2126 * z[0] + 0.7152 * z[1] + 0.0722 * z[2];
+    [
+        saturation[0] * (z[0] - luma) + luma,
+        saturation[1] * (z[1] - luma) + luma,
+        saturation[2] * (z[2] - luma) + luma,
+    ]
+}
+
+/// Filmic spline configuration parameters.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FilmicSplineConfig {
+    /// Output power (gamma). Default: 1.0
+    pub output_power: f32,
+    /// Latitude percentage (0–100). Default: 33.0
+    pub latitude: f32,
+    /// White point in EV. Default: 3.0
+    pub white_point_source: f32,
+    /// Black point in EV. Default: -8.0
+    pub black_point_source: f32,
+    /// Contrast at middle gray. Default: 1.18
+    pub contrast: f32,
+    /// Target black luminance (%). Default: 0.01517634
+    pub black_point_target: f32,
+    /// Target middle gray (%). Default: 18.45
+    pub grey_point_target: f32,
+    /// Target white luminance (%). Default: 100.0
+    pub white_point_target: f32,
+    /// Balance (-50 to 50). Default: 0.0
+    pub balance: f32,
+    /// Extreme luminance saturation. Default: 0.0
+    pub saturation: f32,
+}
+
+impl Default for FilmicSplineConfig {
+    fn default() -> Self {
+        Self {
+            output_power: 1.0,
+            latitude: 33.0,
+            white_point_source: 3.0,
+            black_point_source: -8.0,
+            contrast: 1.18,
+            black_point_target: 0.01517634,
+            grey_point_target: 18.45,
+            white_point_target: 100.0,
+            balance: 0.0,
+            saturation: 0.0,
+        }
+    }
+}
+
+/// Compiled filmic spline (precomputed from [`FilmicSplineConfig`]).
+pub struct CompiledFilmicSpline {
+    m1: [f32; 3],
+    m2: [f32; 3],
+    m3: [f32; 3],
+    m4: [f32; 3],
+    latitude_min: f32,
+    latitude_max: f32,
+    grey_source: f32,
+    black_source: f32,
+    dynamic_range: f32,
+    sigma_toe: f32,
+    sigma_shoulder: f32,
+    saturation: f32,
+}
+
+impl CompiledFilmicSpline {
+    /// Build a compiled spline from parameters.
+    pub fn new(p: &FilmicSplineConfig) -> Self {
+        let hardness = p.output_power;
+        let grey_display = 0.1845_f32.powf(1.0 / hardness);
+        let latitude = p.latitude.clamp(0.0, 100.0) / 100.0;
+        let white_source = p.white_point_source;
+        let black_source = p.black_point_source;
+        let dynamic_range = white_source - black_source;
+        let grey_log = black_source.abs() / dynamic_range;
+        let white_log = 1.0_f32;
+        let black_log = 0.0_f32;
+        let black_display =
+            (p.black_point_target.clamp(0.0, p.grey_point_target) / 100.0).powf(1.0 / hardness);
+        let white_display =
+            (p.white_point_target.max(p.grey_point_target) / 100.0).powf(1.0 / hardness);
+        let balance = p.balance.clamp(-50.0, 50.0) / 100.0;
+        let slope = p.contrast * dynamic_range / 8.0;
+        let mut min_contrast = 1.0_f32;
+        let mc2 = (white_display - grey_display) / (white_log - grey_log);
+        if mc2.is_finite() {
+            min_contrast = min_contrast.max(mc2);
+        }
+        const SAFETY_MARGIN: f32 = 0.01;
+        min_contrast += SAFETY_MARGIN;
+        let mut contrast = slope / (hardness * grey_display.powf(hardness - 1.0));
+        contrast = contrast.clamp(min_contrast, 100.0);
+        let linear_intercept = grey_display - contrast * grey_log;
+        let xmin = (black_display + SAFETY_MARGIN * (white_display - black_display)
+            - linear_intercept)
+            / contrast;
+        let xmax =
+            (white_display - SAFETY_MARGIN * (white_display - black_display) - linear_intercept)
+                / contrast;
+        let mut toe_log = (1.0 - latitude) * grey_log + latitude * xmin;
+        let mut shoulder_log = (1.0 - latitude) * grey_log + latitude * xmax;
+        let balance_correction = if balance > 0.0 {
+            2.0 * balance * (shoulder_log - grey_log)
+        } else {
+            2.0 * balance * (grey_log - toe_log)
+        };
+        toe_log -= balance_correction;
+        shoulder_log -= balance_correction;
+        toe_log = toe_log.max(xmin);
+        shoulder_log = shoulder_log.min(xmax);
+        let toe_display = toe_log * contrast + linear_intercept;
+        let shoulder_display = shoulder_log * contrast + linear_intercept;
+        let latitude_min = toe_log;
+        let latitude_max = shoulder_log;
+        let saturation = 2.0 * p.saturation / 100.0 + 1.0;
+        let sigma_toe = (latitude_min / 3.0).powi(2);
+        let sigma_shoulder = ((1.0 - latitude_max) / 3.0).powi(2);
+        let m2_2 = contrast;
+        let m1_2 = toe_display - m2_2 * toe_log;
+        let (m1_0, m2_0, m3_0, m4_0) =
+            Self::compute_rational([black_log, black_display], [toe_log, toe_display], contrast);
+        let (m1_1, m2_1, m3_1, m4_1) = Self::compute_rational(
+            [white_log, white_display],
+            [shoulder_log, shoulder_display],
+            contrast,
+        );
+        Self {
+            m1: [m1_0, m1_1, m1_2],
+            m2: [m2_0, m2_1, m2_2],
+            m3: [m3_0, m3_1, 0.0],
+            m4: [m4_0, m4_1, 0.0],
+            latitude_min,
+            latitude_max,
+            grey_source: 0.1845,
+            black_source,
+            dynamic_range,
+            sigma_toe,
+            sigma_shoulder,
+            saturation,
+        }
+    }
+
+    fn compute_rational(p1: [f32; 2], p0: [f32; 2], g: f32) -> (f32, f32, f32, f32) {
+        let x = p0[0] - p1[0];
+        let y = p0[1] - p1[1];
+        let jx = (x * g / y + 1.0).powi(2).max(4.0);
+        let b = g / (2.0 * y) + ((jx - 4.0).sqrt() - 1.0) / (2.0 * x);
+        let c = y / g * (b * x * x + x) / (b * x * x + x - y / g);
+        let a = c * g;
+        (a, b, c, p0[1])
+    }
+
+    /// Apply the spline to a single value in log-encoded domain.
+    #[inline]
+    pub fn apply_spline(&self, x: f32) -> f32 {
+        if x < self.latitude_min {
+            let xi = self.latitude_min - x;
+            let rat = xi * (xi * self.m2[0] + 1.0);
+            self.m4[0] - self.m1[0] * rat / (rat + self.m3[0])
+        } else if x > self.latitude_max {
+            let xi = x - self.latitude_max;
+            let rat = xi * (xi * self.m2[1] + 1.0);
+            self.m4[1] + self.m1[1] * rat / (rat + self.m3[1])
+        } else {
+            self.m1[2] + x * self.m2[2]
+        }
+    }
+
+    #[inline]
+    fn shaper(&self, x: f32) -> f32 {
+        (((x.max(1.525879e-05) / self.grey_source).log2() - self.black_source) / self.dynamic_range)
+            .clamp(0.0, 1.0)
+    }
+
+    #[inline]
+    fn desaturate(&self, x: f32) -> f32 {
+        let radius_toe = x;
+        let radius_shoulder = 1.0 - x;
+        let sat2 = 0.5 / self.saturation.sqrt();
+        let key_toe = (-radius_toe * radius_toe / self.sigma_toe * sat2).exp();
+        let key_shoulder = (-radius_shoulder * radius_shoulder / self.sigma_shoulder * sat2).exp();
+        self.saturation - (key_toe + key_shoulder) * self.saturation
+    }
+
+    /// Tone map an RGB value through the filmic spline.
+    pub fn tonemap_rgb(&self, rgb: [f32; 3], luma_coeffs: [f32; 3]) -> [f32; 3] {
+        let mut norm =
+            (rgb[0] * luma_coeffs[0] + rgb[1] * luma_coeffs[1] + rgb[2] * luma_coeffs[2])
+                .max(1.525879e-05);
+        let mut ratios = [rgb[0] / norm, rgb[1] / norm, rgb[2] / norm];
+        let min_ratio = ratios[0].min(ratios[1]).min(ratios[2]);
+        if min_ratio < 0.0 {
+            ratios[0] -= min_ratio;
+            ratios[1] -= min_ratio;
+            ratios[2] -= min_ratio;
+        }
+        norm = self.shaper(norm);
+        let desat = self.desaturate(norm);
+        let mapped = self.apply_spline(norm).clamp(0.0, 1.0);
+        [
+            ((ratios[0] + (1.0 - ratios[0]) * (1.0 - desat)) * mapped).clamp(0.0, 1.0),
+            ((ratios[1] + (1.0 - ratios[1]) * (1.0 - desat)) * mapped).clamp(0.0, 1.0),
+            ((ratios[2] + (1.0 - ratios[2]) * (1.0 - desat)) * mapped).clamp(0.0, 1.0),
+        ]
+    }
+}
+
+// ============================================================================
+// Unified Tone Map Curve Enum
+// ============================================================================
+
+/// Enumeration of all supported tone mapping curves.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ToneMapCurve {
+    /// Simple per-channel Reinhard: `x / (1 + x)`
+    Reinhard,
+    /// Extended Reinhard with max luminance
+    ExtendedReinhard {
+        /// Maximum expected luminance
+        l_max: f32,
+    },
+    /// Reinhard-Jodie (luminance-aware per-channel)
+    ReinhardJodie,
+    /// Tuned Reinhard with display-aware weights
+    TunedReinhard {
+        /// Content peak luminance in nits
+        content_max: f32,
+        /// Display peak luminance in nits
+        display_max: f32,
+    },
+    /// ACES-inspired filmic (Narkowicz approximation)
+    Narkowicz,
+    /// Uncharted 2 filmic (Hable)
+    Uncharted2,
+    /// ACES AP1 RRT+ODT
+    AcesAp1,
+    /// BT.2390 EETF (scene-linear domain)
+    Bt2390 {
+        /// Source peak luminance (normalized)
+        source_peak: f32,
+        /// Target peak luminance (normalized)
+        target_peak: f32,
+    },
+    /// AgX (Blender)
+    Agx(AgxLook),
+    /// Clamp to `[0, 1]`
+    Clamp,
+}
+
+/// Apply a tone mapping curve to an RGB triple.
+pub fn tonemap_rgb_curve(curve: &ToneMapCurve, rgb: [f32; 3], luma_coeffs: [f32; 3]) -> [f32; 3] {
+    match *curve {
+        ToneMapCurve::Reinhard => [
+            reinhard_simple(rgb[0]).min(1.0),
+            reinhard_simple(rgb[1]).min(1.0),
+            reinhard_simple(rgb[2]).min(1.0),
+        ],
+        ToneMapCurve::ExtendedReinhard { l_max } => {
+            let l = rgb[0] * luma_coeffs[0] + rgb[1] * luma_coeffs[1] + rgb[2] * luma_coeffs[2];
+            if l <= 0.0 {
+                return [0.0, 0.0, 0.0];
+            }
+            let new_l = reinhard_tonemap(l, l_max);
+            let scale = new_l / l;
+            [
+                (rgb[0] * scale).min(1.0),
+                (rgb[1] * scale).min(1.0),
+                (rgb[2] * scale).min(1.0),
+            ]
+        }
+        ToneMapCurve::ReinhardJodie => reinhard_jodie(rgb, luma_coeffs),
+        ToneMapCurve::TunedReinhard {
+            content_max,
+            display_max,
+        } => {
+            let l = rgb[0] * luma_coeffs[0] + rgb[1] * luma_coeffs[1] + rgb[2] * luma_coeffs[2];
+            if l <= 0.0 {
+                return [0.0, 0.0, 0.0];
+            }
+            let scale = tuned_reinhard(l, content_max, display_max);
+            [
+                (rgb[0] * scale).min(1.0),
+                (rgb[1] * scale).min(1.0),
+                (rgb[2] * scale).min(1.0),
+            ]
+        }
+        ToneMapCurve::Narkowicz => [
+            filmic_tonemap(rgb[0]),
+            filmic_tonemap(rgb[1]),
+            filmic_tonemap(rgb[2]),
+        ],
+        ToneMapCurve::Uncharted2 => [
+            uncharted2_filmic(rgb[0]),
+            uncharted2_filmic(rgb[1]),
+            uncharted2_filmic(rgb[2]),
+        ],
+        ToneMapCurve::AcesAp1 => aces_ap1(rgb),
+        ToneMapCurve::Bt2390 {
+            source_peak,
+            target_peak,
+        } => [
+            bt2390_tonemap(rgb[0], source_peak, target_peak),
+            bt2390_tonemap(rgb[1], source_peak, target_peak),
+            bt2390_tonemap(rgb[2], source_peak, target_peak),
+        ],
+        ToneMapCurve::Agx(look) => agx_tonemap(rgb, look),
+        ToneMapCurve::Clamp => [
+            clamp_tonemap(rgb[0]),
+            clamp_tonemap(rgb[1]),
+            clamp_tonemap(rgb[2]),
+        ],
+    }
+}
+
+// ============================================================================
+// Batch Tone Map API
+// ============================================================================
+
+/// Apply a tone mapping curve to a row of interleaved float pixel data.
+///
+/// Processes pixels in-place using `chunks_exact_mut` for bounds-check-free loops.
+/// `channels` must be 3 or 4 (alpha is passed through unchanged for 4-channel).
+pub fn tonemap_row(curve: &ToneMapCurve, row: &mut [f32], channels: usize, luma_coeffs: [f32; 3]) {
+    debug_assert!(channels == 3 || channels == 4, "channels must be 3 or 4");
+    for chunk in row.chunks_exact_mut(channels) {
+        let rgb = [chunk[0], chunk[1], chunk[2]];
+        let mapped = tonemap_rgb_curve(curve, rgb, luma_coeffs);
+        chunk[0] = mapped[0];
+        chunk[1] = mapped[1];
+        chunk[2] = mapped[2];
     }
 }
 
@@ -1653,6 +2302,517 @@ mod tests {
                 x,
                 r
             );
+        }
+    }
+
+    // ========================================================================
+    // Phase 1: BT.2390 black crush + BT.2408 PQ-domain tests
+    // ========================================================================
+
+    #[test]
+    fn test_bt2390_ext_backward_compat() {
+        for i in 0..=100 {
+            let l = i as f32 * 0.1;
+            let old = bt2390_tonemap(l, 10.0, 1.0);
+            let new = bt2390_tonemap_ext(l, 10.0, 1.0, None);
+            assert!((old - new).abs() < 1e-7, "at {}: {} vs {}", l, old, new);
+        }
+    }
+
+    #[test]
+    fn test_bt2390_ext_min_lum_shadow_preservation() {
+        let min_lum = 0.01;
+        let result = bt2390_tonemap_ext(0.001, 10.0, 1.0, Some(min_lum));
+        assert!(result > 0.0, "Shadow should be preserved, got {}", result);
+        let result_no = bt2390_tonemap_ext(0.001, 10.0, 1.0, None);
+        assert!(
+            result >= result_no,
+            "min_lum should lift: {} vs {}",
+            result,
+            result_no
+        );
+    }
+
+    #[test]
+    fn test_bt2390_ext_with_min_lum_range() {
+        let min_lum = 0.01;
+        // BT.2390 is defined for signal range [0,1], test within that range
+        for i in 0..=100 {
+            let l = i as f32 * 0.01;
+            let mapped = bt2390_tonemap_ext(l, 10.0, 1.0, Some(min_lum));
+            assert!(mapped >= 0.0 && mapped.is_finite(), "at {}: {}", l, mapped);
+        }
+        // At midrange, min_lum should have negligible effect
+        let mid_with = bt2390_tonemap_ext(0.5, 10.0, 1.0, Some(min_lum));
+        let mid_without = bt2390_tonemap_ext(0.5, 10.0, 1.0, None);
+        assert!(
+            (mid_with - mid_without).abs() < 0.005,
+            "min_lum should barely affect midrange: {} vs {}",
+            mid_with,
+            mid_without
+        );
+    }
+
+    #[test]
+    fn test_bt2408_identity_when_peaks_equal() {
+        let tm = Bt2408Tonemapper::new(1000.0, 1000.0);
+        let input = [0.01, 0.02, 0.005];
+        let output = tm.tonemap_rgb(input);
+        for i in 0..3 {
+            assert!(
+                (output[i] - input[i]).abs() < 0.01,
+                "ch{}: in={}, out={}",
+                i,
+                input[i],
+                output[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_bt2408_shadow_preservation() {
+        let tm = Bt2408Tonemapper::new(4000.0, 1000.0);
+        let result = tm.tonemap_luminance(0.001);
+        assert!(
+            result > 0.0,
+            "0.001 nits must NOT map to 0.0, got {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_bt2408_monotonicity() {
+        let tm = Bt2408Tonemapper::new(4000.0, 1000.0);
+        let mut prev = 0.0_f32;
+        for i in 0..=1000 {
+            let nits = i as f32 * 4.0;
+            let mapped = tm.tonemap_luminance(nits);
+            assert!(
+                mapped >= prev - 1e-6,
+                "Not monotonic at {} nits: {} < {}",
+                nits,
+                mapped,
+                prev
+            );
+            prev = mapped;
+        }
+    }
+
+    #[test]
+    fn test_bt2408_rgb_black() {
+        let tm = Bt2408Tonemapper::new(4000.0, 1000.0);
+        assert_eq!(tm.tonemap_rgb([0.0, 0.0, 0.0]), [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_bt2408_compresses_highlights() {
+        let tm = Bt2408Tonemapper::new(4000.0, 1000.0);
+        let result = tm.tonemap_luminance(4000.0);
+        assert!(
+            result <= 1000.0 + 1.0,
+            "Should compress to <=1000, got {}",
+            result
+        );
+        assert!(
+            result > 800.0,
+            "Should use most of display range, got {}",
+            result
+        );
+    }
+
+    // ========================================================================
+    // Phase 2a: Simple curves tests
+    // ========================================================================
+
+    #[test]
+    fn test_reinhard_simple_properties() {
+        assert_eq!(reinhard_simple(0.0), 0.0);
+        assert!((reinhard_simple(1.0) - 0.5).abs() < 0.001);
+        assert!(reinhard_simple(1000.0) > 0.999);
+        let mut prev = 0.0;
+        for i in 1..=100 {
+            let v = reinhard_simple(i as f32 * 0.1);
+            assert!(v > prev);
+            prev = v;
+        }
+    }
+
+    #[test]
+    fn test_clamp_tonemap_values() {
+        assert_eq!(clamp_tonemap(0.0), 0.0);
+        assert_eq!(clamp_tonemap(0.5), 0.5);
+        assert_eq!(clamp_tonemap(1.0), 1.0);
+        assert_eq!(clamp_tonemap(2.0), 1.0);
+        assert_eq!(clamp_tonemap(-0.5), 0.0);
+    }
+
+    #[test]
+    fn test_reinhard_jodie_black() {
+        let result = reinhard_jodie([0.0, 0.0, 0.0], [0.2126, 0.7152, 0.0722]);
+        assert_eq!(result, [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_reinhard_jodie_monotonic() {
+        let luma = [0.2126_f32, 0.7152, 0.0722];
+        let mut prev_sum = 0.0_f32;
+        for i in 1..=100 {
+            let v = i as f32 * 0.1;
+            let result = reinhard_jodie([v, v, v], luma);
+            let sum: f32 = result.iter().sum();
+            assert!(
+                sum >= prev_sum - 1e-6,
+                "Not monotonic at {}: {} < {}",
+                v,
+                sum,
+                prev_sum
+            );
+            prev_sum = sum;
+        }
+    }
+
+    #[test]
+    fn test_reinhard_jodie_bounded() {
+        let luma = [0.2126_f32, 0.7152, 0.0722];
+        for i in 0..=100 {
+            let v = i as f32 * 0.1;
+            let result = reinhard_jodie([v, v, v], luma);
+            for ch in &result {
+                assert!(
+                    *ch >= 0.0 && *ch <= 1.0,
+                    "Out of [0,1] at {}: {:?}",
+                    v,
+                    result
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_tuned_reinhard_positive() {
+        // tuned_reinhard returns a scale factor, not a mapped value
+        // It should always be positive and finite
+        for i in 0..=100 {
+            let v = i as f32 * 0.1;
+            let mapped = tuned_reinhard(v, 4000.0, 1000.0);
+            assert!(mapped > 0.0 && mapped.is_finite(), "at {}: {}", v, mapped);
+        }
+    }
+
+    // ========================================================================
+    // Phase 2b: Complex curves tests
+    // ========================================================================
+
+    #[test]
+    fn test_uncharted2_filmic_properties() {
+        assert!(uncharted2_filmic(0.0).abs() < 0.01);
+        assert!(uncharted2_filmic(100.0) > 0.95);
+        let mut prev = 0.0;
+        for i in 1..=100 {
+            let v = uncharted2_filmic(i as f32 * 0.1);
+            assert!(v >= prev - 1e-6, "Not monotonic at {}", i);
+            prev = v;
+        }
+    }
+
+    #[test]
+    fn test_uncharted2_bounded() {
+        for i in 0..=1000 {
+            let v = i as f32 * 0.01;
+            let result = uncharted2_filmic(v);
+            assert!(
+                result >= 0.0 && result <= 1.0,
+                "Out of [0,1] at {}: {}",
+                v,
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_aces_ap1_black() {
+        let result = aces_ap1([0.0, 0.0, 0.0]);
+        for ch in &result {
+            assert!(ch.abs() < 0.01, "ACES black near zero: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_aces_ap1_monotonic_gray_ramp() {
+        // Start from 0.01 to avoid ACES constant offset causing slightly negative near zero
+        let mut prev_sum = 0.0_f32;
+        for i in 1..=100 {
+            let v = i as f32 * 0.1;
+            let result = aces_ap1([v, v, v]);
+            let sum: f32 = result.iter().sum();
+            assert!(
+                sum >= prev_sum - 1e-5,
+                "Not monotonic at {}: {} < {}",
+                v,
+                sum,
+                prev_sum
+            );
+            prev_sum = sum;
+        }
+    }
+
+    #[test]
+    fn test_aces_ap1_bright() {
+        let result = aces_ap1([10.0, 10.0, 10.0]);
+        for ch in &result {
+            assert!(
+                *ch > 0.8 && *ch <= 1.0,
+                "ACES bright near 1.0: {:?}",
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_agx_default_black() {
+        let result = agx_tonemap([0.0, 0.0, 0.0], AgxLook::Default);
+        for ch in &result {
+            assert!(ch.abs() < 0.02, "AgX black near zero: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_agx_default_monotonic() {
+        let mut prev_sum = 0.0_f32;
+        for i in 0..=100 {
+            let v = (i as f32 * 0.1).max(1e-6);
+            let result = agx_tonemap([v, v, v], AgxLook::Default);
+            let sum: f32 = result.iter().sum();
+            assert!(
+                sum >= prev_sum - 1e-4,
+                "Not monotonic at {}: {} < {}",
+                v,
+                sum,
+                prev_sum
+            );
+            prev_sum = sum;
+        }
+    }
+
+    #[test]
+    fn test_agx_bounded() {
+        for look in [AgxLook::Default, AgxLook::Punchy, AgxLook::Golden] {
+            for i in 0..=100 {
+                let v = i as f32 * 0.1;
+                let result = agx_tonemap([v, v, v], look);
+                for ch in &result {
+                    assert!(
+                        *ch >= 0.0 && *ch <= 1.0,
+                        "{:?} out of [0,1] at {}: {:?}",
+                        look,
+                        v,
+                        result
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_agx_looks_differ() {
+        // Use a saturated input so the look transforms produce visible differences
+        let input = [5.0, 0.5, 0.1];
+        let default = agx_tonemap(input, AgxLook::Default);
+        let _punchy = agx_tonemap(input, AgxLook::Punchy);
+        let golden = agx_tonemap(input, AgxLook::Golden);
+        // At least one channel should differ between default and golden
+        // (golden has slope=[1.0, 0.9, 0.5] which dramatically changes the look)
+        let golden_diff: f32 = (0..3).map(|i| (default[i] - golden[i]).abs()).sum();
+        assert!(
+            golden_diff > 0.01,
+            "Default and Golden should differ: {:?} vs {:?}",
+            default,
+            golden
+        );
+    }
+
+    #[test]
+    fn test_filmic_spline_default() {
+        let config = FilmicSplineConfig::default();
+        let spline = CompiledFilmicSpline::new(&config);
+        let luma = [0.2126_f32, 0.7152, 0.0722];
+        let mid = spline.tonemap_rgb([0.18, 0.18, 0.18], luma);
+        assert!(mid[0] > 0.05 && mid[0] < 0.5, "Mid-gray: {:?}", mid);
+        let mut prev = 0.0_f32;
+        for i in 1..=100 {
+            let v = i as f32 * 0.1;
+            let result = spline.tonemap_rgb([v, v, v], luma);
+            let sum: f32 = result.iter().sum();
+            assert!(
+                sum >= prev - 1e-4,
+                "Not monotonic at {}: {} < {}",
+                v,
+                sum,
+                prev
+            );
+            prev = sum;
+        }
+    }
+
+    #[test]
+    fn test_filmic_spline_bounded() {
+        let config = FilmicSplineConfig::default();
+        let spline = CompiledFilmicSpline::new(&config);
+        let luma = [0.2126_f32, 0.7152, 0.0722];
+        for i in 0..=100 {
+            let v = i as f32 * 0.1;
+            let result = spline.tonemap_rgb([v, v, v], luma);
+            for ch in &result {
+                assert!(
+                    *ch >= 0.0 && *ch <= 1.0,
+                    "Out of [0,1] at {}: {:?}",
+                    v,
+                    result
+                );
+            }
+        }
+    }
+
+    // ========================================================================
+    // Unified ToneMapCurve enum tests
+    // ========================================================================
+
+    #[test]
+    fn test_tonemap_curve_all_variants_black() {
+        let luma = [0.2126_f32, 0.7152, 0.0722];
+        let curves = [
+            ToneMapCurve::Reinhard,
+            ToneMapCurve::ExtendedReinhard { l_max: 10.0 },
+            ToneMapCurve::ReinhardJodie,
+            ToneMapCurve::TunedReinhard {
+                content_max: 4000.0,
+                display_max: 1000.0,
+            },
+            ToneMapCurve::Narkowicz,
+            ToneMapCurve::Uncharted2,
+            ToneMapCurve::AcesAp1,
+            ToneMapCurve::Bt2390 {
+                source_peak: 10.0,
+                target_peak: 1.0,
+            },
+            ToneMapCurve::Agx(AgxLook::Default),
+            ToneMapCurve::Clamp,
+        ];
+        for curve in &curves {
+            let result = tonemap_rgb_curve(curve, [0.0, 0.0, 0.0], luma);
+            let sum: f32 = result.iter().map(|v| v.abs()).sum();
+            assert!(sum < 0.05, "{:?}: black→{:?}", curve, result);
+        }
+    }
+
+    #[test]
+    fn test_tonemap_curve_all_variants_bright() {
+        let luma = [0.2126_f32, 0.7152, 0.0722];
+        let curves = [
+            ToneMapCurve::Reinhard,
+            ToneMapCurve::Narkowicz,
+            ToneMapCurve::Uncharted2,
+            ToneMapCurve::AcesAp1,
+            ToneMapCurve::Agx(AgxLook::Default),
+            ToneMapCurve::Clamp,
+        ];
+        for curve in &curves {
+            let result = tonemap_rgb_curve(curve, [10.0, 10.0, 10.0], luma);
+            for ch in &result {
+                assert!(*ch <= 1.0, "{:?}: bright→{:?}", curve, result);
+            }
+        }
+    }
+
+    // ========================================================================
+    // Phase 4: Batch tonemap_row tests
+    // ========================================================================
+
+    #[test]
+    fn test_tonemap_row_basic() {
+        let luma = [0.2126_f32, 0.7152, 0.0722];
+        let curve = ToneMapCurve::Reinhard;
+        let mut row = vec![0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 2.0, 2.0, 2.0];
+        tonemap_row(&curve, &mut row, 3, luma);
+        assert!(row[0].abs() < 0.001);
+        assert!((row[3] - 0.333).abs() < 0.02);
+        assert!((row[6] - 0.667).abs() < 0.02);
+    }
+
+    #[test]
+    fn test_tonemap_row_4ch_alpha_passthrough() {
+        let luma = [0.2126_f32, 0.7152, 0.0722];
+        let curve = ToneMapCurve::Clamp;
+        let mut row = vec![2.0, 3.0, 4.0, 0.75, 0.5, 0.5, 0.5, 0.99];
+        tonemap_row(&curve, &mut row, 4, luma);
+        assert_eq!(row[0], 1.0);
+        assert_eq!(row[1], 1.0);
+        assert_eq!(row[2], 1.0);
+        assert_eq!(row[3], 0.75);
+        assert_eq!(row[7], 0.99);
+    }
+
+    #[test]
+    fn test_tonemap_row_empty() {
+        let luma = [0.2126_f32, 0.7152, 0.0722];
+        let curve = ToneMapCurve::Reinhard;
+        let mut row: Vec<f32> = vec![];
+        tonemap_row(&curve, &mut row, 3, luma);
+        assert!(row.is_empty());
+    }
+
+    #[test]
+    fn test_tonemap_row_matches_per_pixel() {
+        let luma = [0.2126_f32, 0.7152, 0.0722];
+        let curve = ToneMapCurve::Uncharted2;
+        let mut row = vec![0.1, 0.2, 0.3, 1.0, 2.0, 3.0, 5.0, 5.0, 5.0];
+        let expected = [
+            tonemap_rgb_curve(&curve, [0.1, 0.2, 0.3], luma),
+            tonemap_rgb_curve(&curve, [1.0, 2.0, 3.0], luma),
+            tonemap_rgb_curve(&curve, [5.0, 5.0, 5.0], luma),
+        ];
+        tonemap_row(&curve, &mut row, 3, luma);
+        for (i, exp) in expected.iter().enumerate() {
+            for ch in 0..3 {
+                assert!(
+                    (row[i * 3 + ch] - exp[ch]).abs() < 1e-6,
+                    "px {} ch {}: {} vs {}",
+                    i,
+                    ch,
+                    row[i * 3 + ch],
+                    exp[ch]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_tonemap_row_all_curves() {
+        let luma = [0.2126_f32, 0.7152, 0.0722];
+        let curves = [
+            ToneMapCurve::Reinhard,
+            ToneMapCurve::ExtendedReinhard { l_max: 10.0 },
+            ToneMapCurve::ReinhardJodie,
+            ToneMapCurve::TunedReinhard {
+                content_max: 4000.0,
+                display_max: 1000.0,
+            },
+            ToneMapCurve::Narkowicz,
+            ToneMapCurve::Uncharted2,
+            ToneMapCurve::AcesAp1,
+            ToneMapCurve::Bt2390 {
+                source_peak: 10.0,
+                target_peak: 1.0,
+            },
+            ToneMapCurve::Agx(AgxLook::Punchy),
+            ToneMapCurve::Clamp,
+        ];
+        for curve in &curves {
+            let mut row = vec![1.5, 2.0, 0.5];
+            tonemap_row(curve, &mut row, 3, luma);
+            for v in &row {
+                assert!(v.is_finite(), "{:?}: produced non-finite {}", curve, v);
+            }
         }
     }
 }
