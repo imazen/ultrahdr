@@ -543,7 +543,6 @@ mod zencodec_interop {
             }
         }
     }
-
 }
 
 /// A fraction for ISO 21496-1 metadata encoding.
@@ -868,5 +867,4 @@ mod zencodec_tests {
             ColorTransfer::Srgb
         );
     }
-
 }
