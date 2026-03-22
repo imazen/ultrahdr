@@ -543,6 +543,53 @@ mod zencodec_interop {
             }
         }
     }
+
+
+    // --- GainMapMetadata ↔ zencodec::GainMapParams ---
+
+    impl From<&zencodec::GainMapParams> for GainMapMetadata {
+        /// Convert from zencodec's log2-domain params to ultrahdr's linear-domain metadata.
+        fn from(p: &zencodec::GainMapParams) -> Self {
+            let mut meta = Self::new();
+            for i in 0..3 {
+                // log2 → linear: 2^x
+                meta.min_content_boost[i] = 2.0f32.powf(p.channels[i].min as f32);
+                meta.max_content_boost[i] = 2.0f32.powf(p.channels[i].max as f32);
+                // gamma and offsets: direct f64→f32
+                meta.gamma[i] = p.channels[i].gamma as f32;
+                meta.offset_sdr[i] = p.channels[i].base_offset as f32;
+                meta.offset_hdr[i] = p.channels[i].alternate_offset as f32;
+            }
+            // log2 → linear for headroom
+            meta.hdr_capacity_min = 2.0f32.powf(p.base_hdr_headroom as f32);
+            meta.hdr_capacity_max = 2.0f32.powf(p.alternate_hdr_headroom as f32);
+            meta.use_base_color_space = p.use_base_color_space;
+            meta
+        }
+    }
+
+    impl From<&GainMapMetadata> for zencodec::GainMapParams {
+        /// Convert from ultrahdr's linear-domain metadata to zencodec's log2-domain params.
+        fn from(m: &GainMapMetadata) -> Self {
+            let mut channels = [zencodec::GainMapChannel::default(); 3];
+            for i in 0..3 {
+                // linear → log2: log2(x)
+                channels[i].min = (m.min_content_boost[i] as f64).log2();
+                channels[i].max = (m.max_content_boost[i] as f64).log2();
+                // gamma and offsets: direct f32→f64
+                channels[i].gamma = m.gamma[i] as f64;
+                channels[i].base_offset = m.offset_sdr[i] as f64;
+                channels[i].alternate_offset = m.offset_hdr[i] as f64;
+            }
+            // GainMapParams is #[non_exhaustive], so use Default + mutation
+            let mut params = Self::default();
+            params.channels = channels;
+            params.base_hdr_headroom = (m.hdr_capacity_min as f64).log2();
+            params.alternate_hdr_headroom = (m.hdr_capacity_max as f64).log2();
+            params.use_base_color_space = m.use_base_color_space;
+            params
+        }
+    }
 }
 
 /// A fraction for ISO 21496-1 metadata encoding.
@@ -911,5 +958,96 @@ mod zencodec_tests {
             ColorTransfer::from(TransferFunction::Bt709),
             ColorTransfer::Srgb
         );
+    }
+
+    #[test]
+    fn gainmap_params_to_metadata_roundtrip() {
+        let mut params = zencodec::GainMapParams::default();
+        params.channels = [zencodec::GainMapChannel {
+            min: 0.0,  // log2(1.0)
+            max: 2.0,  // log2(4.0)
+            gamma: 1.0,
+            base_offset: 1.0 / 64.0,
+            alternate_offset: 1.0 / 64.0,
+        }; 3];
+        params.base_hdr_headroom = 0.0;            // log2(1.0)
+        params.alternate_hdr_headroom = 2.0;        // log2(4.0)
+        params.use_base_color_space = true;
+
+        let meta = GainMapMetadata::from(&params);
+        assert!((meta.min_content_boost[0] - 1.0).abs() < 1e-5); // 2^0 = 1
+        assert!((meta.max_content_boost[0] - 4.0).abs() < 1e-5); // 2^2 = 4
+        assert!((meta.gamma[0] - 1.0).abs() < 1e-5);
+        assert!((meta.offset_sdr[0] - 1.0 / 64.0).abs() < 1e-5);
+        assert!((meta.hdr_capacity_min - 1.0).abs() < 1e-5);     // 2^0 = 1
+        assert!((meta.hdr_capacity_max - 4.0).abs() < 1e-5);     // 2^2 = 4
+        assert!(meta.use_base_color_space);
+
+        // Round-trip back to GainMapParams
+        let back = zencodec::GainMapParams::from(&meta);
+        assert!((back.channels[0].min - 0.0).abs() < 1e-4);
+        assert!((back.channels[0].max - 2.0).abs() < 1e-4);
+        assert!((back.base_hdr_headroom - 0.0).abs() < 1e-4);
+        assert!((back.alternate_hdr_headroom - 2.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn gainmap_metadata_to_params() {
+        let meta = GainMapMetadata {
+            min_content_boost: [1.0; 3],
+            max_content_boost: [4.0; 3],
+            gamma: [1.0; 3],
+            offset_sdr: [1.0 / 64.0; 3],
+            offset_hdr: [1.0 / 64.0; 3],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 4.0,
+            use_base_color_space: true,
+        };
+
+        let params = zencodec::GainMapParams::from(&meta);
+        assert!((params.channels[0].min - 0.0).abs() < 1e-5);    // log2(1) = 0
+        assert!((params.channels[0].max - 2.0).abs() < 1e-5);    // log2(4) = 2
+        assert!((params.base_hdr_headroom - 0.0).abs() < 1e-5);  // log2(1) = 0
+        assert!((params.alternate_hdr_headroom - 2.0).abs() < 1e-5); // log2(4) = 2
+    }
+
+    /// AVIF regression: headroom n=13,d=10 must produce linear 2^1.3 ≈ 2.46, NOT 1.3
+    #[test]
+    fn avif_headroom_regression() {
+        // Simulate what the AVIF parser produces: log2 value 1.3 (from 13/10)
+        let mut params = zencodec::GainMapParams::default();
+        params.alternate_hdr_headroom = 1.3; // log2 domain
+
+        let meta = GainMapMetadata::from(&params);
+        // hdr_capacity_max should be 2^1.3 ≈ 2.462, NOT 1.3
+        let expected = 2.0f32.powf(1.3);
+        assert!(
+            (meta.hdr_capacity_max - expected).abs() < 0.01,
+            "hdr_capacity_max should be {expected}, got {}",
+            meta.hdr_capacity_max,
+        );
+    }
+
+    #[test]
+    fn gainmap_params_multichannel() {
+        let meta = GainMapMetadata {
+            min_content_boost: [1.0, 0.5, 2.0],
+            max_content_boost: [4.0, 8.0, 16.0],
+            gamma: [1.0, 0.8, 1.2],
+            offset_sdr: [0.01, 0.02, 0.03],
+            offset_hdr: [0.04, 0.05, 0.06],
+            hdr_capacity_min: 1.0,
+            hdr_capacity_max: 10.0,
+            use_base_color_space: false,
+        };
+
+        let params = zencodec::GainMapParams::from(&meta);
+        assert!(!params.is_single_channel());
+        assert!(!params.use_base_color_space);
+
+        // Verify per-channel log2 conversion
+        assert!((params.channels[0].max - 2.0).abs() < 1e-4); // log2(4) = 2
+        assert!((params.channels[1].max - 3.0).abs() < 1e-4); // log2(8) = 3
+        assert!((params.channels[2].max - 4.0).abs() < 1e-4); // log2(16) = 4
     }
 }
