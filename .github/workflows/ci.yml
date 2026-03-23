@@ -23,6 +23,7 @@ jobs:
           - windows-latest
           - windows-11-arm
           - macos-latest
+          - macos-26-intel
     steps:
       - uses: actions/checkout@v6
 
@@ -42,6 +43,12 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace --all-targets
+
+      - name: Test with simd feature
+        run: cargo test --workspace --all-targets --features simd
+
+      - name: Check ultrahdr-core no_std (no default features)
+        run: cargo build --package ultrahdr-core --no-default-features
 
       - name: Run clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
