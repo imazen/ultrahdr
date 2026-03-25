@@ -57,13 +57,13 @@ fn stub_jpeg() -> Vec<u8> {
 
 fn test_metadata() -> GainMapMetadata {
     GainMapMetadata {
-        max_content_boost: [4.0; 3],
-        min_content_boost: [1.0; 3],
+        gain_map_max: [2.0; 3],
+        gain_map_min: [0.0; 3],
         gamma: [1.0; 3],
-        offset_sdr: [1.0 / 64.0; 3],
-        offset_hdr: [1.0 / 64.0; 3],
-        hdr_capacity_min: 1.0,
-        hdr_capacity_max: 4.0,
+        base_offset: [1.0 / 64.0; 3],
+        alternate_offset: [1.0 / 64.0; 3],
+        base_hdr_headroom: 0.0,
+        alternate_hdr_headroom: 2.0,
         use_base_color_space: true,
     }
 }
@@ -129,7 +129,7 @@ fn test_encode_ultrahdr_gamuts() {
     let gainmap = stub_jpeg();
     let metadata = test_metadata();
 
-    for gamut in [ColorGamut::Bt709, ColorGamut::DisplayP3, ColorGamut::Bt2100] {
+    for gamut in [ColorGamut::Bt709, ColorGamut::DisplayP3, ColorGamut::Bt2020] {
         let result = encode_ultrahdr(&base, &gainmap, &metadata, gamut);
         assert!(
             result.is_ok(),
@@ -162,13 +162,13 @@ fn test_encode_ultrahdr_metadata_preserved() {
     let base = stub_jpeg();
     let gainmap = stub_jpeg();
     let metadata = GainMapMetadata {
-        max_content_boost: [8.0; 3],
-        min_content_boost: [1.0; 3],
+        gain_map_max: [3.0; 3],
+        gain_map_min: [0.0; 3],
         gamma: [1.0; 3],
-        offset_sdr: [1.0 / 64.0; 3],
-        offset_hdr: [1.0 / 64.0; 3],
-        hdr_capacity_min: 1.0,
-        hdr_capacity_max: 8.0,
+        base_offset: [1.0 / 64.0; 3],
+        alternate_offset: [1.0 / 64.0; 3],
+        base_hdr_headroom: 0.0,
+        alternate_hdr_headroom: 3.0,
         use_base_color_space: true,
     };
 
@@ -176,16 +176,16 @@ fn test_encode_ultrahdr_metadata_preserved() {
     let decoder = Decoder::new(&encoded).unwrap();
     let parsed = decoder.metadata().unwrap();
 
-    // max_content_boost goes through log2/exp2 roundtrip via XMP
+    // gain_map_max roundtrips through XMP (log2 domain)
     assert!(
-        (parsed.max_content_boost[0] - 8.0).abs() < 0.1,
-        "max_content_boost should roundtrip: got {}",
-        parsed.max_content_boost[0]
+        (parsed.gain_map_max[0] - 3.0).abs() < 0.1,
+        "gain_map_max should roundtrip: got {}",
+        parsed.gain_map_max[0]
     );
     assert!(
-        (parsed.hdr_capacity_max - 8.0).abs() < 0.1,
-        "hdr_capacity_max should roundtrip: got {}",
-        parsed.hdr_capacity_max
+        (parsed.alternate_hdr_headroom - 3.0).abs() < 0.1,
+        "alternate_hdr_headroom should roundtrip: got {}",
+        parsed.alternate_hdr_headroom
     );
 }
 

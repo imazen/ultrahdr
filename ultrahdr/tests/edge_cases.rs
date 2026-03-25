@@ -505,7 +505,7 @@ fn test_color_bt2100_gamut() {
         64,
         64,
         PixelFormat::Rgba32F,
-        ColorGamut::Bt2100,
+        ColorGamut::Bt2020,
         ColorTransfer::Linear,
         data,
     )

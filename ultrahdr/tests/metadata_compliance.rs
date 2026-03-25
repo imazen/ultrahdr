@@ -51,14 +51,14 @@ fn test_xmp_roundtrip_metadata_values() {
 
     // Check the primary channel (channel 0) has reasonable values
     assert!(
-        metadata.max_content_boost[0] >= 1.0,
+        metadata.gain_map_max[0] >= 0.0,
         "Max boost should be >= 1.0, got {}",
-        metadata.max_content_boost[0]
+        metadata.gain_map_max[0]
     );
     assert!(
-        metadata.min_content_boost[0] >= 0.5,
+        metadata.gain_map_min[0] >= -1.0,
         "Min boost should be >= 0.5, got {}",
-        metadata.min_content_boost[0]
+        metadata.gain_map_min[0]
     );
     assert!(
         metadata.gamma[0] > 0.0,
@@ -66,9 +66,9 @@ fn test_xmp_roundtrip_metadata_values() {
         metadata.gamma[0]
     );
     assert!(
-        metadata.hdr_capacity_max >= 1.0,
+        metadata.alternate_hdr_headroom >= 0.0,
         "HDR capacity max should be >= 1.0, got {}",
-        metadata.hdr_capacity_max
+        metadata.alternate_hdr_headroom
     );
 }
 
@@ -110,9 +110,9 @@ fn test_xmp_log2_encoding() {
 
     // max_content_boost should be around 8.0 or clamped to content
     assert!(
-        metadata.max_content_boost[0] > 1.0,
+        metadata.gain_map_max[0] > 0.0,
         "Max content boost should be > 1.0, got {}",
-        metadata.max_content_boost[0]
+        metadata.gain_map_max[0]
     );
 }
 
@@ -162,27 +162,27 @@ fn test_iso21496_roundtrip() {
 
     // Check values match (with tolerance for fraction conversion)
     assert!(
-        (parsed.max_content_boost[0] - original.max_content_boost[0]).abs() < 0.01,
+        (parsed.gain_map_max[0] - original.gain_map_max[0]).abs() < 0.01,
         "Max boost mismatch: {} vs {}",
-        parsed.max_content_boost[0],
-        original.max_content_boost[0]
+        parsed.gain_map_max[0],
+        original.gain_map_max[0]
     );
     assert!(
-        (parsed.min_content_boost[0] - original.min_content_boost[0]).abs() < 0.01,
+        (parsed.gain_map_min[0] - original.gain_map_min[0]).abs() < 0.01,
         "Min boost mismatch: {} vs {}",
-        parsed.min_content_boost[0],
-        original.min_content_boost[0]
+        parsed.gain_map_min[0],
+        original.gain_map_min[0]
     );
     assert!(
         (parsed.gamma[0] - original.gamma[0]).abs() < 0.01,
         "Gamma mismatch"
     );
     assert!(
-        (parsed.offset_sdr[0] - original.offset_sdr[0]).abs() < 0.001,
+        (parsed.base_offset[0] - original.base_offset[0]).abs() < 0.001,
         "Offset SDR mismatch"
     );
     assert!(
-        (parsed.hdr_capacity_max - original.hdr_capacity_max).abs() < 0.01,
+        (parsed.alternate_hdr_headroom - original.alternate_hdr_headroom).abs() < 0.01,
         "HDR capacity max mismatch"
     );
     assert_eq!(
@@ -210,13 +210,13 @@ fn test_iso21496_flags() {
 
     // Single-channel, use base color space
     let metadata = GainMapMetadata {
-        max_content_boost: [4.0; 3],
-        min_content_boost: [1.0; 3],
+        gain_map_max: [2.0; 3],
+        gain_map_min: [0.0; 3],
         gamma: [1.0; 3],
-        offset_sdr: [0.015625; 3],
-        offset_hdr: [0.015625; 3],
-        hdr_capacity_min: 1.0,
-        hdr_capacity_max: 4.0,
+        base_offset: [0.015625; 3],
+        alternate_offset: [0.015625; 3],
+        base_hdr_headroom: 0.0,
+        alternate_hdr_headroom: 2.0,
         use_base_color_space: true,
     };
 
@@ -245,23 +245,24 @@ fn test_iso21496_extreme_values() {
     use ultrahdr_rs::metadata::iso21496::{deserialize_iso21496, serialize_iso21496};
 
     let metadata = GainMapMetadata {
-        max_content_boost: [100.0; 3], // Very high
-        min_content_boost: [0.1; 3],   // Very low
+        gain_map_max: [6.644; 3],  // log2(100) — very high boost
+        gain_map_min: [-3.322; 3], // log2(0.1) — very low
         gamma: [2.2; 3],
-        offset_sdr: [0.001; 3],
-        offset_hdr: [0.001; 3],
-        hdr_capacity_min: 0.5,
-        hdr_capacity_max: 100.0,
+        base_offset: [0.001; 3],
+        alternate_offset: [0.001; 3],
+        base_hdr_headroom: 0.5,
+        alternate_hdr_headroom: 6.644, // log2(100)
         use_base_color_space: false,
     };
 
     let serialized = serialize_iso21496(&metadata);
     let parsed = deserialize_iso21496(&serialized).unwrap();
 
-    // Values should round-trip reasonably
+    // Values should round-trip reasonably (log2 domain)
     assert!(
-        (parsed.max_content_boost[0] - 100.0).abs() < 1.0,
-        "Extreme max boost should preserve"
+        (parsed.gain_map_max[0] - 6.644).abs() < 0.01,
+        "Extreme max boost should preserve: got {}",
+        parsed.gain_map_max[0]
     );
     assert!((parsed.gamma[0] - 2.2).abs() < 0.1, "Gamma should preserve");
 }
@@ -421,34 +422,34 @@ fn test_metadata_consistency() {
 
     // Log metadata for debugging
     eprintln!(
-        "min_content_boost: {:?}, max_content_boost: {:?}",
-        metadata.min_content_boost, metadata.max_content_boost
+        "gain_map_min: {:?}, gain_map_max: {:?}",
+        metadata.gain_map_min, metadata.gain_map_max
     );
     eprintln!(
         "hdr_capacity: min={}, max={}",
-        metadata.hdr_capacity_min, metadata.hdr_capacity_max
+        metadata.base_hdr_headroom, metadata.alternate_hdr_headroom
     );
 
     // Verify metadata constraints
     // Note: XMP parsing may set default values that don't perfectly match encoded values
     // The key constraint is that the values are sensible
     assert!(
-        metadata.max_content_boost[0] >= 1.0,
+        metadata.gain_map_max[0] >= 0.0,
         "max_content_boost should be >= 1.0, got {}",
-        metadata.max_content_boost[0]
+        metadata.gain_map_max[0]
     );
     assert!(
-        metadata.hdr_capacity_max >= 1.0,
+        metadata.alternate_hdr_headroom >= 0.0,
         "hdr_capacity_max should be >= 1.0, got {}",
-        metadata.hdr_capacity_max
+        metadata.alternate_hdr_headroom
     );
     assert!(metadata.gamma[0] > 0.0, "gamma should be positive");
     assert!(
-        metadata.offset_sdr[0] >= 0.0,
+        metadata.base_offset[0] >= 0.0,
         "offset_sdr should be non-negative"
     );
     assert!(
-        metadata.offset_hdr[0] >= 0.0,
+        metadata.alternate_offset[0] >= 0.0,
         "offset_hdr should be non-negative"
     );
 }
@@ -470,13 +471,13 @@ fn test_metadata_offsets_nonzero() {
     // Offsets should be non-zero to prevent division by zero during reconstruction
     // The Ultra HDR spec recommends 1/64 = 0.015625
     assert!(
-        metadata.offset_sdr[0] > 0.0,
+        metadata.base_offset[0] > 0.0,
         "offset_sdr should be > 0, got {}",
-        metadata.offset_sdr[0]
+        metadata.base_offset[0]
     );
     assert!(
-        metadata.offset_hdr[0] > 0.0,
+        metadata.alternate_offset[0] > 0.0,
         "offset_hdr should be > 0, got {}",
-        metadata.offset_hdr[0]
+        metadata.alternate_offset[0]
     );
 }

@@ -76,8 +76,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Is Ultra HDR: {}", decoder.is_ultrahdr());
 
     if let Some(metadata) = decoder.metadata() {
-        println!("  Max content boost: {:.2}x", metadata.max_content_boost[0]);
-        println!("  HDR capacity max: {:.2}x", metadata.hdr_capacity_max);
+        println!("  Max content boost: {:.2}x", metadata.gain_map_max[0]);
+        println!("  HDR capacity max: {:.2}x", metadata.alternate_hdr_headroom);
     }
 
     if let Ok((w, h)) = decoder.dimensions() {

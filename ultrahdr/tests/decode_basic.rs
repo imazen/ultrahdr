@@ -25,14 +25,14 @@ fn test_extracts_metadata() {
 
     let meta = metadata.unwrap();
     assert!(
-        meta.max_content_boost[0] >= 1.0,
+        meta.gain_map_max[0] >= 1.0,
         "Max boost should be >= 1.0, got {}",
-        meta.max_content_boost[0]
+        meta.gain_map_max[0]
     );
     assert!(
-        meta.hdr_capacity_max >= 1.0,
+        meta.alternate_hdr_headroom >= 1.0,
         "HDR capacity max should be >= 1.0, got {}",
-        meta.hdr_capacity_max
+        meta.alternate_hdr_headroom
     );
 }
 
@@ -186,26 +186,26 @@ fn test_metadata_value_ranges() {
     // Check all channels
     for i in 0..3 {
         assert!(
-            metadata.max_content_boost[i] >= metadata.min_content_boost[i],
+            metadata.gain_map_max[i] >= metadata.gain_map_min[i],
             "max_content_boost[{}] should be >= min_content_boost[{}]",
             i,
             i
         );
         assert!(metadata.gamma[i] > 0.0, "gamma[{}] should be positive", i);
         assert!(
-            metadata.offset_sdr[i] >= 0.0,
+            metadata.base_offset[i] >= 0.0,
             "offset_sdr[{}] should be non-negative",
             i
         );
         assert!(
-            metadata.offset_hdr[i] >= 0.0,
+            metadata.alternate_offset[i] >= 0.0,
             "offset_hdr[{}] should be non-negative",
             i
         );
     }
 
     assert!(
-        metadata.hdr_capacity_max >= metadata.hdr_capacity_min,
+        metadata.alternate_hdr_headroom >= metadata.base_hdr_headroom,
         "hdr_capacity_max should be >= hdr_capacity_min"
     );
 }

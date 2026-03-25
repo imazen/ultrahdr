@@ -202,8 +202,8 @@ fn test_encode_target_display_peak() {
     let low_meta = Decoder::new(&low_encoded).unwrap();
     let high_meta = Decoder::new(&high_encoded).unwrap();
 
-    let low_cap = low_meta.metadata().unwrap().hdr_capacity_max;
-    let high_cap = high_meta.metadata().unwrap().hdr_capacity_max;
+    let low_cap = low_meta.metadata().unwrap().alternate_hdr_headroom;
+    let high_cap = high_meta.metadata().unwrap().alternate_hdr_headroom;
 
     assert!(
         high_cap > low_cap,

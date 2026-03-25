@@ -64,7 +64,7 @@ fn test_wasm_metadata() {
     let decoder = ultrahdr_rs::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
     let metadata = decoder.metadata().expect("get metadata");
     assert!(
-        metadata.hdr_capacity_max > 1.0,
+        metadata.alternate_hdr_headroom > 1.0,
         "HDR capacity should be > 1"
     );
 }
@@ -97,7 +97,7 @@ fn create_small_hdr(width: u32, height: u32) -> ultrahdr_rs::RawImage {
         height,
         stride: width * 16,
         format: ultrahdr_rs::PixelFormat::Rgba32F,
-        gamut: ultrahdr_rs::ColorGamut::Bt2100,
+        gamut: ultrahdr_rs::ColorGamut::Bt2020,
         transfer: ultrahdr_rs::ColorTransfer::Linear,
         data,
     }

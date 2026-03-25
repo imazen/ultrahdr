@@ -112,12 +112,12 @@ fn test_streaming_pipeline_memory_usage() {
         scale_factor: 4,
         gamma: 1.0,
         multi_channel: false,
-        min_content_boost: 1.0,
-        max_content_boost: 6.0, // Pre-defined range for streaming
-        offset_sdr: 1.0 / 64.0,
-        offset_hdr: 1.0 / 64.0,
-        hdr_capacity_min: 1.0,
-        hdr_capacity_max: 6.0,
+        gain_map_min: 1.0,
+        gain_map_max: 6.0, // Pre-defined range for streaming
+        base_offset: 1.0 / 64.0,
+        alternate_offset: 1.0 / 64.0,
+        base_hdr_headroom: 0.0,
+        alternate_hdr_headroom: 2.585,
     };
 
     // Create streaming encoder (now takes linear f32 directly)
@@ -233,11 +233,11 @@ fn test_streaming_pipeline_memory_usage() {
 
     // Verify metadata
     assert!(
-        metadata.max_content_boost[0] <= 6.0,
+        metadata.gain_map_max[0] <= 6.0,
         "Max boost should be within configured range"
     );
     assert!(
-        metadata.min_content_boost[0] >= 1.0,
+        metadata.gain_map_min[0] >= 1.0,
         "Min boost should be at least 1.0"
     );
 
@@ -253,8 +253,8 @@ fn test_streaming_pipeline_memory_usage() {
          - Min content boost: {:.2}",
         sdr_jpeg.len(),
         gm_jpeg.len(),
-        metadata.max_content_boost[0],
-        metadata.min_content_boost[0]
+        metadata.gain_map_max[0],
+        metadata.gain_map_min[0]
     );
 }
 
@@ -289,12 +289,12 @@ fn test_streaming_vs_batch_equivalence() {
         scale_factor: 4,
         gamma: 1.0,
         multi_channel: false,
-        min_content_boost: 1.0,
-        max_content_boost: 6.0,
-        offset_sdr: 1.0 / 64.0,
-        offset_hdr: 1.0 / 64.0,
-        hdr_capacity_min: 1.0,
-        hdr_capacity_max: 6.0,
+        gain_map_min: 1.0,
+        gain_map_max: 6.0,
+        base_offset: 1.0 / 64.0,
+        alternate_offset: 1.0 / 64.0,
+        base_hdr_headroom: 0.0,
+        alternate_hdr_headroom: 2.585,
     };
 
     // Streaming computation (linear f32 input)
@@ -321,8 +321,8 @@ fn test_streaming_vs_batch_equivalence() {
     assert_eq!(stream_gm.channels, 1, "Channels mismatch");
 
     // Streaming should produce valid metadata
-    assert!(stream_meta.min_content_boost[0] >= 1.0);
-    assert!(stream_meta.max_content_boost[0] > 1.0);
+    assert!(stream_meta.gain_map_min[0] >= 1.0);
+    assert!(stream_meta.gain_map_max[0] > 1.0);
 
     // Streaming should produce non-trivial gain maps (not all zeros)
     let stream_non_zero = stream_gm.data.iter().filter(|&&v| v > 0).count();
@@ -344,7 +344,7 @@ fn test_streaming_vs_batch_equivalence() {
          - Min boost: {:.4}",
         stream_non_zero,
         stream_gm.data.len(),
-        stream_meta.max_content_boost[0],
-        stream_meta.min_content_boost[0]
+        stream_meta.gain_map_max[0],
+        stream_meta.gain_map_min[0]
     );
 }
