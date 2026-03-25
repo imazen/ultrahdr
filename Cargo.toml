@@ -41,7 +41,7 @@ imgref = "1.12"
 rgb = { version = "0.8", features = ["as-bytes"] }
 
 # Transfer functions
-linear-srgb = { version = "0.6.3", default-features = false, features = ["transfer"] }
+linear-srgb = { version = "0.6.4", default-features = false, features = ["transfer"] }
 
 # Zen ecosystem interop
 zenpixels = { path = "../zenpixels/zenpixels", default-features = false }
