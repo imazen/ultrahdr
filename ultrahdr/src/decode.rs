@@ -191,8 +191,7 @@ impl<'a> Decoder<'a> {
 
         // Find XMP metadata with hdrgm namespace
         if let Some(xmp_str) = find_xmp_in_segments(&segments)
-            && (xmp_str.contains("hdrgm:")
-                || xmp_str.contains("http://ns.adobe.com/hdr-gain-map/"))
+            && (xmp_str.contains("hdrgm:") || xmp_str.contains("http://ns.adobe.com/hdr-gain-map/"))
             && let Ok((metadata, _gainmap_len)) = parse_xmp(&xmp_str)
         {
             self.metadata = Some(metadata);
@@ -201,8 +200,7 @@ impl<'a> Decoder<'a> {
 
         // Try to parse MPF to find gain map (reuses container module's parser)
         if let Some(mpf_seg) = segments.iter().find(|s| s.is_mpf())
-            && let Ok(mpf_dir) =
-                container::parse_mpf_segment(&mpf_seg.data, mpf_seg.offset)
+            && let Ok(mpf_dir) = container::parse_mpf_segment(&mpf_seg.data, mpf_seg.offset)
             && mpf_dir.entries.len() >= 2
         {
             // Primary image

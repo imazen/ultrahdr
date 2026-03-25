@@ -131,7 +131,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
     type Error = ZenDecodeError;
     type Dec = UltraHdrDecoder<'a>;
     type StreamDec = Unsupported<ZenDecodeError>;
-    type FullFrameDec = Unsupported<ZenDecodeError>;
+    type AnimationFrameDec = Unsupported<ZenDecodeError>;
 
     fn with_stop(mut self, stop: &'a dyn zencodec::enough::Stop) -> Self {
         self.stop = Some(stop);
@@ -218,11 +218,11 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
         Err(UnsupportedOperation::RowLevelDecode.into())
     }
 
-    fn full_frame_decoder(
+    fn animation_frame_decoder(
         self,
         _data: Cow<'a, [u8]>,
         _preferred: &[PixelDescriptor],
-    ) -> Result<Self::FullFrameDec, Self::Error> {
+    ) -> Result<Self::AnimationFrameDec, Self::Error> {
         Err(UnsupportedOperation::AnimationDecode.into())
     }
 }

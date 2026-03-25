@@ -544,7 +544,6 @@ mod zencodec_interop {
         }
     }
 
-
     // --- GainMapMetadata ↔ zencodec::GainMapParams ---
 
     impl From<&zencodec::GainMapParams> for GainMapMetadata {
@@ -964,14 +963,14 @@ mod zencodec_tests {
     fn gainmap_params_to_metadata_roundtrip() {
         let mut params = zencodec::GainMapParams::default();
         params.channels = [zencodec::GainMapChannel {
-            min: 0.0,  // log2(1.0)
-            max: 2.0,  // log2(4.0)
+            min: 0.0, // log2(1.0)
+            max: 2.0, // log2(4.0)
             gamma: 1.0,
             base_offset: 1.0 / 64.0,
             alternate_offset: 1.0 / 64.0,
         }; 3];
-        params.base_hdr_headroom = 0.0;            // log2(1.0)
-        params.alternate_hdr_headroom = 2.0;        // log2(4.0)
+        params.base_hdr_headroom = 0.0; // log2(1.0)
+        params.alternate_hdr_headroom = 2.0; // log2(4.0)
         params.use_base_color_space = true;
 
         let meta = GainMapMetadata::from(&params);
@@ -979,8 +978,8 @@ mod zencodec_tests {
         assert!((meta.max_content_boost[0] - 4.0).abs() < 1e-5); // 2^2 = 4
         assert!((meta.gamma[0] - 1.0).abs() < 1e-5);
         assert!((meta.offset_sdr[0] - 1.0 / 64.0).abs() < 1e-5);
-        assert!((meta.hdr_capacity_min - 1.0).abs() < 1e-5);     // 2^0 = 1
-        assert!((meta.hdr_capacity_max - 4.0).abs() < 1e-5);     // 2^2 = 4
+        assert!((meta.hdr_capacity_min - 1.0).abs() < 1e-5); // 2^0 = 1
+        assert!((meta.hdr_capacity_max - 4.0).abs() < 1e-5); // 2^2 = 4
         assert!(meta.use_base_color_space);
 
         // Round-trip back to GainMapParams
@@ -1005,9 +1004,9 @@ mod zencodec_tests {
         };
 
         let params = zencodec::GainMapParams::from(&meta);
-        assert!((params.channels[0].min - 0.0).abs() < 1e-5);    // log2(1) = 0
-        assert!((params.channels[0].max - 2.0).abs() < 1e-5);    // log2(4) = 2
-        assert!((params.base_hdr_headroom - 0.0).abs() < 1e-5);  // log2(1) = 0
+        assert!((params.channels[0].min - 0.0).abs() < 1e-5); // log2(1) = 0
+        assert!((params.channels[0].max - 2.0).abs() < 1e-5); // log2(4) = 2
+        assert!((params.base_hdr_headroom - 0.0).abs() < 1e-5); // log2(1) = 0
         assert!((params.alternate_hdr_headroom - 2.0).abs() < 1e-5); // log2(4) = 2
     }
 
