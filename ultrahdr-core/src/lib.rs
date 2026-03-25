@@ -66,6 +66,9 @@ pub use enough::{Stop, StopReason, Unstoppable};
 // Re-export gain map types
 pub use gainmap::{apply::HdrOutputFormat, compute::GainMapConfig};
 
+// Re-export container types
+pub use metadata::container::{ContainerItem, ItemSemantic, MpImageType, MpfEntry};
+
 /// Safety limits for parsing and allocation.
 pub mod limits {
     /// Maximum XMP string length to parse (16 MB).

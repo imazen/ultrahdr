@@ -8,6 +8,10 @@ use alloc::vec::Vec;
 
 use crate::types::{Error, GainMapMetadata, Result};
 
+use super::container::{
+    ContainerItem, ItemSemantic, generate_container_directory, parse_container_items,
+};
+
 /// XMP namespace for HDR gain map metadata.
 pub const HDRGM_NAMESPACE: &str = "http://ns.adobe.com/hdr-gain-map/1.0/";
 
@@ -17,10 +21,24 @@ pub const CONTAINER_NAMESPACE: &str = "http://ns.google.com/photos/1.0/container
 /// XMP namespace for container item.
 pub const ITEM_NAMESPACE: &str = "http://ns.google.com/photos/1.0/container/item/";
 
-/// Generate XMP metadata for Ultra HDR image.
+/// Generate XMP metadata for Ultra HDR image (convenience for 2-item Primary+GainMap).
 ///
 /// This creates the XMP packet that goes in the primary JPEG's APP1 marker.
+/// For multi-item containers (e.g., gain map + depth map), use
+/// [`generate_xmp_with_items`] instead.
 pub fn generate_xmp(metadata: &GainMapMetadata, gainmap_length: usize) -> String {
+    let items = alloc::vec![
+        ContainerItem::primary("image/jpeg"),
+        ContainerItem::secondary(ItemSemantic::GainMap, "image/jpeg", gainmap_length),
+    ];
+    generate_xmp_with_items(metadata, &items)
+}
+
+/// Generate XMP metadata with a custom container directory.
+///
+/// Use this when the JPEG contains more than the standard Primary+GainMap
+/// pair — for example, a depth map or confidence map alongside the gain map.
+pub fn generate_xmp_with_items(metadata: &GainMapMetadata, items: &[ContainerItem]) -> String {
     let is_single_channel = metadata.is_single_channel();
 
     // GainMapMin/Max are already in log2 domain — write directly
@@ -33,6 +51,8 @@ pub fn generate_xmp(metadata: &GainMapMetadata, gainmap_length: usize) -> String
     // Headroom values are already in log2 domain
     let hdr_capacity_min = metadata.base_hdr_headroom;
     let hdr_capacity_max = metadata.alternate_hdr_headroom;
+
+    let container_dir = generate_container_directory(items);
 
     format!(
         r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
@@ -51,21 +71,7 @@ pub fn generate_xmp(metadata: &GainMapMetadata, gainmap_length: usize) -> String
         hdrgm:HDRCapacityMin="{hdr_capacity_min:.6}"
         hdrgm:HDRCapacityMax="{hdr_capacity_max:.6}"
         hdrgm:BaseRenditionIsHDR="False">
-      <Container:Directory>
-        <rdf:Seq>
-          <rdf:li rdf:parseType="Resource">
-            <Container:Item
-                Item:Semantic="Primary"
-                Item:Mime="image/jpeg"/>
-          </rdf:li>
-          <rdf:li rdf:parseType="Resource">
-            <Container:Item
-                Item:Semantic="GainMap"
-                Item:Mime="image/jpeg"
-                Item:Length="{gainmap_length}"/>
-          </rdf:li>
-        </rdf:Seq>
-      </Container:Directory>
+{container_dir}
     </rdf:Description>
   </rdf:RDF>
 </x:xmpmeta>
@@ -83,6 +89,9 @@ fn format_f64_value(values: &[f64; 3], single_channel: bool) -> String {
 }
 
 /// Parse XMP metadata from an Ultra HDR image.
+///
+/// Returns `(metadata, gainmap_length)` for backward compatibility.
+/// For access to all container items (depth maps, etc.), use [`parse_xmp_full`].
 pub fn parse_xmp(xmp_data: &str) -> Result<(GainMapMetadata, Option<usize>)> {
     // Check for hdrgm:Version
     if !xmp_data.contains("hdrgm:Version") && !xmp_data.contains("hdrgm:GainMapMax") {
@@ -139,6 +148,22 @@ pub fn parse_xmp(xmp_data: &str) -> Result<(GainMapMetadata, Option<usize>)> {
     }
 
     Ok((metadata, gainmap_length))
+}
+
+/// Parse XMP metadata and all container directory items.
+///
+/// Returns gain map metadata (if hdrgm namespace is present) plus all items
+/// from the `Container:Directory`. Use this when you need to find depth maps,
+/// confidence maps, or other secondary images alongside the gain map.
+pub fn parse_xmp_full(xmp_data: &str) -> (Option<GainMapMetadata>, Vec<ContainerItem>) {
+    let metadata = if xmp_data.contains("hdrgm:Version") || xmp_data.contains("hdrgm:GainMapMax") {
+        parse_xmp(xmp_data).ok().map(|(m, _)| m)
+    } else {
+        None
+    };
+
+    let items = parse_container_items(xmp_data);
+    (metadata, items)
 }
 
 /// Extract an attribute value from XMP using simple string matching.
