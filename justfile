@@ -62,8 +62,13 @@ doc:
 msrv:
     cargo +1.75 check --workspace
 
+# Test feature permutations
+feature-check:
+    cargo test --workspace --all-targets --features simd
+    cargo build --package ultrahdr-core --no-default-features
+
 # CI check (runs all CI steps locally)
-ci: fmt-check clippy test doc
+ci: fmt-check clippy test feature-check doc
 
 # Clean build artifacts
 clean:

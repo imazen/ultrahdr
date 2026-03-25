@@ -190,31 +190,31 @@ impl<'a> Decoder<'a> {
         let segments = container::scan_segments(self.data);
 
         // Find XMP metadata with hdrgm namespace
-        if let Some(xmp_str) = find_xmp_in_segments(&segments) {
-            if xmp_str.contains("hdrgm:") || xmp_str.contains("http://ns.adobe.com/hdr-gain-map/") {
-                if let Ok((metadata, _gainmap_len)) = parse_xmp(&xmp_str) {
-                    self.metadata = Some(metadata);
-                    self.is_ultrahdr = true;
-                }
-            }
+        if let Some(xmp_str) = find_xmp_in_segments(&segments)
+            && (xmp_str.contains("hdrgm:")
+                || xmp_str.contains("http://ns.adobe.com/hdr-gain-map/"))
+            && let Ok((metadata, _gainmap_len)) = parse_xmp(&xmp_str)
+        {
+            self.metadata = Some(metadata);
+            self.is_ultrahdr = true;
         }
 
         // Try to parse MPF to find gain map (reuses container module's parser)
-        if let Some(mpf_seg) = segments.iter().find(|s| s.is_mpf()) {
-            if let Ok(mpf_dir) = container::parse_mpf_segment(&mpf_seg.data, mpf_seg.offset) {
-                if mpf_dir.entries.len() >= 2 {
-                    // Primary image
-                    let primary_size = mpf_dir.entries[0].size as usize;
-                    self.primary_jpeg = Some((0, primary_size));
+        if let Some(mpf_seg) = segments.iter().find(|s| s.is_mpf())
+            && let Ok(mpf_dir) =
+                container::parse_mpf_segment(&mpf_seg.data, mpf_seg.offset)
+            && mpf_dir.entries.len() >= 2
+        {
+            // Primary image
+            let primary_size = mpf_dir.entries[0].size as usize;
+            self.primary_jpeg = Some((0, primary_size));
 
-                    // Secondary images (gain map)
-                    let secondaries = container::extract_secondary_images(self.data, &mpf_dir);
-                    if let Some(gm) = secondaries.first() {
-                        let gm_start = gm.as_ptr() as usize - self.data.as_ptr() as usize;
-                        self.gainmap_jpeg = Some((gm_start, gm_start + gm.len()));
-                        self.is_ultrahdr = true;
-                    }
-                }
+            // Secondary images (gain map)
+            let secondaries = container::extract_secondary_images(self.data, &mpf_dir);
+            if let Some(gm) = secondaries.first() {
+                let gm_start = gm.as_ptr() as usize - self.data.as_ptr() as usize;
+                self.gainmap_jpeg = Some((gm_start, gm_start + gm.len()));
+                self.is_ultrahdr = true;
             }
         }
 

@@ -135,24 +135,24 @@ pub fn parse_xmp(xmp_data: &str) -> Result<(GainMapMetadata, Option<usize>)> {
     }
 
     // Parse hdrgm:HDRCapacityMin
-    if let Some(val) = extract_attribute(xmp_data, "hdrgm:HDRCapacityMin") {
-        if let Ok(v) = val.parse::<f32>() {
-            metadata.hdr_capacity_min = 2.0f32.powf(v);
-        }
+    if let Some(val) = extract_attribute(xmp_data, "hdrgm:HDRCapacityMin")
+        && let Ok(v) = val.parse::<f32>()
+    {
+        metadata.hdr_capacity_min = 2.0f32.powf(v);
     }
 
     // Parse hdrgm:HDRCapacityMax
-    if let Some(val) = extract_attribute(xmp_data, "hdrgm:HDRCapacityMax") {
-        if let Ok(v) = val.parse::<f32>() {
-            metadata.hdr_capacity_max = 2.0f32.powf(v);
-        }
+    if let Some(val) = extract_attribute(xmp_data, "hdrgm:HDRCapacityMax")
+        && let Ok(v) = val.parse::<f32>()
+    {
+        metadata.hdr_capacity_max = 2.0f32.powf(v);
     }
 
     // Parse Item:Length for gain map
-    if let Some(val) = extract_attribute(xmp_data, "Item:Length") {
-        if let Ok(len) = val.parse::<usize>() {
-            gainmap_length = Some(len);
-        }
+    if let Some(val) = extract_attribute(xmp_data, "Item:Length")
+        && let Ok(len) = val.parse::<usize>()
+    {
+        gainmap_length = Some(len);
     }
 
     Ok((metadata, gainmap_length))

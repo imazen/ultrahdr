@@ -294,7 +294,7 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
             .map_err(|e| ZenDecodeError::Jpeg(format!("pixel buffer: {e}")))?;
 
         let zen_info = ZenImageInfo::new(width, height, ZenImageFormat::Jpeg)
-                        .with_alpha(self.want_rgba)
+            .with_alpha(self.want_rgba)
             .with_cicp(zencodec::Cicp::SRGB)
             .with_bit_depth(8);
 
