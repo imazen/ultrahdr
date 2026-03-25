@@ -1,3 +1,5 @@
+> **Partially outdated.** This spec was written before implementation. As of March 2026, dependency versions, feature flags, struct field names, and MPF ownership have changed. Corrections are inline below; see `ultrahdr-core/Cargo.toml` and `ultrahdr-core/src/types.rs` for ground truth.
+
 # ultrahdr API Specification
 
 ## Overview
@@ -10,9 +12,11 @@ Pure Rust implementation of Ultra HDR (gain map HDR) computations. This crate ha
 **Not handled** (delegated to JPEG codec like zenjpeg):
 - JPEG decode/encode
 - APP segment extraction/injection
-- MPF assembly/extraction
 - ICC profile handling
-- Container structure
+
+**Also handled by ultrahdr-core** (generalized container primitives):
+- MPF parsing/assembly (`metadata/mpf.rs`)
+- GContainer XMP parsing/generation (`metadata/xmp.rs`)
 
 ## Dependencies
 
@@ -20,66 +24,61 @@ Pure Rust implementation of Ultra HDR (gain map HDR) computations. This crate ha
 [dependencies]
 # No JPEG codec dependency - user provides pixels and metadata
 
+# Cooperative cancellation
+enough = "0.4"
+
 # Math
-wide = "0.7"           # SIMD
-half = "2.4"           # f16 support
+wide = "1.1"           # SIMD
+half = "2.7"           # f16 support
+
+# SIMD (optional)
+archmage = { version = "0.9.4", optional = true }
+magetypes = { version = "0.9.4", optional = true }
 
 # Types
 bytemuck = "1.14"
 
+# Error handling
+thiserror = "2.0"
+
+# Transfer functions (optional)
+linear-srgb = { version = "0.6.5", optional = true }
+
 [dev-dependencies]
-zenjpeg = "0.9"      # For tests/examples only
+proptest = "1.10"
+criterion = "0.8"
 ```
 
 ## Core Types
 
 ```rust
-/// Gain map metadata (from XMP hdrgm namespace or ISO 21496-1)
+/// Gain map metadata (from XMP hdrgm namespace or ISO 21496-1).
+/// All gain/headroom values are in log2 domain, f64 precision, per-channel [R, G, B].
 #[derive(Clone, Debug, PartialEq)]
 pub struct GainMapMetadata {
-    /// Gain map version
-    pub version: Version,
+    /// Log2 of maximum gain per channel. 0.0 = no boost, 2.0 = 4x brightness.
+    pub gain_map_max: [f64; 3],
 
-    /// Base (SDR) rendering headroom [0.0, 1.0] in log2 space
-    /// How much brighter than SDR white the base image can represent
-    pub base_headroom: f32,
+    /// Log2 of minimum gain per channel. Can be negative (darkening).
+    pub gain_map_min: [f64; 3],
 
-    /// Alternate (HDR) rendering headroom in log2 space
-    /// Typically log2(display_peak_nits / 203)
-    pub alternate_headroom: f32,
+    /// Gamma applied to the gain map encoding. Linear domain, must be > 0.
+    pub gamma: [f64; 3],
 
-    /// Minimum gain value (log2)
-    pub gain_map_min: ChannelValues,
+    /// Offset added to base (SDR) values before gain application. Linear domain.
+    pub base_offset: [f64; 3],
 
-    /// Maximum gain value (log2)
-    pub gain_map_max: ChannelValues,
+    /// Offset added to alternate (HDR) values before gain application. Linear domain.
+    pub alternate_offset: [f64; 3],
 
-    /// Gamma for gain map encoding
-    pub gamma: ChannelValues,
+    /// Log2 of base image HDR headroom. 0.0 = SDR (peak luminance ratio 1:1).
+    pub base_hdr_headroom: f64,
 
-    /// Offset applied before gamma
-    pub offset_sdr: ChannelValues,
-    pub offset_hdr: ChannelValues,
+    /// Log2 of alternate image HDR headroom.
+    pub alternate_hdr_headroom: f64,
 
-    /// Whether gain map uses base color space (true) or sRGB (false)
+    /// Whether the gain map uses the base image color space.
     pub use_base_color_space: bool,
-}
-
-/// Per-channel or single values
-#[derive(Clone, Debug, PartialEq)]
-pub enum ChannelValues {
-    /// Same value for all channels
-    Single(f32),
-    /// Per-channel values [R, G, B]
-    PerChannel([f32; 3]),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Version {
-    /// Original Google/Android format
-    V1,
-    /// ISO 21496-1 compliant
-    Iso21496,
 }
 
 /// Configuration for gain map computation
@@ -492,31 +491,25 @@ pub enum Error {
 }
 ```
 
-## Feature Flags
+## Feature Flags (ultrahdr-core)
+
+```toml
+[features]
+default = ["std", "transfer"]
+std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb?/std"]
+simd = ["archmage", "magetypes"]        # Enable explicit SIMD optimizations
+transfer = ["dep:linear-srgb"]          # Transfer functions (sRGB, PQ, HLG)
+zencodec = ["dep:zenpixels", "dep:zencodec"]  # zen* ecosystem interop
+```
+
+## Feature Flags (ultrahdr-rs)
 
 ```toml
 [features]
 default = []
-
-# SIMD optimizations (recommended)
-simd = []
-
-# f16 pixel format support
-f16 = ["half"]
-
-# Include zenjpeg convenience wrappers (adds zenjpeg dependency)
-zenjpeg = ["dep:zenjpeg"]
-```
-
-## No-std Support
-
-The core math functions support `no_std` with `alloc`:
-
-```toml
-[features]
-default = ["std"]
-std = []
-# no_std + alloc works for core functions
+simd = ["ultrahdr-core/simd"]           # Enable explicit SIMD optimizations
+ffi-tests = ["libultrahdr"]             # Enable FFI parity tests with libultrahdr C++
+zencodec = ["ultrahdr-core/zencodec", "dep:zencodec", "dep:zenpixels", "dep:zenjpeg"]
 ```
 
 ## What ultrahdr Does NOT Do
@@ -527,10 +520,10 @@ std = []
 | JPEG encode | zenjpeg or user's codec |
 | APP segment extraction | zenjpeg `DecodedExtras` |
 | APP segment injection | zenjpeg `EncoderSegments` |
-| MPF parsing | zenjpeg |
-| MPF assembly | zenjpeg |
+| MPF parsing | ultrahdr-core (`metadata/mpf.rs`) |
+| MPF assembly | ultrahdr-core (`metadata/mpf.rs`) |
+| GContainer XMP | ultrahdr-core (`metadata/xmp.rs`) |
 | ICC profile handling | zenjpeg or user |
-| Container structure | zenjpeg |
 | XMP beyond hdrgm | User's XMP library |
 | EXIF handling | User's EXIF library |
 
