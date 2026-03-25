@@ -23,16 +23,16 @@ pub const ITEM_NAMESPACE: &str = "http://ns.google.com/photos/1.0/container/item
 pub fn generate_xmp(metadata: &GainMapMetadata, gainmap_length: usize) -> String {
     let is_single_channel = metadata.is_single_channel();
 
-    // Format values - use single value if all channels are the same
-    let gain_map_min = format_value(&metadata.min_content_boost, is_single_channel, true);
-    let gain_map_max = format_value(&metadata.max_content_boost, is_single_channel, true);
-    let gamma = format_value(&metadata.gamma, is_single_channel, false);
-    let offset_sdr = format_value(&metadata.offset_sdr, is_single_channel, false);
-    let offset_hdr = format_value(&metadata.offset_hdr, is_single_channel, false);
+    // GainMapMin/Max are already in log2 domain — write directly
+    let gain_map_min = format_f64_value(&metadata.gain_map_min, is_single_channel);
+    let gain_map_max = format_f64_value(&metadata.gain_map_max, is_single_channel);
+    let gamma = format_f64_value(&metadata.gamma, is_single_channel);
+    let offset_sdr = format_f64_value(&metadata.base_offset, is_single_channel);
+    let offset_hdr = format_f64_value(&metadata.alternate_offset, is_single_channel);
 
-    // Log2 of capacity values
-    let hdr_capacity_min = metadata.hdr_capacity_min.log2();
-    let hdr_capacity_max = metadata.hdr_capacity_max.log2();
+    // Headroom values are already in log2 domain
+    let hdr_capacity_min = metadata.base_hdr_headroom;
+    let hdr_capacity_max = metadata.alternate_hdr_headroom;
 
     format!(
         r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
@@ -73,22 +73,12 @@ pub fn generate_xmp(metadata: &GainMapMetadata, gainmap_length: usize) -> String
     )
 }
 
-/// Format a 3-element array as XMP value.
-fn format_value(values: &[f32; 3], single_channel: bool, use_log2: bool) -> String {
+/// Format a 3-element f64 array as XMP value.
+fn format_f64_value(values: &[f64; 3], single_channel: bool) -> String {
     if single_channel {
-        let v = if use_log2 {
-            values[0].log2()
-        } else {
-            values[0]
-        };
-        format!("{:.6}", v)
+        format!("{:.6}", values[0])
     } else {
-        let v: Vec<f32> = if use_log2 {
-            values.iter().map(|x| x.log2()).collect()
-        } else {
-            values.to_vec()
-        };
-        format!("{:.6}, {:.6}, {:.6}", v[0], v[1], v[2])
+        format!("{:.6}, {:.6}, {:.6}", values[0], values[1], values[2])
     }
 }
 
@@ -102,50 +92,43 @@ pub fn parse_xmp(xmp_data: &str) -> Result<(GainMapMetadata, Option<usize>)> {
     let mut metadata = GainMapMetadata::new();
     let mut gainmap_length = None;
 
-    // Parse hdrgm:GainMapMin
+    // Parse hdrgm:GainMapMin — already log2 on wire, matches our domain
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:GainMapMin") {
-        let values = parse_xmp_values(&val);
-        for (i, &v) in values.iter().enumerate() {
-            metadata.min_content_boost[i] = 2.0f32.powf(v); // Convert from log2
-        }
+        metadata.gain_map_min = parse_xmp_values_f64(&val);
     }
 
-    // Parse hdrgm:GainMapMax
+    // Parse hdrgm:GainMapMax — already log2 on wire
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:GainMapMax") {
-        let values = parse_xmp_values(&val);
-        for (i, &v) in values.iter().enumerate() {
-            metadata.max_content_boost[i] = 2.0f32.powf(v); // Convert from log2
-        }
+        metadata.gain_map_max = parse_xmp_values_f64(&val);
     }
 
-    // Parse hdrgm:Gamma
+    // Parse hdrgm:Gamma — linear domain
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:Gamma") {
-        let values = parse_xmp_values(&val);
-        metadata.gamma = values;
+        metadata.gamma = parse_xmp_values_f64(&val);
     }
 
-    // Parse hdrgm:OffsetSDR
+    // Parse hdrgm:OffsetSDR — linear domain
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:OffsetSDR") {
-        metadata.offset_sdr = parse_xmp_values(&val);
+        metadata.base_offset = parse_xmp_values_f64(&val);
     }
 
-    // Parse hdrgm:OffsetHDR
+    // Parse hdrgm:OffsetHDR — linear domain
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:OffsetHDR") {
-        metadata.offset_hdr = parse_xmp_values(&val);
+        metadata.alternate_offset = parse_xmp_values_f64(&val);
     }
 
-    // Parse hdrgm:HDRCapacityMin
+    // Parse hdrgm:HDRCapacityMin — already log2 on wire
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:HDRCapacityMin")
-        && let Ok(v) = val.parse::<f32>()
+        && let Ok(v) = val.parse::<f64>()
     {
-        metadata.hdr_capacity_min = 2.0f32.powf(v);
+        metadata.base_hdr_headroom = v;
     }
 
-    // Parse hdrgm:HDRCapacityMax
+    // Parse hdrgm:HDRCapacityMax — already log2 on wire
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:HDRCapacityMax")
-        && let Ok(v) = val.parse::<f32>()
+        && let Ok(v) = val.parse::<f64>()
     {
-        metadata.hdr_capacity_max = 2.0f32.powf(v);
+        metadata.alternate_hdr_headroom = v;
     }
 
     // Parse Item:Length for gain map
@@ -184,10 +167,10 @@ fn extract_attribute(xmp: &str, attr_name: &str) -> Option<String> {
 
 /// Parse comma-separated or single values from XMP.
 /// Returns exactly 3 values: if input has 1 value, it's replicated to all channels.
-fn parse_xmp_values(value: &str) -> [f32; 3] {
-    let parsed: Vec<f32> = value
+fn parse_xmp_values_f64(value: &str) -> [f64; 3] {
+    let parsed: Vec<f64> = value
         .split(',')
-        .filter_map(|s| s.trim().parse::<f32>().ok())
+        .filter_map(|s| s.trim().parse::<f64>().ok())
         .collect();
 
     match parsed.len() {
@@ -224,13 +207,13 @@ mod tests {
     #[test]
     fn test_generate_xmp() {
         let metadata = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [0.015625; 3],
-            offset_hdr: [0.015625; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [0.015625; 3],
+            alternate_offset: [0.015625; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
         };
 
@@ -245,13 +228,13 @@ mod tests {
     #[test]
     fn test_parse_xmp_roundtrip() {
         let original = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [0.015625; 3],
-            offset_hdr: [0.015625; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [0.015625; 3],
+            alternate_offset: [0.015625; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
         };
 
@@ -260,9 +243,9 @@ mod tests {
 
         assert_eq!(length, Some(5000));
 
-        // Check values match (with some tolerance for log2 conversion)
-        assert!((parsed.max_content_boost[0] - 4.0).abs() < 0.01);
-        assert!((parsed.hdr_capacity_max - 4.0).abs() < 0.01);
+        // Check values match (log2 domain roundtrip)
+        assert!((parsed.gain_map_max[0] - 2.0).abs() < 0.01);
+        assert!((parsed.alternate_hdr_headroom - 2.0).abs() < 0.01);
     }
 
     #[test]
@@ -299,13 +282,13 @@ mod tests {
     fn test_parse_xmp_multi_channel() {
         // Generate XMP with different per-channel values
         let metadata = GainMapMetadata {
-            min_content_boost: [1.0, 2.0, 3.0],
-            max_content_boost: [4.0, 5.0, 6.0],
+            gain_map_min: [1.0, 2.0, 3.0],
+            gain_map_max: [4.0, 5.0, 6.0],
             gamma: [1.0, 1.2, 1.5],
-            offset_sdr: [0.015625; 3],
-            offset_hdr: [0.015625; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 6.0,
+            base_offset: [0.015625; 3],
+            alternate_offset: [0.015625; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.585,
             use_base_color_space: true,
         };
 
@@ -314,33 +297,33 @@ mod tests {
 
         // Verify channels differ for min_content_boost
         assert!(
-            (parsed.min_content_boost[0] - parsed.min_content_boost[1]).abs() > 0.01,
+            (parsed.gain_map_min[0] - parsed.gain_map_min[1]).abs() > 0.01,
             "channels 0 and 1 should differ"
         );
         assert!(
-            (parsed.min_content_boost[1] - parsed.min_content_boost[2]).abs() > 0.01,
+            (parsed.gain_map_min[1] - parsed.gain_map_min[2]).abs() > 0.01,
             "channels 1 and 2 should differ"
         );
 
         // Verify approximate values (log2 roundtrip)
-        assert!((parsed.min_content_boost[0] - 1.0).abs() < 0.01);
-        assert!((parsed.min_content_boost[1] - 2.0).abs() < 0.01);
-        assert!((parsed.min_content_boost[2] - 3.0).abs() < 0.01);
+        assert!((parsed.gain_map_min[0] - 1.0).abs() < 0.01);
+        assert!((parsed.gain_map_min[1] - 2.0).abs() < 0.01);
+        assert!((parsed.gain_map_min[2] - 3.0).abs() < 0.01);
     }
 
     #[test]
     fn test_parse_xmp_values_empty() {
-        assert_eq!(parse_xmp_values(""), [0.0; 3]);
+        assert_eq!(parse_xmp_values_f64(""), [0.0; 3]);
     }
 
     #[test]
     fn test_parse_xmp_values_single() {
-        assert_eq!(parse_xmp_values("1.5"), [1.5, 1.5, 1.5]);
+        assert_eq!(parse_xmp_values_f64("1.5"), [1.5, 1.5, 1.5]);
     }
 
     #[test]
     fn test_parse_xmp_values_three() {
-        assert_eq!(parse_xmp_values("1.0, 2.0, 3.0"), [1.0, 2.0, 3.0]);
+        assert_eq!(parse_xmp_values_f64("1.0, 2.0, 3.0"), [1.0, 2.0, 3.0]);
     }
 
     #[test]
@@ -386,13 +369,13 @@ mod tests {
     #[test]
     fn test_generate_xmp_contains_required_fields() {
         let metadata = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [0.015625; 3],
-            offset_hdr: [0.015625; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [0.015625; 3],
+            alternate_offset: [0.015625; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
         };
 

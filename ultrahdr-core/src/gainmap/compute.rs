@@ -9,6 +9,10 @@ use crate::types::{GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
 use enough::Stop;
 
 /// Configuration for gain map computation.
+///
+/// Boost values (`min_boost`, `max_boost`) are in **linear domain** for
+/// ergonomics — humans think "4× brighter" not "log2(4)=2". These are
+/// converted to log2 when producing [`GainMapMetadata`].
 #[derive(Debug, Clone)]
 pub struct GainMapConfig {
     /// Scale factor for gain map (1 = same size as image, 4 = 1/4 size).
@@ -17,18 +21,18 @@ pub struct GainMapConfig {
     pub gamma: f32,
     /// Use multi-channel (RGB) gain map instead of single-channel luminance.
     pub multi_channel: bool,
-    /// Minimum content boost (allows darkening, typically 1.0).
-    pub min_content_boost: f32,
-    /// Maximum content boost (HDR peak / SDR peak).
-    pub max_content_boost: f32,
-    /// Offset for SDR values to avoid division by zero.
-    pub offset_sdr: f32,
-    /// Offset for HDR values.
-    pub offset_hdr: f32,
-    /// Minimum HDR capacity (for metadata).
-    pub hdr_capacity_min: f32,
-    /// Maximum HDR capacity (for metadata).
-    pub hdr_capacity_max: f32,
+    /// Minimum gain (linear). 1.0 = no darkening, 0.5 = allow 2× darker.
+    pub min_boost: f32,
+    /// Maximum gain (linear). HDR peak / SDR peak. e.g. 6.0 = ~2.5 stops.
+    pub max_boost: f32,
+    /// Offset for base (SDR) values to avoid division by zero. Linear domain.
+    pub base_offset: f32,
+    /// Offset for alternate (HDR) values. Linear domain.
+    pub alternate_offset: f32,
+    /// Minimum display boost (linear). For metadata headroom.
+    pub base_hdr_headroom: f32,
+    /// Maximum display boost (linear). For metadata headroom.
+    pub alternate_hdr_headroom: f32,
 }
 
 impl Default for GainMapConfig {
@@ -37,12 +41,12 @@ impl Default for GainMapConfig {
             scale_factor: 4,
             gamma: 1.0,
             multi_channel: false,
-            min_content_boost: 1.0,
-            max_content_boost: 6.0, // ~2.5 stops
-            offset_sdr: 1.0 / 64.0,
-            offset_hdr: 1.0 / 64.0,
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 6.0,
+            min_boost: 1.0,
+            max_boost: 6.0, // ~2.5 stops
+            base_offset: 1.0 / 64.0,
+            alternate_offset: 1.0 / 64.0,
+            base_hdr_headroom: 1.0,
+            alternate_hdr_headroom: 6.0,
         }
     }
 }
@@ -106,18 +110,18 @@ pub fn compute_gainmap(
     };
 
     // Clamp actual values to configured range
-    actual_min_boost = actual_min_boost.max(config.min_content_boost);
-    actual_max_boost = actual_max_boost.min(config.max_content_boost);
+    actual_min_boost = actual_min_boost.max(config.min_boost);
+    actual_max_boost = actual_max_boost.min(config.max_boost);
 
-    // Build metadata
+    // Build metadata (convert linear boost values to log2 domain)
     let metadata = GainMapMetadata {
-        max_content_boost: [actual_max_boost; 3],
-        min_content_boost: [actual_min_boost; 3],
-        gamma: [config.gamma; 3],
-        offset_sdr: [config.offset_sdr; 3],
-        offset_hdr: [config.offset_hdr; 3],
-        hdr_capacity_min: config.hdr_capacity_min,
-        hdr_capacity_max: config.hdr_capacity_max.max(actual_max_boost),
+        gain_map_max: [(actual_max_boost as f64).log2(); 3],
+        gain_map_min: [(actual_min_boost as f64).log2(); 3],
+        gamma: [config.gamma as f64; 3],
+        base_offset: [config.base_offset as f64; 3],
+        alternate_offset: [config.alternate_offset as f64; 3],
+        base_hdr_headroom: (config.base_hdr_headroom as f64).log2(),
+        alternate_hdr_headroom: (config.alternate_hdr_headroom.max(actual_max_boost) as f64).log2(),
         use_base_color_space: true,
     };
 
@@ -139,8 +143,8 @@ fn compute_luminance_gainmap(
 ) -> Result<GainMap> {
     let mut gainmap = GainMap::new(gm_width, gm_height)?;
 
-    let log_min = config.min_content_boost.ln();
-    let log_max = config.max_content_boost.ln();
+    let log_min = config.min_boost.ln();
+    let log_max = config.max_boost.ln();
     let log_range = log_max - log_min;
 
     for gy in 0..gm_height {
@@ -161,14 +165,14 @@ fn compute_luminance_gainmap(
             let sdr_lum = rgb_to_luminance(sdr_rgb, sdr.gamut);
 
             // Compute gain (with offsets to avoid division by zero)
-            let gain = (hdr_lum + config.offset_hdr) / (sdr_lum + config.offset_sdr);
+            let gain = (hdr_lum + config.alternate_offset) / (sdr_lum + config.base_offset);
 
             // Track actual range
             *actual_min_boost = actual_min_boost.min(gain);
             *actual_max_boost = actual_max_boost.max(gain);
 
             // Clamp and encode
-            let gain_clamped = gain.clamp(config.min_content_boost, config.max_content_boost);
+            let gain_clamped = gain.clamp(config.min_boost, config.max_boost);
             let log_gain = gain_clamped.ln();
 
             // Normalize to `[0, 1]`
@@ -204,8 +208,8 @@ fn compute_multichannel_gainmap(
 ) -> Result<GainMap> {
     let mut gainmap = GainMap::new_multichannel(gm_width, gm_height)?;
 
-    let log_min = config.min_content_boost.ln();
-    let log_max = config.max_content_boost.ln();
+    let log_min = config.min_boost.ln();
+    let log_max = config.max_boost.ln();
     let log_range = log_max - log_min;
 
     for gy in 0..gm_height {
@@ -220,13 +224,13 @@ fn compute_multichannel_gainmap(
             let sdr_rgb = get_linear_rgb(sdr, x, y);
 
             for c in 0..3 {
-                let gain =
-                    (hdr_rgb[c] + config.offset_hdr) / (sdr_rgb[c] + config.offset_sdr).max(0.001);
+                let gain = (hdr_rgb[c] + config.alternate_offset)
+                    / (sdr_rgb[c] + config.base_offset).max(0.001);
 
                 *actual_min_boost = actual_min_boost.min(gain);
                 *actual_max_boost = actual_max_boost.max(gain);
 
-                let gain_clamped = gain.clamp(config.min_content_boost, config.max_content_boost);
+                let gain_clamped = gain.clamp(config.min_boost, config.max_boost);
                 let log_gain = gain_clamped.ln();
 
                 let normalized = if log_range > 0.0 {
@@ -509,7 +513,7 @@ mod tests {
         assert_eq!(gainmap.channels, 1);
 
         // Check metadata is populated
-        assert!(metadata.max_content_boost[0] >= 1.0);
+        assert!(metadata.gain_map_max[0] >= 1.0);
     }
 
     // ========================================================================
@@ -737,8 +741,8 @@ mod tests {
 
         let config = GainMapConfig {
             scale_factor: 1,
-            max_content_boost: 12.0,
-            hdr_capacity_max: 12.0,
+            max_boost: 12.0,
+            alternate_hdr_headroom: 12.0,
             ..Default::default()
         };
 

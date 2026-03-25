@@ -130,53 +130,55 @@ pub fn parse_iso21496(data: &[u8]) -> Result<GainMapMetadata> {
     let (alt_headroom, new_pos) = read_unsigned_fraction(data, pos)?;
     pos = new_pos;
 
-    let hdr_capacity_min = 2.0f32.powf(base_headroom.to_f32());
-    let hdr_capacity_max = 2.0f32.powf(alt_headroom.to_f32());
-
+    // Headroom values are already in log2 domain on the wire — store directly
     let mut metadata = GainMapMetadata {
-        hdr_capacity_min,
-        hdr_capacity_max,
+        base_hdr_headroom: base_headroom.to_f32() as f64,
+        alternate_hdr_headroom: alt_headroom.to_f32() as f64,
         use_base_color_space: use_base_colour_space,
         ..Default::default()
     };
 
     // Per-channel values
     for ch in 0..channel_count {
-        // gain_map_min (i32/u32)
+        // gain_map_min (i32/u32) — already log2 on the wire
         let (min_frac, new_pos) = read_signed_fraction(data, pos)?;
         pos = new_pos;
-        let min_val = 2.0f32.powf(min_frac.to_f32());
 
-        // gain_map_max (i32/u32)
+        // gain_map_max (i32/u32) — already log2 on the wire
         let (max_frac, new_pos) = read_signed_fraction(data, pos)?;
         pos = new_pos;
-        let max_val = 2.0f32.powf(max_frac.to_f32());
 
-        // gamma (u32/u32)
+        // gamma (u32/u32) — linear domain
         let (gamma_frac, new_pos) = read_unsigned_fraction(data, pos)?;
         pos = new_pos;
 
-        // base_offset (i32/u32)
+        // base_offset (i32/u32) — linear domain
         let (base_offset_frac, new_pos) = read_signed_fraction(data, pos)?;
         pos = new_pos;
 
-        // alternate_offset (i32/u32)
+        // alternate_offset (i32/u32) — linear domain
         let (alt_offset_frac, new_pos) = read_signed_fraction(data, pos)?;
         pos = new_pos;
 
+        let min_val = min_frac.to_f32() as f64;
+        let max_val = max_frac.to_f32() as f64;
+        let gamma_val = gamma_frac.to_f32() as f64;
+        let base_off = base_offset_frac.to_f32() as f64;
+        let alt_off = alt_offset_frac.to_f32() as f64;
+
         if is_multichannel {
-            metadata.min_content_boost[ch] = min_val;
-            metadata.max_content_boost[ch] = max_val;
-            metadata.gamma[ch] = gamma_frac.to_f32();
-            metadata.offset_sdr[ch] = base_offset_frac.to_f32();
-            metadata.offset_hdr[ch] = alt_offset_frac.to_f32();
+            metadata.gain_map_min[ch] = min_val;
+            metadata.gain_map_max[ch] = max_val;
+            metadata.gamma[ch] = gamma_val;
+            metadata.base_offset[ch] = base_off;
+            metadata.alternate_offset[ch] = alt_off;
         } else {
             // Single channel — replicate to all three
-            metadata.min_content_boost = [min_val; 3];
-            metadata.max_content_boost = [max_val; 3];
-            metadata.gamma = [gamma_frac.to_f32(); 3];
-            metadata.offset_sdr = [base_offset_frac.to_f32(); 3];
-            metadata.offset_hdr = [alt_offset_frac.to_f32(); 3];
+            metadata.gain_map_min = [min_val; 3];
+            metadata.gain_map_max = [max_val; 3];
+            metadata.gamma = [gamma_val; 3];
+            metadata.base_offset = [base_off; 3];
+            metadata.alternate_offset = [alt_off; 3];
         }
     }
 
@@ -215,34 +217,34 @@ pub fn serialize_iso21496(metadata: &GainMapMetadata) -> Vec<u8> {
     }
     buf.push(flags);
 
-    // base_hdr_headroom (u32/u32) — log2(hdr_capacity_min)
-    let base_headroom = UnsignedFraction::from_f32(metadata.hdr_capacity_min.log2());
+    // base_hdr_headroom (u32/u32) — already log2 domain
+    let base_headroom = UnsignedFraction::from_f32(metadata.base_hdr_headroom as f32);
     write_unsigned_fraction(&mut buf, base_headroom);
 
-    // alternate_hdr_headroom (u32/u32) — log2(hdr_capacity_max)
-    let alt_headroom = UnsignedFraction::from_f32(metadata.hdr_capacity_max.log2());
+    // alternate_hdr_headroom (u32/u32) — already log2 domain
+    let alt_headroom = UnsignedFraction::from_f32(metadata.alternate_hdr_headroom as f32);
     write_unsigned_fraction(&mut buf, alt_headroom);
 
     // Per-channel values
     for ch in 0..channel_count {
-        // gain_map_min (i32/u32) — log2(min_content_boost)
-        let min_val = Fraction::from_f32(metadata.min_content_boost[ch].log2());
+        // gain_map_min (i32/u32) — already log2 domain
+        let min_val = Fraction::from_f32(metadata.gain_map_min[ch] as f32);
         write_signed_fraction(&mut buf, min_val);
 
-        // gain_map_max (i32/u32) — log2(max_content_boost)
-        let max_val = Fraction::from_f32(metadata.max_content_boost[ch].log2());
+        // gain_map_max (i32/u32) — already log2 domain
+        let max_val = Fraction::from_f32(metadata.gain_map_max[ch] as f32);
         write_signed_fraction(&mut buf, max_val);
 
-        // gamma (u32/u32)
-        let gamma = UnsignedFraction::from_f32(metadata.gamma[ch]);
+        // gamma (u32/u32) — linear domain
+        let gamma = UnsignedFraction::from_f32(metadata.gamma[ch] as f32);
         write_unsigned_fraction(&mut buf, gamma);
 
-        // base_offset (i32/u32) — offset_sdr
-        let base_offset = Fraction::from_f32(metadata.offset_sdr[ch]);
+        // base_offset (i32/u32) — linear domain
+        let base_offset = Fraction::from_f32(metadata.base_offset[ch] as f32);
         write_signed_fraction(&mut buf, base_offset);
 
-        // alternate_offset (i32/u32) — offset_hdr
-        let alt_offset = Fraction::from_f32(metadata.offset_hdr[ch]);
+        // alternate_offset (i32/u32) — linear domain
+        let alt_offset = Fraction::from_f32(metadata.alternate_offset[ch] as f32);
         write_signed_fraction(&mut buf, alt_offset);
     }
 
@@ -357,37 +359,37 @@ mod tests {
     #[test]
     fn test_roundtrip_single_channel() {
         let original = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [0.015625; 3],
-            offset_hdr: [0.015625; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [0.015625; 3],
+            alternate_offset: [0.015625; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
         };
 
         let serialized = serialize_iso21496(&original);
         let parsed = parse_iso21496(&serialized).unwrap();
 
-        assert!((parsed.max_content_boost[0] - 4.0).abs() < 0.01);
-        assert!((parsed.min_content_boost[0] - 1.0).abs() < 0.01);
-        assert!((parsed.hdr_capacity_max - 4.0).abs() < 0.01);
+        assert!((parsed.gain_map_max[0] - 2.0).abs() < 0.01);
+        assert!((parsed.gain_map_min[0] - 0.0).abs() < 0.01);
+        assert!((parsed.alternate_hdr_headroom - 2.0).abs() < 0.01);
         assert!((parsed.gamma[0] - 1.0).abs() < 0.01);
-        assert!((parsed.offset_sdr[0] - 0.015625).abs() < 0.001);
+        assert!((parsed.base_offset[0] - 0.015625).abs() < 0.001);
         assert!(parsed.use_base_color_space);
     }
 
     #[test]
     fn test_roundtrip_multi_channel() {
         let original = GainMapMetadata {
-            max_content_boost: [100.5, 101.5, 102.5],
-            min_content_boost: [1.5, 1.6, 1.7],
+            gain_map_max: [100.5, 101.5, 102.5],
+            gain_map_min: [1.5, 1.6, 1.7],
             gamma: [1.0, 1.01, 1.02],
-            offset_sdr: [0.0625, 0.0875, 0.1125],
-            offset_hdr: [0.0625, 0.0875, 0.1125],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 10000.0 / 203.0,
+            base_offset: [0.0625, 0.0875, 0.1125],
+            alternate_offset: [0.0625, 0.0875, 0.1125],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 10000.0 / 203.0,
             use_base_color_space: false,
         };
 
@@ -410,22 +412,22 @@ mod tests {
         let tol = 0.05;
         for i in 0..3 {
             assert!(
-                (parsed.max_content_boost[i] - original.max_content_boost[i]).abs()
-                    / original.max_content_boost[i]
+                (parsed.gain_map_max[i] - original.gain_map_max[i]).abs()
+                    / original.gain_map_max[i]
                     < tol,
                 "max_content_boost[{}]: {} vs {}",
                 i,
-                parsed.max_content_boost[i],
-                original.max_content_boost[i]
+                parsed.gain_map_max[i],
+                original.gain_map_max[i]
             );
             assert!(
-                (parsed.min_content_boost[i] - original.min_content_boost[i]).abs()
-                    / original.min_content_boost[i]
+                (parsed.gain_map_min[i] - original.gain_map_min[i]).abs()
+                    / original.gain_map_min[i]
                     < tol,
                 "min_content_boost[{}]: {} vs {}",
                 i,
-                parsed.min_content_boost[i],
-                original.min_content_boost[i]
+                parsed.gain_map_min[i],
+                original.gain_map_min[i]
             );
             assert!(
                 (parsed.gamma[i] - original.gamma[i]).abs() < 0.01,
@@ -435,36 +437,36 @@ mod tests {
                 original.gamma[i]
             );
             assert!(
-                (parsed.offset_sdr[i] - original.offset_sdr[i]).abs() < 0.001,
+                (parsed.base_offset[i] - original.base_offset[i]).abs() < 0.001,
                 "offset_sdr[{}]: {} vs {}",
                 i,
-                parsed.offset_sdr[i],
-                original.offset_sdr[i]
+                parsed.base_offset[i],
+                original.base_offset[i]
             );
             assert!(
-                (parsed.offset_hdr[i] - original.offset_hdr[i]).abs() < 0.001,
+                (parsed.alternate_offset[i] - original.alternate_offset[i]).abs() < 0.001,
                 "offset_hdr[{}]: {} vs {}",
                 i,
-                parsed.offset_hdr[i],
-                original.offset_hdr[i]
+                parsed.alternate_offset[i],
+                original.alternate_offset[i]
             );
         }
 
         // Verify channels are distinct
-        assert_ne!(parsed.max_content_boost[0], parsed.max_content_boost[1]);
-        assert_ne!(parsed.max_content_boost[1], parsed.max_content_boost[2]);
+        assert_ne!(parsed.gain_map_max[0], parsed.gain_map_max[1]);
+        assert_ne!(parsed.gain_map_max[1], parsed.gain_map_max[2]);
     }
 
     #[test]
     fn test_roundtrip_negative_offsets() {
         let original = GainMapMetadata {
-            max_content_boost: [10.0, 11.0, 12.0],
-            min_content_boost: [0.5, 0.6, 0.7],
+            gain_map_max: [10.0, 11.0, 12.0],
+            gain_map_min: [0.5, 0.6, 0.7],
             gamma: [1.0, 1.1, 1.2],
-            offset_sdr: [-0.0625, -0.0615, -0.0605],
-            offset_hdr: [-0.0625, -0.0615, -0.0605],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 1000.0 / 203.0,
+            base_offset: [-0.0625, -0.0615, -0.0605],
+            alternate_offset: [-0.0625, -0.0615, -0.0605],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 1000.0 / 203.0,
             use_base_color_space: true,
         };
 
@@ -476,18 +478,18 @@ mod tests {
         let tol = 0.001;
         for i in 0..3 {
             assert!(
-                (parsed.offset_sdr[i] - original.offset_sdr[i]).abs() < tol,
+                (parsed.base_offset[i] - original.base_offset[i]).abs() < tol,
                 "offset_sdr[{}]: {} vs {}",
                 i,
-                parsed.offset_sdr[i],
-                original.offset_sdr[i]
+                parsed.base_offset[i],
+                original.base_offset[i]
             );
             assert!(
-                (parsed.offset_hdr[i] - original.offset_hdr[i]).abs() < tol,
+                (parsed.alternate_offset[i] - original.alternate_offset[i]).abs() < tol,
                 "offset_hdr[{}]: {} vs {}",
                 i,
-                parsed.offset_hdr[i],
-                original.offset_hdr[i]
+                parsed.alternate_offset[i],
+                original.alternate_offset[i]
             );
         }
     }
@@ -535,13 +537,13 @@ mod tests {
     #[test]
     fn test_multi_channel_size() {
         let metadata = GainMapMetadata {
-            max_content_boost: [4.0, 5.0, 6.0],
-            min_content_boost: [1.0, 1.5, 2.0],
+            gain_map_max: [4.0, 5.0, 6.0],
+            gain_map_min: [1.0, 1.5, 2.0],
             gamma: [1.0, 1.1, 1.2],
-            offset_sdr: [0.01; 3],
-            offset_hdr: [0.01; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 6.0,
+            base_offset: [0.01; 3],
+            alternate_offset: [0.01; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.585,
             use_base_color_space: true,
         };
         let serialized = serialize_iso21496(&metadata);
@@ -604,13 +606,13 @@ mod tests {
 
         let parsed = parse_iso21496(&blob).unwrap();
 
-        assert_eq!(parsed.hdr_capacity_min, 1.0); // 2^0
-        assert!((parsed.hdr_capacity_max - 4.0).abs() < 0.001); // 2^2
-        assert_eq!(parsed.min_content_boost, [1.0; 3]); // 2^0
-        assert!((parsed.max_content_boost[0] - 4.0).abs() < 0.001); // 2^2
+        assert_eq!(parsed.base_hdr_headroom, 0.0); // wire: 0/1 → log2 = 0
+        assert!((parsed.alternate_hdr_headroom - 2.0).abs() < 0.001); // wire: 2/1 → log2 = 2
+        assert_eq!(parsed.gain_map_min, [0.0; 3]); // wire: 0/1 → log2 = 0
+        assert!((parsed.gain_map_max[0] - 2.0).abs() < 0.001); // wire: 2/1 → log2 = 2
         assert_eq!(parsed.gamma, [1.0; 3]);
-        assert_eq!(parsed.offset_sdr, [0.015625; 3]); // 1/64
-        assert_eq!(parsed.offset_hdr, [0.015625; 3]); // 1/64
+        assert_eq!(parsed.base_offset, [0.015625; 3]); // 1/64
+        assert_eq!(parsed.alternate_offset, [0.015625; 3]); // 1/64
         assert!(parsed.use_base_color_space);
     }
 
@@ -621,13 +623,13 @@ mod tests {
     #[test]
     fn test_single_channel_replicates_to_all() {
         let original = GainMapMetadata {
-            min_content_boost: [2.0; 3],
-            max_content_boost: [8.0; 3],
+            gain_map_min: [2.0; 3],
+            gain_map_max: [3.0; 3],
             gamma: [1.5; 3],
-            offset_sdr: [0.03; 3],
-            offset_hdr: [0.05; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 8.0,
+            base_offset: [0.03; 3],
+            alternate_offset: [0.05; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 3.0,
             use_base_color_space: false,
         };
 
@@ -642,23 +644,23 @@ mod tests {
 
         for i in 1..3 {
             assert_eq!(
-                parsed.min_content_boost[0], parsed.min_content_boost[i],
+                parsed.gain_map_min[0], parsed.gain_map_min[i],
                 "min_content_boost[0] != [{}]",
                 i
             );
             assert_eq!(
-                parsed.max_content_boost[0], parsed.max_content_boost[i],
+                parsed.gain_map_max[0], parsed.gain_map_max[i],
                 "max_content_boost[0] != [{}]",
                 i
             );
             assert_eq!(parsed.gamma[0], parsed.gamma[i], "gamma[0] != [{}]", i);
             assert_eq!(
-                parsed.offset_sdr[0], parsed.offset_sdr[i],
+                parsed.base_offset[0], parsed.base_offset[i],
                 "offset_sdr[0] != [{}]",
                 i
             );
             assert_eq!(
-                parsed.offset_hdr[0], parsed.offset_hdr[i],
+                parsed.alternate_offset[0], parsed.alternate_offset[i],
                 "offset_hdr[0] != [{}]",
                 i
             );
@@ -673,21 +675,21 @@ mod tests {
     fn test_zero_headroom() {
         // hdr_capacity_min = 1.0 → log2 = 0.0, hdr_capacity_max = 1.0 → log2 = 0.0
         let original = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [1.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [1.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [0.0; 3],
-            offset_hdr: [0.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 1.0,
+            base_offset: [0.0; 3],
+            alternate_offset: [0.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 1.0,
             use_base_color_space: true,
         };
 
         let serialized = serialize_iso21496(&original);
         let parsed = parse_iso21496(&serialized).unwrap();
 
-        assert!((parsed.hdr_capacity_min - 1.0).abs() < 0.001);
-        assert!((parsed.hdr_capacity_max - 1.0).abs() < 0.001);
+        assert!((parsed.base_hdr_headroom - 0.0).abs() < 0.001);
+        assert!((parsed.alternate_hdr_headroom - 1.0).abs() < 0.001); // log2 = 1.0 → 2× boost
     }
 
     #[test]
@@ -705,30 +707,31 @@ mod tests {
 
     #[test]
     fn test_extreme_boost_values() {
+        // log2(10000) ≈ 13.29, log2(0.01) ≈ −6.64
         let original = GainMapMetadata {
-            min_content_boost: [0.01; 3],
-            max_content_boost: [10000.0; 3],
+            gain_map_min: [-6.644; 3], // log2(0.01)
+            gain_map_max: [13.288; 3], // log2(10000)
             gamma: [0.01; 3],
-            offset_sdr: [0.0; 3],
-            offset_hdr: [0.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 10000.0 / 203.0,
+            base_offset: [0.0; 3],
+            alternate_offset: [0.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 5.623, // log2(10000/203)
             use_base_color_space: true,
         };
 
         let serialized = serialize_iso21496(&original);
         let parsed = parse_iso21496(&serialized).unwrap();
 
-        let rel_tol = 0.05;
+        let tol = 0.01;
         assert!(
-            (parsed.max_content_boost[0] - 10000.0).abs() / 10000.0 < rel_tol,
-            "max_content_boost: {} vs 10000.0",
-            parsed.max_content_boost[0]
+            (parsed.gain_map_max[0] - 13.288).abs() < tol,
+            "gain_map_max: {} vs 13.288",
+            parsed.gain_map_max[0]
         );
         assert!(
-            (parsed.min_content_boost[0] - 0.01).abs() / 0.01 < rel_tol,
-            "min_content_boost: {} vs 0.01",
-            parsed.min_content_boost[0]
+            (parsed.gain_map_min[0] - (-6.644)).abs() < tol,
+            "gain_map_min: {} vs -6.644",
+            parsed.gain_map_min[0]
         );
         assert!(
             (parsed.gamma[0] - 0.01).abs() < 0.001,
@@ -856,7 +859,7 @@ mod tests {
 
         let parsed = parse_iso21496(extracted).unwrap();
         let original = GainMapMetadata::new();
-        assert!((parsed.hdr_capacity_min - original.hdr_capacity_min).abs() < 0.01);
+        assert!((parsed.base_hdr_headroom - original.base_hdr_headroom).abs() < 0.01);
         assert!(parsed.use_base_color_space);
     }
 

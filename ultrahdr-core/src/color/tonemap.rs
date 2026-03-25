@@ -53,7 +53,7 @@ impl Default for ToneMapConfig {
             target_peak_nits: 203.0, // SDR reference white
             hdr_peak_nits: 10000.0,  // PQ peak
             target_gamut: ColorGamut::Bt709,
-            source_gamut: ColorGamut::Bt2100,
+            source_gamut: ColorGamut::Bt2020,
         }
     }
 }
@@ -1084,7 +1084,7 @@ impl AdaptiveTonemapper {
             mode: TonemapMode::GainMapInverse(GainMapInverter {
                 metadata: metadata.clone(),
             }),
-            max_hdr_observed: metadata.hdr_capacity_max,
+            max_hdr_observed: 2.0f32.powf(metadata.alternate_hdr_headroom as f32),
             stats: FitStats::default(),
         }
     }
@@ -1141,11 +1141,14 @@ impl AdaptiveTonemapper {
                 // Sample gain map (with interpolation for different resolutions)
                 let gain = sample_gainmap_at(gainmap, metadata, x, y, width, height);
 
-                // Invert: SDR = (HDR + offset_hdr) / gain - offset_sdr
+                // Invert: SDR = (HDR + alternate_offset) / gain - base_offset
                 let sdr_linear = [
-                    (hdr_linear[0] + metadata.offset_hdr[0]) / gain[0] - metadata.offset_sdr[0],
-                    (hdr_linear[1] + metadata.offset_hdr[1]) / gain[1] - metadata.offset_sdr[1],
-                    (hdr_linear[2] + metadata.offset_hdr[2]) / gain[2] - metadata.offset_sdr[2],
+                    (hdr_linear[0] + metadata.alternate_offset[0] as f32) / gain[0]
+                        - metadata.base_offset[0] as f32,
+                    (hdr_linear[1] + metadata.alternate_offset[1] as f32) / gain[1]
+                        - metadata.base_offset[1] as f32,
+                    (hdr_linear[2] + metadata.alternate_offset[2] as f32) / gain[2]
+                        - metadata.base_offset[2] as f32,
                 ];
 
                 // Clamp and apply sRGB OETF
@@ -1863,15 +1866,17 @@ fn sample_gainmap_at(
 
 /// Decode gain value from normalized [0,1] to linear multiplier.
 fn decode_gain_value(normalized: f32, metadata: &GainMapMetadata, channel: usize) -> f32 {
-    let gamma = metadata.gamma[channel];
+    let gamma = metadata.gamma[channel] as f32;
     let linear = if gamma != 1.0 && gamma > 0.0 {
         normalized.powf(1.0 / gamma)
     } else {
         normalized
     };
 
-    let log_min = metadata.min_content_boost[channel].ln();
-    let log_max = metadata.max_content_boost[channel].ln();
+    // Convert log2 domain to natural log for exp() math
+    let ln2 = core::f64::consts::LN_2;
+    let log_min = (metadata.gain_map_min[channel] * ln2) as f32;
+    let log_max = (metadata.gain_map_max[channel] * ln2) as f32;
     let log_gain = log_min + linear * (log_max - log_min);
 
     log_gain.exp()
@@ -2248,7 +2253,7 @@ mod tests {
             target_peak_nits: 203.0,
             hdr_peak_nits: 10000.0,
             target_gamut: ColorGamut::Bt709,
-            source_gamut: ColorGamut::Bt2100,
+            source_gamut: ColorGamut::Bt2020,
         };
         let result = tonemap_pq_to_sdr([0.58, 0.58, 0.58], &config);
         // Should produce a positive, non-trivial SDR value

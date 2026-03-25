@@ -108,8 +108,8 @@ pub enum ColorGamut {
     Bt709,
     /// Display P3 primaries
     DisplayP3,
-    /// BT.2100 / BT.2020 primaries (wide gamut for HDR)
-    Bt2100,
+    /// BT.2020 primaries (also used by BT.2100 for HDR)
+    Bt2020,
 }
 
 /// Electro-optical transfer function (EOTF/OETF).
@@ -372,74 +372,98 @@ impl GainMap {
     }
 }
 
-/// Gain map metadata (linear scale values).
-/// These values describe how to interpret the gain map.
-#[derive(Debug, Clone, Default)]
+/// ISO 21496-1 gain map metadata.
+///
+/// All gains and headroom values are stored in **log2 domain** to match the
+/// ISO 21496-1 wire format and avoid lossy domain conversions. Gamma and
+/// offsets are in **linear domain**.
+///
+/// # Domain conventions
+///
+/// | Field | Domain | Example |
+/// |-------|--------|---------|
+/// | `gain_map_min[i]` | log2 | −1.0 means ½× brightness |
+/// | `gain_map_max[i]` | log2 | 2.0 means 4× brightness |
+/// | `gamma[i]` | linear | 1.0 = linear gain map encoding |
+/// | `base_offset[i]` | linear | 1/64 default |
+/// | `alternate_offset[i]` | linear | 1/64 default |
+/// | `base_hdr_headroom` | log2 | 0.0 = SDR (1:1) |
+/// | `alternate_hdr_headroom` | log2 | 1.3 ≈ 2.46× peak brightness |
+#[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GainMapMetadata {
-    /// Maximum content boost per channel (HDR/SDR ratio).
-    /// log2 of this value gives the maximum gain map value.
-    pub max_content_boost: [f32; 3],
+    /// Log2 of maximum gain per channel. 0.0 = no boost, 2.0 = 4× brightness.
+    pub gain_map_max: [f64; 3],
 
-    /// Minimum content boost per channel.
-    /// Allows for darkening as well as brightening.
-    pub min_content_boost: [f32; 3],
+    /// Log2 of minimum gain per channel. Can be negative (darkening).
+    pub gain_map_min: [f64; 3],
 
-    /// Gamma applied to the gain map encoding.
-    pub gamma: [f32; 3],
+    /// Gamma applied to the gain map encoding. Linear domain, must be > 0.
+    pub gamma: [f64; 3],
 
-    /// Offset added to SDR values before gain computation.
-    pub offset_sdr: [f32; 3],
+    /// Offset added to base (SDR) values before gain application. Linear domain.
+    pub base_offset: [f64; 3],
 
-    /// Offset added to HDR values before gain computation.
-    pub offset_hdr: [f32; 3],
+    /// Offset added to alternate (HDR) values before gain application. Linear domain.
+    pub alternate_offset: [f64; 3],
 
-    /// Minimum display boost for full gain map effect.
-    pub hdr_capacity_min: f32,
+    /// Log2 of base image HDR headroom. 0.0 = SDR (peak luminance ratio 1:1).
+    pub base_hdr_headroom: f64,
 
-    /// Maximum display boost for full gain map effect.
-    pub hdr_capacity_max: f32,
+    /// Log2 of alternate image HDR headroom.
+    pub alternate_hdr_headroom: f64,
 
     /// Whether the gain map uses the base image color space.
     pub use_base_color_space: bool,
 }
 
-impl GainMapMetadata {
-    /// Create metadata with default values per Ultra HDR spec.
-    pub fn new() -> Self {
+impl Default for GainMapMetadata {
+    fn default() -> Self {
         Self {
-            max_content_boost: [1.0; 3],
-            min_content_boost: [1.0; 3],
+            gain_map_max: [0.0; 3], // log2(1.0) = 0
+            gain_map_min: [0.0; 3], // log2(1.0) = 0
             gamma: [1.0; 3],
-            offset_sdr: [1.0 / 64.0; 3], // 0.015625
-            offset_hdr: [1.0 / 64.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 1.0,
+            base_offset: [1.0 / 64.0; 3],
+            alternate_offset: [1.0 / 64.0; 3],
+            base_hdr_headroom: 0.0, // log2(1.0) = 0 = SDR
+            alternate_hdr_headroom: 0.0,
             use_base_color_space: true,
         }
     }
+}
 
-    /// Check if this is a single-channel (luminance-only) gain map.
+impl GainMapMetadata {
+    /// Create metadata with default values per ISO 21496-1.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether all three channels have identical parameters.
     pub fn is_single_channel(&self) -> bool {
-        self.max_content_boost[0] == self.max_content_boost[1]
-            && self.max_content_boost[1] == self.max_content_boost[2]
-            && self.min_content_boost[0] == self.min_content_boost[1]
-            && self.min_content_boost[1] == self.min_content_boost[2]
+        self.gain_map_max[0] == self.gain_map_max[1]
+            && self.gain_map_max[1] == self.gain_map_max[2]
+            && self.gain_map_min[0] == self.gain_map_min[1]
+            && self.gain_map_min[1] == self.gain_map_min[2]
             && self.gamma[0] == self.gamma[1]
             && self.gamma[1] == self.gamma[2]
+            && self.base_offset[0] == self.base_offset[1]
+            && self.base_offset[1] == self.base_offset[2]
+            && self.alternate_offset[0] == self.alternate_offset[1]
+            && self.alternate_offset[1] == self.alternate_offset[2]
     }
 
     /// Validate metadata values are within reasonable bounds.
     pub fn validate(&self) -> Result<()> {
         for i in 0..3 {
-            if !self.max_content_boost[i].is_finite() || self.max_content_boost[i] <= 0.0 {
+            if !self.gain_map_max[i].is_finite() {
                 return Err(Error::InvalidMetadata(format!(
-                    "max_content_boost[{}] must be positive finite",
+                    "gain_map_max[{}] must be finite",
                     i
                 )));
             }
-            if !self.min_content_boost[i].is_finite() || self.min_content_boost[i] <= 0.0 {
+            if !self.gain_map_min[i].is_finite() {
                 return Err(Error::InvalidMetadata(format!(
-                    "min_content_boost[{}] must be positive finite",
+                    "gain_map_min[{}] must be finite",
                     i
                 )));
             }
@@ -449,38 +473,40 @@ impl GainMapMetadata {
                     i
                 )));
             }
-            if !self.offset_sdr[i].is_finite() {
+            if !self.base_offset[i].is_finite() {
                 return Err(Error::InvalidMetadata(format!(
-                    "offset_sdr[{}] must be finite",
+                    "base_offset[{}] must be finite",
                     i
                 )));
             }
-            if !self.offset_hdr[i].is_finite() {
+            if !self.alternate_offset[i].is_finite() {
                 return Err(Error::InvalidMetadata(format!(
-                    "offset_hdr[{}] must be finite",
+                    "alternate_offset[{}] must be finite",
                     i
+                )));
+            }
+            if self.gain_map_min[i] > self.gain_map_max[i] {
+                return Err(Error::InvalidMetadata(format!(
+                    "gain_map_min[{}] ({}) > gain_map_max[{}] ({})",
+                    i, self.gain_map_min[i], i, self.gain_map_max[i]
                 )));
             }
         }
 
-        if !self.hdr_capacity_min.is_finite() || self.hdr_capacity_min < 0.0 {
+        if !self.base_hdr_headroom.is_finite() {
             return Err(Error::InvalidMetadata(
-                "hdr_capacity_min must be non-negative finite".into(),
+                "base_hdr_headroom must be finite".into(),
             ));
         }
-        if !self.hdr_capacity_max.is_finite() || self.hdr_capacity_max < 1.0 {
+        if !self.alternate_hdr_headroom.is_finite() {
             return Err(Error::InvalidMetadata(
-                "hdr_capacity_max must be >= 1.0".into(),
+                "alternate_hdr_headroom must be finite".into(),
             ));
         }
-
-        for i in 0..3 {
-            if self.min_content_boost[i] > self.max_content_boost[i] {
-                return Err(Error::InvalidMetadata(format!(
-                    "min_content_boost[{}] ({}) > max_content_boost[{}] ({})",
-                    i, self.min_content_boost[i], i, self.max_content_boost[i]
-                )));
-            }
+        if self.alternate_hdr_headroom < 0.0 {
+            return Err(Error::InvalidMetadata(
+                "alternate_hdr_headroom must be >= 0.0 (log2 domain)".into(),
+            ));
         }
 
         Ok(())
@@ -503,7 +529,7 @@ mod zencodec_interop {
             match gamut {
                 ColorGamut::Bt709 => ColorPrimaries::Bt709,
                 ColorGamut::DisplayP3 => ColorPrimaries::DisplayP3,
-                ColorGamut::Bt2100 => ColorPrimaries::Bt2020,
+                ColorGamut::Bt2020 => ColorPrimaries::Bt2020,
             }
         }
     }
@@ -513,7 +539,7 @@ mod zencodec_interop {
             match primaries {
                 ColorPrimaries::Bt709 => ColorGamut::Bt709,
                 ColorPrimaries::DisplayP3 => ColorGamut::DisplayP3,
-                ColorPrimaries::Bt2020 => ColorGamut::Bt2100,
+                ColorPrimaries::Bt2020 => ColorGamut::Bt2020,
                 _ => ColorGamut::Bt709, // fallback
             }
         }
@@ -545,46 +571,41 @@ mod zencodec_interop {
     }
 
     // --- GainMapMetadata ↔ zencodec::GainMapParams ---
+    //
+    // Both types now use log2 domain and f64 precision, so conversions are
+    // trivial field copies with no domain transforms.
 
     impl From<&zencodec::GainMapParams> for GainMapMetadata {
-        /// Convert from zencodec's log2-domain params to ultrahdr's linear-domain metadata.
         fn from(p: &zencodec::GainMapParams) -> Self {
             let mut meta = Self::new();
             for i in 0..3 {
-                // log2 → linear: 2^x
-                meta.min_content_boost[i] = 2.0f32.powf(p.channels[i].min as f32);
-                meta.max_content_boost[i] = 2.0f32.powf(p.channels[i].max as f32);
-                // gamma and offsets: direct f64→f32
-                meta.gamma[i] = p.channels[i].gamma as f32;
-                meta.offset_sdr[i] = p.channels[i].base_offset as f32;
-                meta.offset_hdr[i] = p.channels[i].alternate_offset as f32;
+                meta.gain_map_min[i] = p.channels[i].min;
+                meta.gain_map_max[i] = p.channels[i].max;
+                meta.gamma[i] = p.channels[i].gamma;
+                meta.base_offset[i] = p.channels[i].base_offset;
+                meta.alternate_offset[i] = p.channels[i].alternate_offset;
             }
-            // log2 → linear for headroom
-            meta.hdr_capacity_min = 2.0f32.powf(p.base_hdr_headroom as f32);
-            meta.hdr_capacity_max = 2.0f32.powf(p.alternate_hdr_headroom as f32);
+            meta.base_hdr_headroom = p.base_hdr_headroom;
+            meta.alternate_hdr_headroom = p.alternate_hdr_headroom;
             meta.use_base_color_space = p.use_base_color_space;
             meta
         }
     }
 
     impl From<&GainMapMetadata> for zencodec::GainMapParams {
-        /// Convert from ultrahdr's linear-domain metadata to zencodec's log2-domain params.
         fn from(m: &GainMapMetadata) -> Self {
             let mut channels = [zencodec::GainMapChannel::default(); 3];
             for i in 0..3 {
-                // linear → log2: log2(x)
-                channels[i].min = (m.min_content_boost[i] as f64).log2();
-                channels[i].max = (m.max_content_boost[i] as f64).log2();
-                // gamma and offsets: direct f32→f64
-                channels[i].gamma = m.gamma[i] as f64;
-                channels[i].base_offset = m.offset_sdr[i] as f64;
-                channels[i].alternate_offset = m.offset_hdr[i] as f64;
+                channels[i].min = m.gain_map_min[i];
+                channels[i].max = m.gain_map_max[i];
+                channels[i].gamma = m.gamma[i];
+                channels[i].base_offset = m.base_offset[i];
+                channels[i].alternate_offset = m.alternate_offset[i];
             }
-            // GainMapParams is #[non_exhaustive], so use Default + mutation
             let mut params = Self::default();
             params.channels = channels;
-            params.base_hdr_headroom = (m.hdr_capacity_min as f64).log2();
-            params.alternate_hdr_headroom = (m.hdr_capacity_max as f64).log2();
+            params.base_hdr_headroom = m.base_hdr_headroom;
+            params.alternate_hdr_headroom = m.alternate_hdr_headroom;
             params.use_base_color_space = m.use_base_color_space;
             params
         }
@@ -595,7 +616,7 @@ mod zencodec_interop {
 ///
 /// ISO 21496-1 uses fractional representation for gain map metadata
 /// to preserve precision without floating-point ambiguity.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Fraction {
     /// The numerator of the fraction.
     pub numerator: i32,
@@ -640,7 +661,7 @@ impl Fraction {
 /// An unsigned fraction for ISO 21496-1 metadata encoding.
 ///
 /// Used for fields that are always non-negative (gamma, HDR headroom).
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UnsignedFraction {
     /// The numerator of the fraction.
     pub numerator: u32,
@@ -725,11 +746,11 @@ mod tests {
         let mut metadata = GainMapMetadata::new();
         assert!(metadata.validate().is_ok());
 
-        metadata.gamma[0] = f32::NAN;
+        metadata.gamma[0] = f64::NAN;
         assert!(metadata.validate().is_err());
 
         metadata.gamma[0] = 1.0;
-        metadata.max_content_boost[1] = -1.0;
+        metadata.gain_map_max[1] = -1.0; // min(0.0) > max(-1.0)
         assert!(metadata.validate().is_err());
     }
 
@@ -741,20 +762,20 @@ mod tests {
     #[test]
     fn test_validate_rejects_min_gt_max_boost() {
         let metadata = GainMapMetadata {
-            min_content_boost: [5.0; 3],
-            max_content_boost: [2.0; 3],
+            gain_map_min: [5.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [1.0 / 64.0; 3],
-            offset_hdr: [1.0 / 64.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 5.0,
+            base_offset: [1.0 / 64.0; 3],
+            alternate_offset: [1.0 / 64.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 5.0,
             use_base_color_space: true,
         };
         let err = metadata.validate().unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("min_content_boost"),
-            "Error should mention min_content_boost: {}",
+            msg.contains("gain_map_min"),
+            "Error should mention gain_map_min: {}",
             msg
         );
     }
@@ -763,13 +784,13 @@ mod tests {
     #[test]
     fn test_validate_rejects_negative_gamma() {
         let metadata = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [-1.0, 1.0, 1.0],
-            offset_sdr: [1.0 / 64.0; 3],
-            offset_hdr: [1.0 / 64.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [1.0 / 64.0; 3],
+            alternate_offset: [1.0 / 64.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
         };
         let err = metadata.validate().unwrap_err();
@@ -784,24 +805,24 @@ mod tests {
         assert!(metadata_zero.validate().is_err());
     }
 
-    /// hdr_capacity_max < 1.0 should be rejected.
+    /// Negative alternate_hdr_headroom (log2 domain) should be rejected.
     #[test]
-    fn test_validate_rejects_capacity_below_one() {
+    fn test_validate_rejects_negative_headroom() {
         let metadata = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [1.0 / 64.0; 3],
-            offset_hdr: [1.0 / 64.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 0.5, // Invalid: < 1.0
+            base_offset: [1.0 / 64.0; 3],
+            alternate_offset: [1.0 / 64.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: -0.5, // Invalid: negative in log2 domain
             use_base_color_space: true,
         };
         let err = metadata.validate().unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("hdr_capacity_max"),
-            "Error should mention hdr_capacity_max: {}",
+            msg.contains("alternate_hdr_headroom"),
+            "Error should mention alternate_hdr_headroom: {}",
             msg
         );
     }
@@ -811,13 +832,13 @@ mod tests {
     fn test_validate_per_channel_independent() {
         // Channel 2 has min > max, others are fine
         let metadata = GainMapMetadata {
-            min_content_boost: [1.0, 1.0, 5.0],
-            max_content_boost: [4.0, 4.0, 2.0],
+            gain_map_min: [1.0, 1.0, 5.0],
+            gain_map_max: [4.0, 4.0, 2.0],
             gamma: [1.0; 3],
-            offset_sdr: [1.0 / 64.0; 3],
-            offset_hdr: [1.0 / 64.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [1.0 / 64.0; 3],
+            alternate_offset: [1.0 / 64.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
         };
         assert!(metadata.validate().is_err());
@@ -827,40 +848,40 @@ mod tests {
     #[test]
     fn test_validate_rejects_nan_infinity() {
         let base = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [1.0 / 64.0; 3],
-            offset_hdr: [1.0 / 64.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [1.0 / 64.0; 3],
+            alternate_offset: [1.0 / 64.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
         };
         assert!(base.validate().is_ok());
 
         // NaN in each field
         let mut m = base.clone();
-        m.max_content_boost[0] = f32::NAN;
+        m.gain_map_max[0] = f64::NAN;
         assert!(m.validate().is_err());
 
         let mut m = base.clone();
-        m.min_content_boost[1] = f32::NAN;
+        m.gain_map_min[1] = f64::NAN;
         assert!(m.validate().is_err());
 
         let mut m = base.clone();
-        m.offset_sdr[2] = f32::NAN;
+        m.base_offset[2] = f64::NAN;
         assert!(m.validate().is_err());
 
         let mut m = base.clone();
-        m.offset_hdr[0] = f32::INFINITY;
+        m.alternate_offset[0] = f64::INFINITY;
         assert!(m.validate().is_err());
 
         let mut m = base.clone();
-        m.hdr_capacity_min = f32::NAN;
+        m.base_hdr_headroom = f64::NAN;
         assert!(m.validate().is_err());
 
         let mut m = base;
-        m.hdr_capacity_max = f32::INFINITY;
+        m.alternate_hdr_headroom = f64::INFINITY;
         assert!(m.validate().is_err());
     }
 
@@ -896,7 +917,7 @@ mod zencodec_tests {
             ColorPrimaries::DisplayP3
         );
         assert_eq!(
-            ColorPrimaries::from(ColorGamut::Bt2100),
+            ColorPrimaries::from(ColorGamut::Bt2020),
             ColorPrimaries::Bt2020
         );
     }
@@ -908,7 +929,7 @@ mod zencodec_tests {
             ColorGamut::from(ColorPrimaries::DisplayP3),
             ColorGamut::DisplayP3
         );
-        assert_eq!(ColorGamut::from(ColorPrimaries::Bt2020), ColorGamut::Bt2100);
+        assert_eq!(ColorGamut::from(ColorPrimaries::Bt2020), ColorGamut::Bt2020);
         // Unknown falls back to Bt709
         assert_eq!(ColorGamut::from(ColorPrimaries::Unknown), ColorGamut::Bt709);
     }
@@ -974,12 +995,12 @@ mod zencodec_tests {
         params.use_base_color_space = true;
 
         let meta = GainMapMetadata::from(&params);
-        assert!((meta.min_content_boost[0] - 1.0).abs() < 1e-5); // 2^0 = 1
-        assert!((meta.max_content_boost[0] - 4.0).abs() < 1e-5); // 2^2 = 4
+        assert!((meta.gain_map_min[0] - 1.0).abs() < 1e-5); // 2^0 = 1
+        assert!((meta.gain_map_max[0] - 4.0).abs() < 1e-5); // 2^2 = 4
         assert!((meta.gamma[0] - 1.0).abs() < 1e-5);
-        assert!((meta.offset_sdr[0] - 1.0 / 64.0).abs() < 1e-5);
-        assert!((meta.hdr_capacity_min - 1.0).abs() < 1e-5); // 2^0 = 1
-        assert!((meta.hdr_capacity_max - 4.0).abs() < 1e-5); // 2^2 = 4
+        assert!((meta.base_offset[0] - 1.0 / 64.0).abs() < 1e-5);
+        assert!((meta.base_hdr_headroom - 1.0).abs() < 1e-5); // 2^0 = 1
+        assert!((meta.alternate_hdr_headroom - 4.0).abs() < 1e-5); // 2^2 = 4
         assert!(meta.use_base_color_space);
 
         // Round-trip back to GainMapParams
@@ -993,13 +1014,13 @@ mod zencodec_tests {
     #[test]
     fn gainmap_metadata_to_params() {
         let meta = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [1.0 / 64.0; 3],
-            offset_hdr: [1.0 / 64.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [1.0 / 64.0; 3],
+            alternate_offset: [1.0 / 64.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
         };
 
@@ -1021,22 +1042,22 @@ mod zencodec_tests {
         // hdr_capacity_max should be 2^1.3 ≈ 2.462, NOT 1.3
         let expected = 2.0f32.powf(1.3);
         assert!(
-            (meta.hdr_capacity_max - expected).abs() < 0.01,
+            (meta.alternate_hdr_headroom - expected).abs() < 0.01,
             "hdr_capacity_max should be {expected}, got {}",
-            meta.hdr_capacity_max,
+            meta.alternate_hdr_headroom,
         );
     }
 
     #[test]
     fn gainmap_params_multichannel() {
         let meta = GainMapMetadata {
-            min_content_boost: [1.0, 0.5, 2.0],
-            max_content_boost: [4.0, 8.0, 16.0],
+            gain_map_min: [1.0, 0.5, 2.0],
+            gain_map_max: [4.0, 8.0, 16.0],
             gamma: [1.0, 0.8, 1.2],
-            offset_sdr: [0.01, 0.02, 0.03],
-            offset_hdr: [0.04, 0.05, 0.06],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 10.0,
+            base_offset: [0.01, 0.02, 0.03],
+            alternate_offset: [0.04, 0.05, 0.06],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 10.0,
             use_base_color_space: false,
         };
 
