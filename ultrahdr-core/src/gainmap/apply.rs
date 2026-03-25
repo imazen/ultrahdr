@@ -22,14 +22,16 @@ impl GainMapLut {
     /// Create a new gain map LUT for the given metadata and display boost.
     ///
     /// The `weight` parameter is typically calculated from `display_boost` and
-    /// the metadata's `hdr_capacity_min`/`hdr_capacity_max`.
+    /// the metadata's `base_hdr_headroom`/`alternate_hdr_headroom`.
     pub fn new(metadata: &GainMapMetadata, weight: f32) -> Self {
         let mut table = Box::new([0.0f32; 256 * 3]);
 
         for channel in 0..3 {
-            let gamma = metadata.gamma[channel];
-            let log_min = metadata.min_content_boost[channel].ln();
-            let log_max = metadata.max_content_boost[channel].ln();
+            let gamma = metadata.gamma[channel] as f32;
+            // Convert log2 domain to natural log for exp() math
+            let ln2 = core::f64::consts::LN_2;
+            let log_min = (metadata.gain_map_min[channel] * ln2) as f32;
+            let log_max = (metadata.gain_map_max[channel] * ln2) as f32;
             let log_range = log_max - log_min;
 
             for i in 0..256 {
@@ -163,16 +165,18 @@ pub fn apply_gainmap(
 }
 
 /// Calculate the weight factor for gain map application.
+///
+/// Headroom values are in log2 domain. `display_boost` is linear.
 fn calculate_weight(display_boost: f32, metadata: &GainMapMetadata) -> f32 {
-    let log_display = display_boost.max(1.0).ln();
-    let log_min = metadata.hdr_capacity_min.max(1.0).ln();
-    let log_max = metadata.hdr_capacity_max.max(1.0).ln();
+    let log_display = display_boost.max(1.0).log2() as f64;
+    let log_min = metadata.base_hdr_headroom.max(0.0);
+    let log_max = metadata.alternate_hdr_headroom.max(0.0);
 
     if log_max <= log_min {
         return 1.0;
     }
 
-    ((log_display - log_min) / (log_max - log_min)).clamp(0.0, 1.0)
+    ((log_display - log_min) / (log_max - log_min)).clamp(0.0, 1.0) as f32
 }
 
 /// Get linear RGB from SDR image.
@@ -308,9 +312,12 @@ fn sample_gainmap_lut(
 /// Apply gain to SDR pixel to get HDR.
 fn apply_gain(sdr_linear: [f32; 3], gain: [f32; 3], metadata: &GainMapMetadata) -> [f32; 3] {
     [
-        (sdr_linear[0] + metadata.offset_sdr[0]) * gain[0] - metadata.offset_hdr[0],
-        (sdr_linear[1] + metadata.offset_sdr[1]) * gain[1] - metadata.offset_hdr[1],
-        (sdr_linear[2] + metadata.offset_sdr[2]) * gain[2] - metadata.offset_hdr[2],
+        (sdr_linear[0] + metadata.base_offset[0] as f32) * gain[0]
+            - metadata.alternate_offset[0] as f32,
+        (sdr_linear[1] + metadata.base_offset[1] as f32) * gain[1]
+            - metadata.alternate_offset[1] as f32,
+        (sdr_linear[2] + metadata.base_offset[2] as f32) * gain[2]
+            - metadata.alternate_offset[2] as f32,
     ]
 }
 
@@ -399,8 +406,8 @@ mod tests {
     #[test]
     fn test_calculate_weight() {
         let metadata = GainMapMetadata {
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             ..Default::default()
         };
 
@@ -420,8 +427,8 @@ mod tests {
     #[test]
     fn test_gain_map_lut() {
         let metadata = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
             ..Default::default()
         };
@@ -461,13 +468,13 @@ mod tests {
         }
 
         let metadata = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [0.015625; 3],
-            offset_hdr: [0.015625; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [0.015625; 3],
+            alternate_offset: [0.015625; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
         };
 
@@ -506,13 +513,13 @@ mod tests {
     #[test]
     fn test_gain_application_weight_levels() {
         let metadata = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [1.0 / 64.0; 3],
-            offset_hdr: [1.0 / 64.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [1.0 / 64.0; 3],
+            alternate_offset: [1.0 / 64.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
         };
 
@@ -570,13 +577,13 @@ mod tests {
     #[test]
     fn test_gain_application_black_pixel() {
         let metadata = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [1.0 / 64.0; 3],
-            offset_hdr: [1.0 / 64.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [1.0 / 64.0; 3],
+            alternate_offset: [1.0 / 64.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
         };
 
@@ -613,13 +620,13 @@ mod tests {
     #[test]
     fn test_gain_lut_range_coverage() {
         let metadata = GainMapMetadata {
-            min_content_boost: [0.5; 3],
-            max_content_boost: [8.0; 3],
+            gain_map_min: [-1.0; 3],
+            gain_map_max: [3.0; 3],
             gamma: [1.0; 3],
-            offset_sdr: [1.0 / 64.0; 3],
-            offset_hdr: [1.0 / 64.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 8.0,
+            base_offset: [1.0 / 64.0; 3],
+            alternate_offset: [1.0 / 64.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 3.0,
             use_base_color_space: true,
         };
 
@@ -686,14 +693,15 @@ mod tests {
 
     /// Helper: create standard test metadata.
     fn test_metadata() -> GainMapMetadata {
+        // log2(1.0)=0.0, log2(4.0)=2.0
         GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3], // log2(1.0)
+            gain_map_max: [2.0; 3], // log2(4.0)
             gamma: [1.0; 3],
-            offset_sdr: [1.0 / 64.0; 3],
-            offset_hdr: [1.0 / 64.0; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [1.0 / 64.0; 3],
+            alternate_offset: [1.0 / 64.0; 3],
+            base_hdr_headroom: 0.0,      // log2(1.0)
+            alternate_hdr_headroom: 2.0, // log2(4.0)
             use_base_color_space: true,
         }
     }
@@ -795,7 +803,7 @@ mod tests {
             &sdr,
             &gainmap,
             &metadata,
-            metadata.hdr_capacity_max,
+            2.0f32.powf(metadata.alternate_hdr_headroom as f32), // linear display boost
             HdrOutputFormat::LinearFloat,
             enough::Unstoppable,
         )
@@ -863,21 +871,23 @@ mod tests {
         let lut = GainMapLut::new(&metadata, 1.0);
 
         // At weight=1.0:
-        // Byte 0 → normalized=0.0 → log_gain=ln(min_boost)=ln(1.0)=0 → gain=exp(0)=1.0
+        // Byte 0 → normalized=0.0 → gain = 2^gain_map_min = 2^0 = 1.0
         let gain_0 = lut.lookup(0, 0);
+        let expected_min = 2.0f32.powf(metadata.gain_map_min[0] as f32);
         assert!(
-            (gain_0 - metadata.min_content_boost[0]).abs() < 0.01,
-            "byte 0 should give min_content_boost={}, got {}",
-            metadata.min_content_boost[0],
+            (gain_0 - expected_min).abs() < 0.01,
+            "byte 0 should give 2^gain_map_min={}, got {}",
+            expected_min,
             gain_0
         );
 
-        // Byte 255 → normalized=1.0 → log_gain=ln(max_boost)=ln(4.0) → gain=exp(ln(4))=4.0
+        // Byte 255 → normalized=1.0 → gain = 2^gain_map_max = 2^2 = 4.0
         let gain_255 = lut.lookup(255, 0);
+        let expected_max = 2.0f32.powf(metadata.gain_map_max[0] as f32);
         assert!(
-            (gain_255 - metadata.max_content_boost[0]).abs() < 0.1,
-            "byte 255 should give max_content_boost={}, got {}",
-            metadata.max_content_boost[0],
+            (gain_255 - expected_max).abs() < 0.1,
+            "byte 255 should give 2^gain_map_max={}, got {}",
+            expected_max,
             gain_255
         );
     }

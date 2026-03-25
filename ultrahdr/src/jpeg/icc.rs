@@ -100,7 +100,7 @@ pub fn get_icc_profile_for_gamut(gamut: ColorGamut) -> Vec<u8> {
     let profile = match gamut {
         ColorGamut::Bt709 => ColorProfile::new_srgb(),
         ColorGamut::DisplayP3 => ColorProfile::new_display_p3(),
-        ColorGamut::Bt2100 => {
+        ColorGamut::Bt2020 => {
             // BT.2100 typically uses PQ or HLG, not sRGB TRC.
             // For the SDR base image's ICC tag we use BT.2020 primaries
             // with a gamma 2.2 TRC (the SDR rendition is always 8-bit).
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_get_icc_profile_bt2100() {
-        let profile_bytes = get_icc_profile_for_gamut(ColorGamut::Bt2100);
+        let profile_bytes = get_icc_profile_for_gamut(ColorGamut::Bt2020);
         assert!(profile_bytes.len() > 128);
         assert_eq!(&profile_bytes[36..40], b"acsp");
         let parsed = ColorProfile::new_from_slice(&profile_bytes);

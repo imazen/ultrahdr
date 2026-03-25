@@ -158,7 +158,7 @@ pub fn luma_coefficients(gamut: ColorGamut) -> [f32; 3] {
     match gamut {
         ColorGamut::Bt709 => BT709_LUMA,
         ColorGamut::DisplayP3 => P3_LUMA,
-        ColorGamut::Bt2100 => BT2100_LUMA,
+        ColorGamut::Bt2020 => BT2100_LUMA,
     }
 }
 
@@ -178,16 +178,16 @@ pub fn gamut_conversion_matrix(from: ColorGamut, to: ColorGamut) -> Matrix3x3 {
     match (from, to) {
         (ColorGamut::Bt709, ColorGamut::Bt709) => Matrix3x3::IDENTITY,
         (ColorGamut::DisplayP3, ColorGamut::DisplayP3) => Matrix3x3::IDENTITY,
-        (ColorGamut::Bt2100, ColorGamut::Bt2100) => Matrix3x3::IDENTITY,
+        (ColorGamut::Bt2020, ColorGamut::Bt2020) => Matrix3x3::IDENTITY,
 
         (ColorGamut::Bt709, ColorGamut::DisplayP3) => BT709_TO_P3,
         (ColorGamut::DisplayP3, ColorGamut::Bt709) => P3_TO_BT709,
 
-        (ColorGamut::Bt709, ColorGamut::Bt2100) => BT709_TO_BT2100,
-        (ColorGamut::Bt2100, ColorGamut::Bt709) => BT2100_TO_BT709,
+        (ColorGamut::Bt709, ColorGamut::Bt2020) => BT709_TO_BT2100,
+        (ColorGamut::Bt2020, ColorGamut::Bt709) => BT2100_TO_BT709,
 
-        (ColorGamut::DisplayP3, ColorGamut::Bt2100) => P3_TO_BT2100,
-        (ColorGamut::Bt2100, ColorGamut::DisplayP3) => BT2100_TO_P3,
+        (ColorGamut::DisplayP3, ColorGamut::Bt2020) => P3_TO_BT2100,
+        (ColorGamut::Bt2020, ColorGamut::DisplayP3) => BT2100_TO_P3,
     }
 }
 
@@ -308,8 +308,8 @@ mod tests {
         );
 
         // BT.709 -> BT.2100 -> BT.709
-        let bt2100 = convert_gamut(rgb, ColorGamut::Bt709, ColorGamut::Bt2100);
-        let back = convert_gamut(bt2100, ColorGamut::Bt2100, ColorGamut::Bt709);
+        let bt2100 = convert_gamut(rgb, ColorGamut::Bt709, ColorGamut::Bt2020);
+        let back = convert_gamut(bt2100, ColorGamut::Bt2020, ColorGamut::Bt709);
         assert!(
             rgb_approx_eq(rgb, back),
             "709->2100->709 failed: {:?} -> {:?}",
@@ -330,7 +330,7 @@ mod tests {
             p3
         );
 
-        let bt2100 = convert_gamut(white, ColorGamut::Bt709, ColorGamut::Bt2100);
+        let bt2100 = convert_gamut(white, ColorGamut::Bt709, ColorGamut::Bt2020);
         assert!(
             rgb_approx_eq(white, bt2100),
             "White not preserved 709->2100: {:?}",
@@ -347,7 +347,7 @@ mod tests {
             rgb_to_luminance(white, ColorGamut::DisplayP3),
             1.0
         ));
-        assert!(approx_eq(rgb_to_luminance(white, ColorGamut::Bt2100), 1.0));
+        assert!(approx_eq(rgb_to_luminance(white, ColorGamut::Bt2020), 1.0));
 
         // Black should have luminance 0.0
         let black = [0.0, 0.0, 0.0];
@@ -356,7 +356,7 @@ mod tests {
         // Pure green has different luminance in different gamuts
         let green = [0.0, 1.0, 0.0];
         let lum_709 = rgb_to_luminance(green, ColorGamut::Bt709);
-        let lum_2100 = rgb_to_luminance(green, ColorGamut::Bt2100);
+        let lum_2100 = rgb_to_luminance(green, ColorGamut::Bt2020);
         assert!(approx_eq(lum_709, 0.7152)); // BT.709 green coefficient
         assert!(approx_eq(lum_2100, 0.6780)); // BT.2100 green coefficient
     }
@@ -385,7 +385,7 @@ mod tests {
     #[test]
     fn test_identity_conversion() {
         let rgb = [0.3, 0.6, 0.9];
-        for gamut in [ColorGamut::Bt709, ColorGamut::DisplayP3, ColorGamut::Bt2100] {
+        for gamut in [ColorGamut::Bt709, ColorGamut::DisplayP3, ColorGamut::Bt2020] {
             let result = convert_gamut(rgb, gamut, gamut);
             assert_eq!(
                 result, rgb,
@@ -466,7 +466,7 @@ mod tests {
 
     #[test]
     fn test_luminance_coefficients_sum() {
-        for gamut in [ColorGamut::Bt709, ColorGamut::DisplayP3, ColorGamut::Bt2100] {
+        for gamut in [ColorGamut::Bt709, ColorGamut::DisplayP3, ColorGamut::Bt2020] {
             let coeffs = luma_coefficients(gamut);
             let sum = coeffs[0] + coeffs[1] + coeffs[2];
             assert!(

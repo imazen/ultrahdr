@@ -217,8 +217,8 @@ fn test_gainmap_compute_with_zenjpeg_encode() {
     assert!(!gainmap.data.is_empty());
 
     // Verify metadata is sensible
-    assert!(metadata.hdr_capacity_max > 1.0);
-    assert!(metadata.max_content_boost.iter().any(|&v| v > 1.0));
+    assert!(metadata.alternate_hdr_headroom > 1.0);
+    assert!(metadata.gain_map_max.iter().any(|&v| v > 1.0));
 
     // Encode gain map with zenjpeg
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
@@ -240,8 +240,8 @@ fn test_xmp_roundtrip() {
     let sdr_image = create_sdr_from_hdr(&hdr_image);
 
     let config = GainMapConfig {
-        max_content_boost: 8.0,
-        hdr_capacity_max: 8.0,
+        gain_map_max: 8.0,
+        alternate_hdr_headroom: 3.0,
         ..Default::default()
     };
     let (_gainmap, metadata) =
@@ -254,12 +254,12 @@ fn test_xmp_roundtrip() {
 
     for i in 0..3 {
         assert!(
-            (parsed.max_content_boost[i] - metadata.max_content_boost[i]).abs() < 0.01,
+            (parsed.gain_map_max[i] - metadata.gain_map_max[i]).abs() < 0.01,
             "max_content_boost[{}] mismatch",
             i
         );
         assert!(
-            (parsed.min_content_boost[i] - metadata.min_content_boost[i]).abs() < 0.01,
+            (parsed.gain_map_min[i] - metadata.gain_map_min[i]).abs() < 0.01,
             "min_content_boost[{}] mismatch",
             i
         );
@@ -455,7 +455,7 @@ fn test_ultrahdr_decode() {
     // Verify XMP
     let xmp_str = extras.xmp().expect("should have XMP");
     let (parsed_metadata, _) = parse_xmp(xmp_str).expect("parse XMP");
-    assert!(parsed_metadata.hdr_capacity_max > 1.0);
+    assert!(parsed_metadata.alternate_hdr_headroom > 1.0);
 
     // Verify gainmap
     let gainmap_data = extras.gainmap().expect("should have gainmap");
@@ -676,7 +676,7 @@ fn test_readme_workflow_encode_decode() {
 
     assert!(gainmap_len.is_some(), "XMP should contain gainmap length");
     assert!(
-        parsed_metadata.hdr_capacity_max > 1.0,
+        parsed_metadata.alternate_hdr_headroom > 1.0,
         "HDR capacity should be > 1.0"
     );
 
@@ -935,10 +935,10 @@ fn test_set_existing_gainmap_jpeg() {
     let meta_2 = decoder_2.metadata().expect("metadata 2");
 
     assert!(
-        (meta_1.hdr_capacity_max - meta_2.hdr_capacity_max).abs() < 0.01,
+        (meta_1.alternate_hdr_headroom - meta_2.alternate_hdr_headroom).abs() < 0.01,
         "metadata should match: {} vs {}",
-        meta_1.hdr_capacity_max,
-        meta_2.hdr_capacity_max
+        meta_1.alternate_hdr_headroom,
+        meta_2.alternate_hdr_headroom
     );
 
     println!("set_existing_gainmap_jpeg test passed");
@@ -966,13 +966,13 @@ fn test_set_existing_gainmap_jpeg_sdr_only() {
 
     // Create metadata using proper struct fields
     let metadata = ultrahdr_rs::GainMapMetadata {
-        max_content_boost: [4.0, 4.0, 4.0],
-        min_content_boost: [1.0, 1.0, 1.0],
+        gain_map_max: [4.0, 4.0, 4.0],
+        gain_map_min: [1.0, 1.0, 1.0],
         gamma: [1.0, 1.0, 1.0],
-        offset_sdr: [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0],
-        offset_hdr: [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0],
-        hdr_capacity_min: 1.0,
-        hdr_capacity_max: 4.0,
+        base_offset: [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0],
+        alternate_offset: [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0],
+        base_hdr_headroom: 0.0,
+        alternate_hdr_headroom: 2.0,
         use_base_color_space: false,
     };
 

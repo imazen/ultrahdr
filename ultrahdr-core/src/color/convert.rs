@@ -46,7 +46,7 @@ impl YuvCoefficients {
         match gamut {
             ColorGamut::Bt709 => Self::BT709,
             ColorGamut::DisplayP3 => Self::BT709, // P3 typically uses BT.709 matrix
-            ColorGamut::Bt2100 => Self::BT2020,
+            ColorGamut::Bt2020 => Self::BT2020,
         }
     }
 }

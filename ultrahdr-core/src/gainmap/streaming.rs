@@ -759,17 +759,18 @@ impl RowEncoder {
             gainmap.data[start..end].copy_from_slice(row);
         }
 
-        let actual_min = self.actual_min_boost.max(self.config.min_content_boost);
-        let actual_max = self.actual_max_boost.min(self.config.max_content_boost);
+        let actual_min = self.actual_min_boost.max(self.config.min_boost);
+        let actual_max = self.actual_max_boost.min(self.config.max_boost);
 
         let metadata = GainMapMetadata {
-            max_content_boost: [actual_max; 3],
-            min_content_boost: [actual_min; 3],
-            gamma: [self.config.gamma; 3],
-            offset_sdr: [self.config.offset_sdr; 3],
-            offset_hdr: [self.config.offset_hdr; 3],
-            hdr_capacity_min: self.config.hdr_capacity_min,
-            hdr_capacity_max: self.config.hdr_capacity_max.max(actual_max),
+            gain_map_max: [(actual_max as f64).log2(); 3],
+            gain_map_min: [(actual_min as f64).log2(); 3],
+            gamma: [self.config.gamma as f64; 3],
+            base_offset: [self.config.base_offset as f64; 3],
+            alternate_offset: [self.config.alternate_offset as f64; 3],
+            base_hdr_headroom: (self.config.base_hdr_headroom as f64).log2(),
+            alternate_hdr_headroom: (self.config.alternate_hdr_headroom.max(actual_max) as f64)
+                .log2(),
             use_base_color_space: true,
         };
 
@@ -787,8 +788,8 @@ impl RowEncoder {
         let channels = if self.config.multi_channel { 3 } else { 1 };
         let mut row = vec![0u8; self.gm_width as usize * channels];
 
-        let log_min = self.config.min_content_boost.ln();
-        let log_max = self.config.max_content_boost.ln();
+        let log_min = self.config.min_boost.ln();
+        let log_max = self.config.max_boost.ln();
         let log_range = log_max - log_min;
 
         for gx in 0..self.gm_width {
@@ -800,8 +801,8 @@ impl RowEncoder {
 
             if self.config.multi_channel {
                 for c in 0..3 {
-                    let gain = (hdr_rgb[c] + self.config.offset_hdr)
-                        / (sdr_rgb[c] + self.config.offset_sdr).max(0.001);
+                    let gain = (hdr_rgb[c] + self.config.alternate_offset)
+                        / (sdr_rgb[c] + self.config.base_offset).max(0.001);
 
                     self.actual_min_boost = self.actual_min_boost.min(gain);
                     self.actual_max_boost = self.actual_max_boost.max(gain);
@@ -813,7 +814,8 @@ impl RowEncoder {
                 let hdr_lum = rgb_to_luminance(hdr_rgb, self.hdr_gamut);
                 let sdr_lum = rgb_to_luminance(sdr_rgb, self.sdr_gamut);
 
-                let gain = (hdr_lum + self.config.offset_hdr) / (sdr_lum + self.config.offset_sdr);
+                let gain =
+                    (hdr_lum + self.config.alternate_offset) / (sdr_lum + self.config.base_offset);
 
                 self.actual_min_boost = self.actual_min_boost.min(gain);
                 self.actual_max_boost = self.actual_max_boost.max(gain);
@@ -1051,8 +1053,8 @@ impl StreamEncoder {
         let hdr_row_data = self.hdr_rows.get(center_y);
         let sdr_row_data = self.sdr_rows.get(center_y);
 
-        let log_min = self.config.min_content_boost.ln();
-        let log_max = self.config.max_content_boost.ln();
+        let log_min = self.config.min_boost.ln();
+        let log_max = self.config.max_boost.ln();
         let log_range = log_max - log_min;
 
         for gx in 0..self.gm_width {
@@ -1064,8 +1066,8 @@ impl StreamEncoder {
             if self.config.multi_channel {
                 #[allow(clippy::needless_range_loop)]
                 for c in 0..3 {
-                    let hdr_c = hdr_rgb[c] + self.config.offset_hdr;
-                    let sdr_c = sdr_rgb[c] + self.config.offset_sdr;
+                    let hdr_c = hdr_rgb[c] + self.config.alternate_offset;
+                    let sdr_c = sdr_rgb[c] + self.config.base_offset;
                     let gain = hdr_c / sdr_c.max(1e-6);
 
                     self.actual_min_boost = self.actual_min_boost.min(gain);
@@ -1076,7 +1078,8 @@ impl StreamEncoder {
             } else {
                 let hdr_lum = rgb_to_luminance(hdr_rgb, self.hdr_gamut);
                 let sdr_lum = rgb_to_luminance(sdr_rgb, self.sdr_gamut);
-                let gain = (hdr_lum + self.config.offset_hdr) / (sdr_lum + self.config.offset_sdr);
+                let gain =
+                    (hdr_lum + self.config.alternate_offset) / (sdr_lum + self.config.base_offset);
 
                 self.actual_min_boost = self.actual_min_boost.min(gain);
                 self.actual_max_boost = self.actual_max_boost.max(gain);
@@ -1134,22 +1137,22 @@ impl StreamEncoder {
         let actual_max = if self.actual_max_boost > f32::MIN {
             self.actual_max_boost
         } else {
-            self.config.max_content_boost
+            self.config.max_boost
         };
         let actual_min = if self.actual_min_boost < f32::MAX {
             self.actual_min_boost
         } else {
-            self.config.min_content_boost
+            self.config.min_boost
         };
 
         let metadata = GainMapMetadata {
-            max_content_boost: [actual_max; 3],
-            min_content_boost: [actual_min; 3],
-            gamma: [self.config.gamma; 3],
-            offset_sdr: [self.config.offset_sdr; 3],
-            offset_hdr: [self.config.offset_hdr; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: actual_max,
+            gain_map_max: [(actual_max as f64).log2(); 3],
+            gain_map_min: [(actual_min as f64).log2(); 3],
+            gamma: [self.config.gamma as f64; 3],
+            base_offset: [self.config.base_offset as f64; 3],
+            alternate_offset: [self.config.alternate_offset as f64; 3],
+            base_hdr_headroom: 0.0, // log2(1.0) = 0
+            alternate_hdr_headroom: (actual_max as f64).log2(),
             use_base_color_space: true,
         };
 
@@ -1187,15 +1190,15 @@ impl StreamEncoder {
 // ============================================================================
 
 fn calculate_weight(display_boost: f32, metadata: &GainMapMetadata) -> f32 {
-    let log_display = display_boost.max(1.0).ln();
-    let log_min = metadata.hdr_capacity_min.max(1.0).ln();
-    let log_max = metadata.hdr_capacity_max.max(1.0).ln();
+    let log_display = display_boost.max(1.0).log2() as f64;
+    let log_min = metadata.base_hdr_headroom.max(0.0);
+    let log_max = metadata.alternate_hdr_headroom.max(0.0);
 
     if log_max <= log_min {
         return 1.0;
     }
 
-    ((log_display - log_min) / (log_max - log_min)).clamp(0.0, 1.0)
+    ((log_display - log_min) / (log_max - log_min)).clamp(0.0, 1.0) as f32
 }
 
 #[inline]
@@ -1206,15 +1209,17 @@ fn bilinear(v00: f32, v10: f32, v01: f32, v11: f32, fx: f32, fy: f32) -> f32 {
 }
 
 fn decode_gain(normalized: f32, metadata: &GainMapMetadata, channel: usize, weight: f32) -> f32 {
-    let gamma = metadata.gamma[channel];
+    let gamma = metadata.gamma[channel] as f32;
     let linear = if gamma != 1.0 && gamma > 0.0 {
         normalized.powf(1.0 / gamma)
     } else {
         normalized
     };
 
-    let log_min = metadata.min_content_boost[channel].ln();
-    let log_max = metadata.max_content_boost[channel].ln();
+    // Convert log2 domain to natural log for exp() math
+    let ln2 = core::f64::consts::LN_2;
+    let log_min = (metadata.gain_map_min[channel] * ln2) as f32;
+    let log_max = (metadata.gain_map_max[channel] * ln2) as f32;
     let log_gain = log_min + linear * (log_max - log_min);
 
     (log_gain * weight).exp()
@@ -1222,14 +1227,17 @@ fn decode_gain(normalized: f32, metadata: &GainMapMetadata, channel: usize, weig
 
 fn apply_gain(sdr_linear: [f32; 3], gain: [f32; 3], metadata: &GainMapMetadata) -> [f32; 3] {
     [
-        (sdr_linear[0] + metadata.offset_sdr[0]) * gain[0] - metadata.offset_hdr[0],
-        (sdr_linear[1] + metadata.offset_sdr[1]) * gain[1] - metadata.offset_hdr[1],
-        (sdr_linear[2] + metadata.offset_sdr[2]) * gain[2] - metadata.offset_hdr[2],
+        (sdr_linear[0] + metadata.base_offset[0] as f32) * gain[0]
+            - metadata.alternate_offset[0] as f32,
+        (sdr_linear[1] + metadata.base_offset[1] as f32) * gain[1]
+            - metadata.alternate_offset[1] as f32,
+        (sdr_linear[2] + metadata.base_offset[2] as f32) * gain[2]
+            - metadata.alternate_offset[2] as f32,
     ]
 }
 
 fn encode_gain(gain: f32, log_min: f32, log_range: f32, config: &GainMapConfig) -> u8 {
-    let gain_clamped = gain.clamp(config.min_content_boost, config.max_content_boost);
+    let gain_clamped = gain.clamp(config.min_boost, config.max_boost);
     let log_gain = gain_clamped.ln();
 
     let normalized = if log_range > 0.0 {
@@ -1254,13 +1262,13 @@ mod tests {
         }
 
         let metadata = GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3], // log2(1.0)
+            gain_map_max: [2.0; 3], // log2(4.0)
             gamma: [1.0; 3],
-            offset_sdr: [0.015625; 3],
-            offset_hdr: [0.015625; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [0.015625; 3],
+            alternate_offset: [0.015625; 3],
+            base_hdr_headroom: 0.0,      // log2(1.0)
+            alternate_hdr_headroom: 2.0, // log2(4.0)
             use_base_color_space: true,
         };
 
@@ -1296,7 +1304,7 @@ mod tests {
         let (gainmap, metadata) = encoder.finish().unwrap();
         assert_eq!(gainmap.width, 2);
         assert_eq!(gainmap.height, 2);
-        assert!(metadata.max_content_boost[0] >= 1.0);
+        assert!(metadata.gain_map_max[0] >= 1.0);
     }
 
     #[test]
@@ -1325,14 +1333,15 @@ mod tests {
 
     /// Helper: standard metadata used across tests.
     fn test_metadata() -> GainMapMetadata {
+        // log2(1.0)=0.0, log2(4.0)=2.0
         GainMapMetadata {
-            min_content_boost: [1.0; 3],
-            max_content_boost: [4.0; 3],
+            gain_map_min: [0.0; 3], // log2(1.0)
+            gain_map_max: [2.0; 3], // log2(4.0)
             gamma: [1.0; 3],
-            offset_sdr: [0.015625; 3],
-            offset_hdr: [0.015625; 3],
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: 4.0,
+            base_offset: [0.015625; 3],
+            alternate_offset: [0.015625; 3],
+            base_hdr_headroom: 0.0,      // log2(1.0)
+            alternate_hdr_headroom: 2.0, // log2(4.0)
             use_base_color_space: true,
         }
     }
@@ -1497,7 +1506,7 @@ mod tests {
         let (gainmap, metadata) = encoder.finish().unwrap();
         assert_eq!(gainmap.width, 2);
         assert_eq!(gainmap.height, 2);
-        assert!(metadata.max_content_boost[0] >= 1.0);
+        assert!(metadata.gain_map_max[0] >= 1.0);
         // The batch call should have produced the same number of gm rows
         // as the total gm height (2), since all input was provided at once.
         assert_eq!(gm_rows.len(), 2);

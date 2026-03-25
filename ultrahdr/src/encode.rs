@@ -113,7 +113,7 @@ pub struct Encoder {
     gainmap_quality: u8,
     gainmap_scale: u8,
     target_display_peak: f32,
-    min_content_boost: f32,
+    gain_map_min: f32,
     #[cfg(feature = "_test-helpers")]
     use_iso_metadata: bool,
 }
@@ -135,7 +135,7 @@ impl Encoder {
             gainmap_quality: 85,
             gainmap_scale: 4,
             target_display_peak: 10000.0,
-            min_content_boost: 1.0,
+            gain_map_min: 1.0,
             #[cfg(feature = "_test-helpers")]
             use_iso_metadata: true,
         }
@@ -230,7 +230,7 @@ impl Encoder {
 
     /// Set minimum content boost.
     pub fn set_min_content_boost(&mut self, boost: f32) -> &mut Self {
-        self.min_content_boost = boost.max(1.0);
+        self.gain_map_min = boost.max(1.0);
         self
     }
 
@@ -360,12 +360,12 @@ impl Encoder {
             scale_factor: self.gainmap_scale,
             gamma: 1.0,
             multi_channel: false,
-            min_content_boost: self.min_content_boost,
-            max_content_boost: self.target_display_peak / 203.0,
-            offset_sdr: 1.0 / 64.0,
-            offset_hdr: 1.0 / 64.0,
-            hdr_capacity_min: 1.0,
-            hdr_capacity_max: self.target_display_peak / 203.0,
+            gain_map_min: self.gain_map_min,
+            gain_map_max: self.target_display_peak / 203.0,
+            base_offset: 1.0 / 64.0,
+            alternate_offset: 1.0 / 64.0,
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: self.target_display_peak / 203.0,
         };
 
         compute_gainmap(hdr, sdr, &config, Unstoppable)
