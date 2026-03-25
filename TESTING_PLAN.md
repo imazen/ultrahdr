@@ -1,3 +1,5 @@
+> **Partially superseded.** As of March 2026, the test suite has grown to 318+ tests including parity tests against libultrahdr. Many phases below have been completed. See CLAUDE.md for current status.
+
 # Ultra HDR Testing Plan
 
 ## Current State
