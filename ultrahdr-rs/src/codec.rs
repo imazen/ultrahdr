@@ -91,7 +91,7 @@ pub struct UltraHdrDecoderConfig;
 
 impl DecoderConfig for UltraHdrDecoderConfig {
     type Error = ZenDecodeError;
-    type Job = UltraHdrDecodeJob;
+    type Job<'a> = UltraHdrDecodeJob;
 
     fn formats() -> &'static [ZenImageFormat] {
         &[ZenImageFormat::Jpeg] // Ultra HDR is JPEG-based
@@ -113,7 +113,7 @@ impl DecoderConfig for UltraHdrDecoderConfig {
         &CAPS
     }
 
-    fn job(self) -> Self::Job {
+    fn job<'a>(self) -> Self::Job<'a> {
         UltraHdrDecodeJob {
             _config: self,
             limits: None,
