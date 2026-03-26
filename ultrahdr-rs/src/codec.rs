@@ -47,6 +47,8 @@ use crate::Decoder;
 
 extern crate alloc;
 
+use enough::Stop as _;
+
 /// Extra data from Ultra HDR decode.
 ///
 /// Attached to [`DecodeOutput`] via `with_extras()`. Retrieve with
@@ -89,7 +91,7 @@ pub struct UltraHdrDecoderConfig;
 
 impl DecoderConfig for UltraHdrDecoderConfig {
     type Error = ZenDecodeError;
-    type Job<'a> = UltraHdrDecodeJob<'a>;
+    type Job = UltraHdrDecodeJob;
 
     fn formats() -> &'static [ZenImageFormat] {
         &[ZenImageFormat::Jpeg] // Ultra HDR is JPEG-based
@@ -111,7 +113,7 @@ impl DecoderConfig for UltraHdrDecoderConfig {
         &CAPS
     }
 
-    fn job(&self) -> Self::Job<'_> {
+    fn job(self) -> Self::Job {
         UltraHdrDecodeJob {
             _config: self,
             limits: None,
@@ -121,19 +123,19 @@ impl DecoderConfig for UltraHdrDecoderConfig {
 }
 
 /// Per-operation Ultra HDR decode job.
-pub struct UltraHdrDecodeJob<'a> {
-    _config: &'a UltraHdrDecoderConfig,
+pub struct UltraHdrDecodeJob {
+    _config: UltraHdrDecoderConfig,
     limits: Option<ResourceLimits>,
-    stop: Option<&'a dyn zencodec::enough::Stop>,
+    stop: Option<zencodec::StopToken>,
 }
 
-impl<'a> DecodeJob<'a> for UltraHdrDecodeJob<'a> {
+impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
     type Error = ZenDecodeError;
     type Dec = UltraHdrDecoder<'a>;
     type StreamDec = Unsupported<ZenDecodeError>;
     type AnimationFrameDec = Unsupported<ZenDecodeError>;
 
-    fn with_stop(mut self, stop: &'a dyn zencodec::enough::Stop) -> Self {
+    fn with_stop(mut self, stop: zencodec::StopToken) -> Self {
         self.stop = Some(stop);
         self
     }
@@ -232,7 +234,7 @@ pub struct UltraHdrDecoder<'a> {
     data: Cow<'a, [u8]>,
     want_rgba: bool,
     limits: ResourceLimits,
-    stop: Option<&'a dyn zencodec::enough::Stop>,
+    stop: Option<zencodec::StopToken>,
 }
 
 impl<'a> Decode for UltraHdrDecoder<'a> {
@@ -261,12 +263,12 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
             JpegPixelFormat::Rgb
         };
 
-        let stop: &dyn enough::Stop = self.stop.unwrap_or(&enough::Unstoppable);
+        let stop = self.stop.unwrap_or_else(|| zencodec::StopToken::new(enough::Unstoppable));
         stop.check().map_err(ZenDecodeError::Stopped)?;
 
         let decoded = JpegDecoder::new()
             .output_format(output_fmt)
-            .decode(primary_jpeg, stop)
+            .decode(primary_jpeg, &stop)
             .map_err(|e| ZenDecodeError::Jpeg(e.to_string()))?;
 
         let width = decoded.width();

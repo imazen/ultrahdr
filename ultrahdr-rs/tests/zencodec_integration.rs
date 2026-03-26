@@ -34,7 +34,7 @@ fn output_info_returns_nonzero_dimensions() {
 #[test]
 fn output_info_matches_probe_dimensions() {
     let config = UltraHdrDecoderConfig;
-    let probe_info = config.job().probe(TEST_ULTRAHDR).unwrap();
+    let probe_info = config.clone().job().probe(TEST_ULTRAHDR).unwrap();
     let output_info = config.job().output_info(TEST_ULTRAHDR).unwrap();
     assert_eq!(
         output_info.width, probe_info.width,
