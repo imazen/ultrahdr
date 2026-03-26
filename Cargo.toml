@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "ultrahdr-core",
-    "ultrahdr",
+    "ultrahdr-rs",
     "wasm-bench",
 ]
 
