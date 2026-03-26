@@ -70,16 +70,15 @@ fn bench_apply_gainmap(c: &mut Criterion) {
 
         let sdr = create_sdr_image(width, height);
         let gainmap = create_gainmap(width / 4, height / 4);
-        let metadata = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [0.015625; 3],
-            alternate_offset: [0.015625; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            use_base_color_space: true,
-        };
+        let mut metadata = GainMapMetadata::new();
+        metadata.gain_map_min = [0.0; 3];
+        metadata.gain_map_max = [2.0; 3];
+        metadata.gamma = [1.0; 3];
+        metadata.base_offset = [0.015625; 3];
+        metadata.alternate_offset = [0.015625; 3];
+        metadata.base_hdr_headroom = 0.0;
+        metadata.alternate_hdr_headroom = 2.0;
+        metadata.use_base_color_space = true;
 
         group.bench_with_input(
             BenchmarkId::new("linear_float", format!("{}x{}", width, height)),

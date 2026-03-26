@@ -65,8 +65,8 @@ fn output_info_native_format_is_rgb8() {
 fn capabilities_cancel_is_true() {
     let caps = UltraHdrDecoderConfig::capabilities();
     assert!(
-        caps.cancel(),
-        "cancel should be true (passes stop tokens to zenjpeg)"
+        caps.stop(),
+        "stop should be true (passes stop tokens to zenjpeg)"
     );
 }
 
@@ -137,8 +137,8 @@ fn capabilities_no_animation() {
 fn capabilities_no_row_level() {
     let caps = UltraHdrDecoderConfig::capabilities();
     assert!(
-        !caps.row_level(),
-        "row_level should be false (streaming decode is unsupported)"
+        !caps.streaming(),
+        "streaming should be false (streaming decode is unsupported)"
     );
 }
 
@@ -151,7 +151,7 @@ fn probe_detects_gain_map() {
     let config = UltraHdrDecoderConfig;
     let info = config.job().probe(TEST_ULTRAHDR).unwrap();
     assert!(
-        info.has_gain_map,
+        info.gain_map.is_present(),
         "probe should detect gain map in Ultra HDR image"
     );
 }
@@ -161,7 +161,7 @@ fn probe_attaches_gain_map_metadata() {
     let config = UltraHdrDecoderConfig;
     let info = config.job().probe(TEST_ULTRAHDR).unwrap();
     assert!(
-        info.gain_map_metadata.is_some(),
+        info.gain_map.info().is_some(),
         "probe should attach gain map metadata when available"
     );
 }
@@ -170,12 +170,13 @@ fn probe_attaches_gain_map_metadata() {
 fn probe_gain_map_metadata_has_valid_values() {
     let config = UltraHdrDecoderConfig;
     let info = config.job().probe(TEST_ULTRAHDR).unwrap();
-    let meta = info.gain_map_metadata.unwrap();
-    // gain_map_max values should be positive (log2 domain of max_content_boost > 1.0)
-    for &v in &meta.gain_map_max {
+    let gm_info = info.gain_map.info().expect("gain map info should be present");
+    // channel max values should be positive (log2 domain of max_content_boost > 1.0)
+    for ch in &gm_info.params.channels {
         assert!(
-            v > 0.0,
-            "gain_map_max should be positive (log2 of boost > 1.0), got {v}"
+            ch.max > 0.0,
+            "channel max should be positive (log2 of boost > 1.0), got {}",
+            ch.max
         );
     }
 }
@@ -186,9 +187,9 @@ fn probe_plain_jpeg_has_no_gain_map() {
     let plain_jpeg = &[0xFF, 0xD8, 0xFF, 0xD9];
     let config = UltraHdrDecoderConfig;
     let info = config.job().probe(plain_jpeg).unwrap();
-    assert!(!info.has_gain_map, "plain JPEG should not have gain map");
+    assert!(!info.gain_map.is_present(), "plain JPEG should not have gain map");
     assert!(
-        info.gain_map_metadata.is_none(),
+        info.gain_map.info().is_none(),
         "plain JPEG should not have gain map metadata"
     );
 }

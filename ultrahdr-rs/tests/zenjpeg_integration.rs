@@ -965,16 +965,15 @@ fn test_set_existing_gainmap_jpeg_sdr_only() {
     let gainmap_jpeg = encode_grayscale(&gainmap_data, gm_width, gm_height, 75.0);
 
     // Create metadata using proper struct fields
-    let metadata = ultrahdr_rs::GainMapMetadata {
-        gain_map_max: [4.0, 4.0, 4.0],
-        gain_map_min: [1.0, 1.0, 1.0],
-        gamma: [1.0, 1.0, 1.0],
-        base_offset: [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0],
-        alternate_offset: [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0],
-        base_hdr_headroom: 0.0,
-        alternate_hdr_headroom: 2.0,
-        use_base_color_space: false,
-    };
+    let mut metadata = ultrahdr_rs::GainMapMetadata::new();
+    metadata.gain_map_max = [4.0, 4.0, 4.0];
+    metadata.gain_map_min = [1.0, 1.0, 1.0];
+    metadata.gamma = [1.0, 1.0, 1.0];
+    metadata.base_offset = [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0];
+    metadata.alternate_offset = [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0];
+    metadata.base_hdr_headroom = 0.0;
+    metadata.alternate_hdr_headroom = 2.0;
+    metadata.use_base_color_space = false;
 
     // Encode compressed SDR JPEG
     let sdr_jpeg = {

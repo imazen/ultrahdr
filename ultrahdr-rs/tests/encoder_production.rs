@@ -56,16 +56,16 @@ fn stub_jpeg() -> Vec<u8> {
 }
 
 fn test_metadata() -> GainMapMetadata {
-    GainMapMetadata {
-        gain_map_max: [2.0; 3],
-        gain_map_min: [0.0; 3],
-        gamma: [1.0; 3],
-        base_offset: [1.0 / 64.0; 3],
-        alternate_offset: [1.0 / 64.0; 3],
-        base_hdr_headroom: 0.0,
-        alternate_hdr_headroom: 2.0,
-        use_base_color_space: true,
-    }
+    let mut m = GainMapMetadata::new();
+    m.gain_map_max = [2.0; 3];
+    m.gain_map_min = [0.0; 3];
+    m.gamma = [1.0; 3];
+    m.base_offset = [1.0 / 64.0; 3];
+    m.alternate_offset = [1.0 / 64.0; 3];
+    m.base_hdr_headroom = 0.0;
+    m.alternate_hdr_headroom = 2.0;
+    m.use_base_color_space = true;
+    m
 }
 
 // ============================================================================
@@ -161,16 +161,15 @@ fn test_encode_ultrahdr_has_icc() {
 fn test_encode_ultrahdr_metadata_preserved() {
     let base = stub_jpeg();
     let gainmap = stub_jpeg();
-    let metadata = GainMapMetadata {
-        gain_map_max: [3.0; 3],
-        gain_map_min: [0.0; 3],
-        gamma: [1.0; 3],
-        base_offset: [1.0 / 64.0; 3],
-        alternate_offset: [1.0 / 64.0; 3],
-        base_hdr_headroom: 0.0,
-        alternate_hdr_headroom: 3.0,
-        use_base_color_space: true,
-    };
+    let mut metadata = GainMapMetadata::new();
+    metadata.gain_map_max = [3.0; 3];
+    metadata.gain_map_min = [0.0; 3];
+    metadata.gamma = [1.0; 3];
+    metadata.base_offset = [1.0 / 64.0; 3];
+    metadata.alternate_offset = [1.0 / 64.0; 3];
+    metadata.base_hdr_headroom = 0.0;
+    metadata.alternate_hdr_headroom = 3.0;
+    metadata.use_base_color_space = true;
 
     let encoded = encode_ultrahdr(&base, &gainmap, &metadata, ColorGamut::Bt709).unwrap();
     let decoder = Decoder::new(&encoded).unwrap();

@@ -1040,7 +1040,7 @@ mod zencodec_tests {
 
         let meta = GainMapMetadata::from(&params);
         // hdr_capacity_max should be 2^1.3 ≈ 2.462, NOT 1.3
-        let expected = 2.0f32.powf(1.3);
+        let expected = 2.0f64.powf(1.3);
         assert!(
             (meta.alternate_hdr_headroom - expected).abs() < 0.01,
             "hdr_capacity_max should be {expected}, got {}",

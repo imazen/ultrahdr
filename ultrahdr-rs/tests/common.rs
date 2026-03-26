@@ -216,16 +216,16 @@ pub fn create_hdr_highlights(width: u32, height: u32, background: f32, highlight
 /// Create test metadata with specified max boost (linear domain, converted to log2).
 pub fn create_test_metadata(max_boost: f32) -> GainMapMetadata {
     let log2_max = (max_boost as f64).log2();
-    GainMapMetadata {
-        gain_map_max: [log2_max; 3],
-        gain_map_min: [0.0; 3],
-        gamma: [1.0; 3],
-        base_offset: [1.0 / 64.0; 3],
-        alternate_offset: [1.0 / 64.0; 3],
-        base_hdr_headroom: 0.0,
-        alternate_hdr_headroom: log2_max,
-        use_base_color_space: true,
-    }
+    let mut m = GainMapMetadata::new();
+    m.gain_map_max = [log2_max; 3];
+    m.gain_map_min = [0.0; 3];
+    m.gamma = [1.0; 3];
+    m.base_offset = [1.0 / 64.0; 3];
+    m.alternate_offset = [1.0 / 64.0; 3];
+    m.base_hdr_headroom = 0.0;
+    m.alternate_hdr_headroom = log2_max;
+    m.use_base_color_space = true;
+    m
 }
 
 /// Linear to sRGB transfer function for reference calculations.
