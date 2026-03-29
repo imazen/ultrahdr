@@ -263,7 +263,9 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
             JpegPixelFormat::Rgb
         };
 
-        let stop = self.stop.unwrap_or_else(|| zencodec::StopToken::new(enough::Unstoppable));
+        let stop = self
+            .stop
+            .unwrap_or_else(|| zencodec::StopToken::new(enough::Unstoppable));
         stop.check().map_err(ZenDecodeError::Stopped)?;
 
         let decoded = JpegDecoder::new()

@@ -170,7 +170,10 @@ fn probe_attaches_gain_map_metadata() {
 fn probe_gain_map_metadata_has_valid_values() {
     let config = UltraHdrDecoderConfig;
     let info = config.job().probe(TEST_ULTRAHDR).unwrap();
-    let gm_info = info.gain_map.info().expect("gain map info should be present");
+    let gm_info = info
+        .gain_map
+        .info()
+        .expect("gain map info should be present");
     // channel max values should be positive (log2 domain of max_content_boost > 1.0)
     for ch in &gm_info.params.channels {
         assert!(
@@ -187,7 +190,10 @@ fn probe_plain_jpeg_has_no_gain_map() {
     let plain_jpeg = &[0xFF, 0xD8, 0xFF, 0xD9];
     let config = UltraHdrDecoderConfig;
     let info = config.job().probe(plain_jpeg).unwrap();
-    assert!(!info.gain_map.is_present(), "plain JPEG should not have gain map");
+    assert!(
+        !info.gain_map.is_present(),
+        "plain JPEG should not have gain map"
+    );
     assert!(
         info.gain_map.info().is_none(),
         "plain JPEG should not have gain map metadata"
