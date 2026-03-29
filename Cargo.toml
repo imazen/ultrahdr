@@ -45,7 +45,7 @@ linear-srgb = { version = "0.6.5", default-features = false, features = ["transf
 
 # Zen ecosystem interop
 zenpixels = { version = "0.2.1", default-features = false }
-zencodec = { version = "0.1.5" }
+zencodec = { version = "0.1.8" }
 
 # Testing
 proptest = "1.10"
