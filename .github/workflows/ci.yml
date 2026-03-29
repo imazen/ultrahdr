@@ -26,6 +26,9 @@ jobs:
           - macos-26-intel
     steps:
       - uses: actions/checkout@v6
+      - name: Strip workspace members needing sibling repos
+        shell: bash
+        run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -35,46 +38,47 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Clone zune-image (test dependency)
-        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
-
       - name: Build
-        run: cargo build --workspace --all-targets
+        run: cargo build -p ultrahdr-core --all-targets
 
       - name: Run tests
-        run: cargo test --workspace --all-targets
+        run: cargo test -p ultrahdr-core --all-targets
 
       - name: Test with simd feature
-        run: cargo test --workspace --all-targets --features simd
+        run: cargo test -p ultrahdr-core --all-targets --features simd
 
       - name: Check ultrahdr-core no_std (no default features)
         run: cargo build --package ultrahdr-core --no-default-features
 
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy -p ultrahdr-core --all-targets -- -D warnings
 
   fmt:
     name: Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Strip workspace members needing sibling repos
+        shell: bash
+        run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
 
-      - name: Clone zune-image (workspace dependency)
-        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
 
       - name: Check formatting
-        run: cargo fmt --package ultrahdr-core --package ultrahdr --package wasm-bench --check
+        run: cargo fmt --package ultrahdr-core --check
 
   wasm:
     name: WASM Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Strip workspace members needing sibling repos
+        shell: bash
+        run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -86,8 +90,6 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Clone zune-image (workspace dependency)
-        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
 
       - name: Check ultrahdr-core WASM build
         run: cargo build --package ultrahdr-core --target wasm32-unknown-unknown
@@ -114,6 +116,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Strip workspace members needing sibling repos
+        shell: bash
+        run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -128,8 +133,6 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Clone zune-image (test dependency)
-        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
 
       - name: Run WASM tests
         run: wasm-pack test --node ultrahdr
@@ -140,15 +143,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Strip workspace members needing sibling repos
+        shell: bash
+        run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Clone zune-image (doc dependency)
-        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
 
       - name: Check docs
-        run: cargo doc --workspace --no-deps
+        run: cargo doc -p ultrahdr-core --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -157,6 +161,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Strip workspace members needing sibling repos
+        shell: bash
+        run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -171,11 +178,9 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Clone zune-image (test dependency)
-        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
 
       - name: Generate coverage
-        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+        run: cargo llvm-cov -p ultrahdr-core --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -188,6 +193,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Strip workspace members needing sibling repos
+        shell: bash
+        run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
 
       - name: Install Rust 1.92
         uses: dtolnay/rust-toolchain@1.92
@@ -197,8 +205,6 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Clone zune-image (test dependency)
-        run: git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
 
       - name: Check MSRV
-        run: cargo check --workspace
+        run: cargo check -p ultrahdr-core
