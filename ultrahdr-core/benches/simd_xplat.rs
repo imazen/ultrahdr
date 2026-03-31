@@ -9,7 +9,8 @@
 //!   cargo build --package ultrahdr-core --bench simd_xplat --features simd --target aarch64-unknown-linux-gnu
 //!   cargo build --package ultrahdr-core --bench simd_xplat --features simd --target wasm32-unknown-unknown
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use std::hint::black_box;
 
 // ============================================================================
 // Scalar baseline - current LUT implementation
@@ -65,10 +66,8 @@ mod simd_impl {
     ) {
         use archmage::SimdToken;
 
-        if let Some(token) = archmage::Avx2FmaToken::try_new() {
+        if let Some(token) = archmage::X64V3Token::try_new() {
             apply_gain_avx2(token, sdr, gainmap, lut, output);
-        } else if let Some(token) = archmage::Sse41Token::try_new() {
-            apply_gain_sse(token, sdr, gainmap, lut, output);
         } else {
             apply_gain_scalar_lut(sdr, gainmap, lut, output);
         }
@@ -77,13 +76,13 @@ mod simd_impl {
     #[cfg(target_arch = "x86_64")]
     #[archmage::arcane]
     fn apply_gain_avx2(
-        token: archmage::Avx2FmaToken,
+        token: archmage::X64V3Token,
         sdr: &[[f32; 3]],
         gainmap: &[u8],
         lut: &[f32; 256],
         output: &mut [[f32; 3]],
     ) {
-        use magetypes::f32x8;
+        use magetypes::simd::f32x8;
 
         // Process 8 pixels at a time
         let chunks = sdr.len() / 8;
@@ -123,56 +122,6 @@ mod simd_impl {
 
         // Handle remainder
         let remainder_start = chunks * 8;
-        for i in remainder_start..sdr.len() {
-            let g = lut[gainmap[i] as usize];
-            output[i][0] = sdr[i][0] * g;
-            output[i][1] = sdr[i][1] * g;
-            output[i][2] = sdr[i][2] * g;
-        }
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[archmage::arcane]
-    fn apply_gain_sse(
-        token: archmage::Sse41Token,
-        sdr: &[[f32; 3]],
-        gainmap: &[u8],
-        lut: &[f32; 256],
-        output: &mut [[f32; 3]],
-    ) {
-        use magetypes::f32x4;
-
-        // Process 4 pixels at a time
-        let chunks = sdr.len() / 4;
-
-        for chunk_idx in 0..chunks {
-            let base = chunk_idx * 4;
-
-            let gains: [f32; 4] = std::array::from_fn(|i| lut[gainmap[base + i] as usize]);
-            let g = f32x4::from_array(token, gains);
-
-            let r: [f32; 4] = std::array::from_fn(|i| sdr[base + i][0]);
-            let r_v = f32x4::from_array(token, r);
-
-            let g_ch: [f32; 4] = std::array::from_fn(|i| sdr[base + i][1]);
-            let g_v = f32x4::from_array(token, g_ch);
-
-            let b: [f32; 4] = std::array::from_fn(|i| sdr[base + i][2]);
-            let b_v = f32x4::from_array(token, b);
-
-            let r_out = r_v * g;
-            let g_out = g_v * g;
-            let b_out = b_v * g;
-
-            let r_arr = r_out.to_array();
-            let g_arr = g_out.to_array();
-            let b_arr = b_out.to_array();
-            for i in 0..4 {
-                output[base + i] = [r_arr[i], g_arr[i], b_arr[i]];
-            }
-        }
-
-        let remainder_start = chunks * 4;
         for i in remainder_start..sdr.len() {
             let g = lut[gainmap[i] as usize];
             output[i][0] = sdr[i][0] * g;
@@ -232,7 +181,7 @@ mod simd_impl {
     ) {
         use archmage::SimdToken;
 
-        if let Some(token) = archmage::Avx2FmaToken::try_new() {
+        if let Some(token) = archmage::X64V3Token::try_new() {
             apply_gain_avx2_exp(token, sdr, gainmap, gamma, log_min, log_max, weight, output);
         } else {
             // Fallback to scalar with exp
@@ -255,8 +204,9 @@ mod simd_impl {
 
     #[cfg(target_arch = "x86_64")]
     #[archmage::arcane]
+    #[allow(clippy::too_many_arguments)]
     fn apply_gain_avx2_exp(
-        token: archmage::Avx2FmaToken,
+        token: archmage::X64V3Token,
         sdr: &[[f32; 3]],
         gainmap: &[u8],
         gamma: f32,
@@ -265,7 +215,7 @@ mod simd_impl {
         weight: f32,
         output: &mut [[f32; 3]],
     ) {
-        use magetypes::f32x8;
+        use magetypes::simd::f32x8;
 
         let log_range = log_max - log_min;
         let inv_gamma = 1.0 / gamma;
@@ -456,7 +406,7 @@ fn bench_platform_info(c: &mut Criterion) {
             #[cfg(target_arch = "x86_64")]
             {
                 use archmage::SimdToken;
-                black_box(archmage::Avx2FmaToken::try_new().is_some());
+                black_box(archmage::X64V3Token::try_new().is_some());
             }
             #[cfg(target_arch = "aarch64")]
             {

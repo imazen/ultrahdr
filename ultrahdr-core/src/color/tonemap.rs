@@ -2677,7 +2677,7 @@ mod tests {
             let v = i as f32 * 0.01;
             let result = uncharted2_filmic(v);
             assert!(
-                result >= 0.0 && result <= 1.0,
+                (0.0..=1.0).contains(&result),
                 "Out of [0,1] at {}: {}",
                 v,
                 result

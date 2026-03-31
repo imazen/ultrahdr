@@ -8,6 +8,7 @@ use ultrahdr_rs::{ColorGamut, Decoder, Encoder, GainMapMetadata, encode_ultrahdr
 /// Minimal valid JPEG for testing (SOI + DQT + SOF + DHT + SOS + scan + EOI).
 ///
 /// This is a 1x1 black pixel JPEG. It's syntactically valid and decodable.
+#[allow(dead_code)]
 fn minimal_jpeg() -> Vec<u8> {
     vec![
         0xFF, 0xD8, // SOI

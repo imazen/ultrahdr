@@ -64,7 +64,7 @@ pub fn apply_gain_row_simd(
 ) {
     use archmage::SimdToken;
 
-    if let Some(token) = archmage::Avx2FmaToken::try_new() {
+    if let Some(token) = archmage::X64V3Token::try_new() {
         apply_gain_avx2(token, sdr, gainmap, lut, output);
     } else {
         apply_gain_row_scalar(sdr, gainmap, lut, output);
@@ -116,7 +116,7 @@ pub fn apply_gain_row_simd(
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[archmage::arcane]
 fn apply_gain_avx2(
-    token: archmage::Avx2FmaToken,
+    token: archmage::X64V3Token,
     sdr: &[[f32; 3]],
     gainmap: &[u8],
     lut: &[f32; 256],
@@ -370,24 +370,24 @@ mod tests {
         apply_gain_row_simd(&sdr, &gainmap, &lut, &mut output);
 
         // Pixel 0: gain = min_gain = 0.5
-        for ch in 0..3 {
+        for (ch, val) in output[0].iter().enumerate() {
             assert!(
-                (output[0][ch] - min_gain).abs() < 1e-6,
+                (val - min_gain).abs() < 1e-6,
                 "byte 0 ch={}: expected {}, got {}",
                 ch,
                 min_gain,
-                output[0][ch],
+                val,
             );
         }
 
         // Pixel 1: gain = max_gain = 8.0
-        for ch in 0..3 {
+        for (ch, val) in output[1].iter().enumerate() {
             assert!(
-                (output[1][ch] - max_gain).abs() < 1e-6,
+                (val - max_gain).abs() < 1e-6,
                 "byte 255 ch={}: expected {}, got {}",
                 ch,
                 max_gain,
-                output[1][ch],
+                val,
             );
         }
     }

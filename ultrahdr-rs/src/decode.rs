@@ -16,7 +16,6 @@ use crate::container::{self, AppSegment};
 /// brightness levels.
 ///
 /// The decoder borrows the input data to avoid an unconditional copy.
-/// For owned data, use [`Decoder::from_vec`].
 pub struct Decoder<'a> {
     data: &'a [u8],
     metadata: Option<GainMapMetadata>,
@@ -69,7 +68,7 @@ impl<'a> Decoder<'a> {
     /// Decode the SDR base image.
     ///
     /// Note: This method requires a JPEG codec and is only available in tests.
-    /// For production use, access the raw JPEG bytes via [`primary_jpeg`] and
+    /// For production use, access the raw JPEG bytes via [`Decoder::primary_jpeg`] and
     /// decode with your own codec.
     #[cfg(feature = "_test-helpers")]
     pub fn decode_sdr(&self) -> Result<RawImage> {
@@ -84,7 +83,7 @@ impl<'a> Decoder<'a> {
     /// Decode the SDR base image.
     ///
     /// This method is not available in the library. Access the raw JPEG bytes
-    /// via [`primary_jpeg`] and decode with your own codec.
+    /// via [`Decoder::primary_jpeg`] and decode with your own codec.
     #[cfg(not(feature = "_test-helpers"))]
     pub fn decode_sdr(&self) -> Result<RawImage> {
         Err(Error::DecodeError(
@@ -97,7 +96,7 @@ impl<'a> Decoder<'a> {
     /// Decode the gain map.
     ///
     /// Note: This method requires a JPEG codec and is only available in tests.
-    /// For production use, access the raw JPEG bytes via [`gainmap_jpeg`] and
+    /// For production use, access the raw JPEG bytes via [`Decoder::gainmap_jpeg`] and
     /// decode with your own codec.
     #[cfg(feature = "_test-helpers")]
     pub fn decode_gainmap(&self) -> Result<GainMap> {
@@ -119,7 +118,7 @@ impl<'a> Decoder<'a> {
     /// Decode the gain map.
     ///
     /// This method is not available in the library. Access the raw JPEG bytes
-    /// via [`gainmap_jpeg`] and decode with your own codec.
+    /// via [`Decoder::gainmap_jpeg`] and decode with your own codec.
     #[cfg(not(feature = "_test-helpers"))]
     pub fn decode_gainmap(&self) -> Result<GainMap> {
         Err(Error::DecodeError(
@@ -138,8 +137,8 @@ impl<'a> Decoder<'a> {
     /// - ~49.0 = Full HDR10 (10000 nits / 203 SDR nits)
     ///
     /// Note: This method requires a JPEG codec and is only available in tests.
-    /// For production use, decode the JPEGs yourself using [`primary_jpeg`] and
-    /// [`gainmap_jpeg`], then call [`ultrahdr_core::gainmap::apply::apply_gainmap`].
+    /// For production use, decode the JPEGs yourself using [`Decoder::primary_jpeg`] and
+    /// [`Decoder::gainmap_jpeg`], then call [`ultrahdr_core::gainmap::apply::apply_gainmap`].
     #[cfg(feature = "_test-helpers")]
     pub fn decode_hdr(&self, display_boost: f32) -> Result<RawImage> {
         self.decode_hdr_with_format(display_boost, HdrOutputFormat::LinearFloat)

@@ -249,11 +249,12 @@ fn test_mpf_single_image() {
 
     // Build APP2 segment
     let total_len = 2 + mpf_data.len();
-    let mut app2 = Vec::new();
-    app2.push(0xFF);
-    app2.push(0xE2);
-    app2.push(((total_len >> 8) & 0xFF) as u8);
-    app2.push((total_len & 0xFF) as u8);
+    let mut app2 = vec![
+        0xFF,
+        0xE2,
+        ((total_len >> 8) & 0xFF) as u8,
+        (total_len & 0xFF) as u8,
+    ];
     app2.extend_from_slice(&mpf_data);
 
     let jpeg = build_jpeg_with_segments(&[app2]);
@@ -270,7 +271,7 @@ fn test_mpf_single_image() {
 /// Two concatenated JPEGs without MPF — should detect via boundary scan.
 #[test]
 fn test_two_jpegs_no_mpf() {
-    let mut data = vec![
+    let data = vec![
         0xFF, 0xD8, // SOI 1
         0xFF, 0xE0, 0x00, 0x07, b'J', b'F', b'I', b'F', 0x00, // APP0
         0xFF, 0xD9, // EOI 1
