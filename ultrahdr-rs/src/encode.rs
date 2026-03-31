@@ -33,7 +33,7 @@ pub fn encode_ultrahdr(
         gainmap_jpeg,
         metadata,
         gamut,
-        GainMapEncodingFormat::default(),
+        GainMapEncodingFormat::Both,
     )
 }
 

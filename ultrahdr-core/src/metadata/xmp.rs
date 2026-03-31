@@ -334,7 +334,16 @@ pub fn build_gainmap_metadata_markers(
 
     if include_iso {
         let iso_data = super::iso21496::serialize_iso21496(metadata);
-        markers.push(super::iso21496::create_iso_app2_marker(&iso_data));
+        // Strip the version byte prefix for JPEG APP2.
+        // The base serialize_iso21496 format has: version(u8) + min_ver(u16) + writer_ver(u16) + flags + data
+        // libultrahdr's JPEG APP2 format starts at: min_ver(u16) + writer_ver(u16) + flags + data
+        // The version byte is used in AVIF tmap / JXL jhgm boxes but not in JPEG APP2.
+        let iso_jpeg = if iso_data.first() == Some(&0) {
+            &iso_data[1..]
+        } else {
+            &iso_data
+        };
+        markers.push(super::iso21496::create_iso_app2_marker(iso_jpeg));
     }
 
     markers
