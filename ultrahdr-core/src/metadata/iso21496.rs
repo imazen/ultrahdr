@@ -122,67 +122,7 @@ pub fn parse_iso21496(data: &[u8]) -> Result<GainMapMetadata> {
         )));
     }
 
-    // base_hdr_headroom (u32/u32)
-    let (base_headroom, new_pos) = read_unsigned_fraction(data, pos)?;
-    pos = new_pos;
-
-    // alternate_hdr_headroom (u32/u32)
-    let (alt_headroom, new_pos) = read_unsigned_fraction(data, pos)?;
-    pos = new_pos;
-
-    // Headroom values are already in log2 domain on the wire — store directly
-    let mut metadata = GainMapMetadata {
-        base_hdr_headroom: base_headroom.to_f32() as f64,
-        alternate_hdr_headroom: alt_headroom.to_f32() as f64,
-        use_base_color_space: use_base_colour_space,
-        ..Default::default()
-    };
-
-    // Per-channel values
-    for ch in 0..channel_count {
-        // gain_map_min (i32/u32) — already log2 on the wire
-        let (min_frac, new_pos) = read_signed_fraction(data, pos)?;
-        pos = new_pos;
-
-        // gain_map_max (i32/u32) — already log2 on the wire
-        let (max_frac, new_pos) = read_signed_fraction(data, pos)?;
-        pos = new_pos;
-
-        // gamma (u32/u32) — linear domain
-        let (gamma_frac, new_pos) = read_unsigned_fraction(data, pos)?;
-        pos = new_pos;
-
-        // base_offset (i32/u32) — linear domain
-        let (base_offset_frac, new_pos) = read_signed_fraction(data, pos)?;
-        pos = new_pos;
-
-        // alternate_offset (i32/u32) — linear domain
-        let (alt_offset_frac, new_pos) = read_signed_fraction(data, pos)?;
-        pos = new_pos;
-
-        let min_val = min_frac.to_f32() as f64;
-        let max_val = max_frac.to_f32() as f64;
-        let gamma_val = gamma_frac.to_f32() as f64;
-        let base_off = base_offset_frac.to_f32() as f64;
-        let alt_off = alt_offset_frac.to_f32() as f64;
-
-        if is_multichannel {
-            metadata.gain_map_min[ch] = min_val;
-            metadata.gain_map_max[ch] = max_val;
-            metadata.gamma[ch] = gamma_val;
-            metadata.base_offset[ch] = base_off;
-            metadata.alternate_offset[ch] = alt_off;
-        } else {
-            // Single channel — replicate to all three
-            metadata.gain_map_min = [min_val; 3];
-            metadata.gain_map_max = [max_val; 3];
-            metadata.gamma = [gamma_val; 3];
-            metadata.base_offset = [base_off; 3];
-            metadata.alternate_offset = [alt_off; 3];
-        }
-    }
-
-    Ok(metadata)
+    read_payload(data, pos, channel_count, use_base_colour_space)
 }
 
 /// Serialize gain map metadata to ISO 21496-1 binary format.
@@ -217,43 +157,115 @@ pub fn serialize_iso21496(metadata: &GainMapMetadata) -> Vec<u8> {
     }
     buf.push(flags);
 
-    // base_hdr_headroom (u32/u32) — already log2 domain
-    let base_headroom = UnsignedFraction::from_f32(metadata.base_hdr_headroom as f32);
-    write_unsigned_fraction(&mut buf, base_headroom);
-
-    // alternate_hdr_headroom (u32/u32) — already log2 domain
-    let alt_headroom = UnsignedFraction::from_f32(metadata.alternate_hdr_headroom as f32);
-    write_unsigned_fraction(&mut buf, alt_headroom);
-
-    // Per-channel values
-    for ch in 0..channel_count {
-        // gain_map_min (i32/u32) — already log2 domain
-        let min_val = Fraction::from_f32(metadata.gain_map_min[ch] as f32);
-        write_signed_fraction(&mut buf, min_val);
-
-        // gain_map_max (i32/u32) — already log2 domain
-        let max_val = Fraction::from_f32(metadata.gain_map_max[ch] as f32);
-        write_signed_fraction(&mut buf, max_val);
-
-        // gamma (u32/u32) — linear domain
-        let gamma = UnsignedFraction::from_f32(metadata.gamma[ch] as f32);
-        write_unsigned_fraction(&mut buf, gamma);
-
-        // base_offset (i32/u32) — linear domain
-        let base_offset = Fraction::from_f32(metadata.base_offset[ch] as f32);
-        write_signed_fraction(&mut buf, base_offset);
-
-        // alternate_offset (i32/u32) — linear domain
-        let alt_offset = Fraction::from_f32(metadata.alternate_offset[ch] as f32);
-        write_signed_fraction(&mut buf, alt_offset);
-    }
-
+    write_payload(&mut buf, metadata, channel_count);
     buf
 }
 
 /// Alias for backward compatibility.
 pub fn deserialize_iso21496(data: &[u8]) -> Result<GainMapMetadata> {
     parse_iso21496(data)
+}
+
+/// JPEG APP2 header size: minimum_version (2) + writer_version (2) + flags (1).
+///
+/// The JPEG APP2 variant omits the version byte that AVIF/JXL box formats include,
+/// because the APP2 URN namespace already identifies the format.
+const JPEG_HEADER_SIZE: usize = 5;
+
+/// Serialize gain map metadata to ISO 21496-1 binary format for JPEG APP2.
+///
+/// This produces the wire format used by libultrahdr in JPEG APP2 markers.
+/// Unlike [`serialize_iso21496`] (which includes a version byte prefix for
+/// AVIF `tmap` / JXL `jhgm` boxes), this format starts directly with
+/// `minimum_version(u16)` — the APP2 URN namespace already identifies
+/// the format version.
+///
+/// Use [`create_iso_app2_marker`] to wrap the result in a complete APP2 marker.
+pub fn serialize_iso21496_jpeg(metadata: &GainMapMetadata) -> Vec<u8> {
+    let is_multichannel = !metadata.is_single_channel();
+    let channel_count: usize = if is_multichannel { 3 } else { 1 };
+
+    let capacity = JPEG_HEADER_SIZE
+        + HEADROOM_FRACTIONS * FRACTION_SIZE
+        + channel_count * FRACTIONS_PER_CHANNEL * FRACTION_SIZE;
+    let mut buf = Vec::with_capacity(capacity);
+
+    // No version byte — JPEG APP2 URN identifies the format.
+
+    // minimum_version (u16 BE)
+    buf.extend_from_slice(&0u16.to_be_bytes());
+
+    // writer_version (u16 BE)
+    buf.extend_from_slice(&0u16.to_be_bytes());
+
+    // flags (u8)
+    let mut flags = 0u8;
+    if is_multichannel {
+        flags |= FLAG_MULTI_CHANNEL;
+    }
+    if metadata.use_base_color_space {
+        flags |= FLAG_USE_BASE_COLOUR_SPACE;
+    }
+    buf.push(flags);
+
+    write_payload(&mut buf, metadata, channel_count);
+    buf
+}
+
+/// Parse ISO 21496-1 binary gain map metadata from JPEG APP2 payload.
+///
+/// This is the wire format used by libultrahdr in JPEG APP2 markers.
+/// Unlike [`parse_iso21496`], this format has no version byte prefix —
+/// it starts directly with `minimum_version(u16)`.
+///
+/// The input should be the raw payload after the `urn:iso:std:iso:ts:21496:-1\0`
+/// namespace in the APP2 segment.
+pub fn parse_iso21496_jpeg(data: &[u8]) -> Result<GainMapMetadata> {
+    if data.len() < JPEG_HEADER_SIZE {
+        return Err(Error::IsoParse(format!(
+            "JPEG ISO data too short: need at least {} bytes, got {}",
+            JPEG_HEADER_SIZE,
+            data.len()
+        )));
+    }
+
+    let mut pos = 0;
+
+    // minimum_version (u16 BE) — must be 0
+    let minimum_version = read_u16_be(data, pos);
+    pos += 2;
+    if minimum_version > 0 {
+        return Err(Error::IsoParse(format!(
+            "unsupported minimum_version {}",
+            minimum_version
+        )));
+    }
+
+    // writer_version (u16 BE)
+    let _writer_version = read_u16_be(data, pos);
+    pos += 2;
+
+    // flags (u8)
+    let flags = data[pos];
+    pos += 1;
+    let is_multichannel = (flags & FLAG_MULTI_CHANNEL) != 0;
+    let use_base_colour_space = (flags & FLAG_USE_BASE_COLOUR_SPACE) != 0;
+
+    let channel_count: usize = if is_multichannel { 3 } else { 1 };
+
+    let required = JPEG_HEADER_SIZE
+        + HEADROOM_FRACTIONS * FRACTION_SIZE
+        + channel_count * FRACTIONS_PER_CHANNEL * FRACTION_SIZE;
+    if data.len() < required {
+        return Err(Error::IsoParse(format!(
+            "data truncated: need {} bytes for {} channel(s), got {}",
+            required,
+            channel_count,
+            data.len()
+        )));
+    }
+
+    read_payload(data, pos, channel_count, use_base_colour_space)
 }
 
 /// Create APP2 marker with ISO 21496-1 data.
@@ -339,6 +351,85 @@ fn write_signed_fraction(buf: &mut Vec<u8>, frac: Fraction) {
 fn write_unsigned_fraction(buf: &mut Vec<u8>, frac: UnsignedFraction) {
     buf.extend_from_slice(&frac.numerator.to_be_bytes());
     buf.extend_from_slice(&frac.denominator.to_be_bytes());
+}
+
+/// Read headroom + per-channel payload starting at `pos`.
+/// Shared between the AVIF/JXL and JPEG parsers.
+fn read_payload(
+    data: &[u8],
+    mut pos: usize,
+    channel_count: usize,
+    use_base_colour_space: bool,
+) -> Result<GainMapMetadata> {
+    let is_multichannel = channel_count == 3;
+
+    let (base_headroom, new_pos) = read_unsigned_fraction(data, pos)?;
+    pos = new_pos;
+    let (alt_headroom, new_pos) = read_unsigned_fraction(data, pos)?;
+    pos = new_pos;
+
+    let mut metadata = GainMapMetadata {
+        base_hdr_headroom: base_headroom.to_f32() as f64,
+        alternate_hdr_headroom: alt_headroom.to_f32() as f64,
+        use_base_color_space: use_base_colour_space,
+        ..Default::default()
+    };
+
+    for ch in 0..channel_count {
+        let (min_frac, p) = read_signed_fraction(data, pos)?;
+        pos = p;
+        let (max_frac, p) = read_signed_fraction(data, pos)?;
+        pos = p;
+        let (gamma_frac, p) = read_unsigned_fraction(data, pos)?;
+        pos = p;
+        let (base_offset_frac, p) = read_signed_fraction(data, pos)?;
+        pos = p;
+        let (alt_offset_frac, p) = read_signed_fraction(data, pos)?;
+        pos = p;
+
+        let min_val = min_frac.to_f32() as f64;
+        let max_val = max_frac.to_f32() as f64;
+        let gamma_val = gamma_frac.to_f32() as f64;
+        let base_off = base_offset_frac.to_f32() as f64;
+        let alt_off = alt_offset_frac.to_f32() as f64;
+
+        if is_multichannel {
+            metadata.gain_map_min[ch] = min_val;
+            metadata.gain_map_max[ch] = max_val;
+            metadata.gamma[ch] = gamma_val;
+            metadata.base_offset[ch] = base_off;
+            metadata.alternate_offset[ch] = alt_off;
+        } else {
+            metadata.gain_map_min = [min_val; 3];
+            metadata.gain_map_max = [max_val; 3];
+            metadata.gamma = [gamma_val; 3];
+            metadata.base_offset = [base_off; 3];
+            metadata.alternate_offset = [alt_off; 3];
+        }
+    }
+
+    Ok(metadata)
+}
+
+/// Write headroom + per-channel payload to `buf`.
+/// Shared between the AVIF/JXL and JPEG serializers.
+fn write_payload(buf: &mut Vec<u8>, metadata: &GainMapMetadata, channel_count: usize) {
+    let base_headroom = UnsignedFraction::from_f32(metadata.base_hdr_headroom as f32);
+    write_unsigned_fraction(buf, base_headroom);
+
+    let alt_headroom = UnsignedFraction::from_f32(metadata.alternate_hdr_headroom as f32);
+    write_unsigned_fraction(buf, alt_headroom);
+
+    for ch in 0..channel_count {
+        write_signed_fraction(buf, Fraction::from_f32(metadata.gain_map_min[ch] as f32));
+        write_signed_fraction(buf, Fraction::from_f32(metadata.gain_map_max[ch] as f32));
+        write_unsigned_fraction(buf, UnsignedFraction::from_f32(metadata.gamma[ch] as f32));
+        write_signed_fraction(buf, Fraction::from_f32(metadata.base_offset[ch] as f32));
+        write_signed_fraction(
+            buf,
+            Fraction::from_f32(metadata.alternate_offset[ch] as f32),
+        );
+    }
 }
 
 // ============================================================================
