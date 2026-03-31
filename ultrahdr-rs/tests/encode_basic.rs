@@ -302,6 +302,34 @@ fn test_encode_contains_mpf() {
     assert!(has_mpf, "Should contain MPF marker");
 }
 
+/// Write a test Ultra HDR JPEG for external validation.
+/// Run: cargo test --features _test-helpers -- write_test_ultrahdr --ignored --nocapture
+#[test]
+#[ignore = "writes file to /tmp for external validation"]
+fn write_test_ultrahdr() {
+    let hdr = create_hdr_gradient(256, 256, 4.0);
+    let sdr = create_sdr_gradient(256, 256);
+
+    let mut encoder = Encoder::new();
+    encoder
+        .set_hdr_image(hdr)
+        .set_sdr_image(sdr)
+        .set_quality(90, 85);
+
+    let encoded = encoder.encode().unwrap();
+    std::fs::write("/tmp/test_ultrahdr_output.jpg", &encoded).unwrap();
+    eprintln!(
+        "Written {} bytes to /tmp/test_ultrahdr_output.jpg",
+        encoded.len()
+    );
+
+    let decoder = Decoder::new(&encoded).unwrap();
+    assert!(decoder.is_ultrahdr());
+    let meta = decoder.metadata().unwrap();
+    eprintln!("gain_map_max: {:?}", meta.gain_map_max);
+    eprintln!("alternate_hdr_headroom: {}", meta.alternate_hdr_headroom);
+}
+
 /// Test various image dimensions.
 #[test]
 fn test_encode_various_dimensions() {

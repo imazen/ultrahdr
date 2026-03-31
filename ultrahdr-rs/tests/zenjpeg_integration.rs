@@ -240,7 +240,7 @@ fn test_xmp_roundtrip() {
     let sdr_image = create_sdr_from_hdr(&hdr_image);
 
     let config = GainMapConfig {
-        gain_map_max: 8.0,
+        max_boost: 8.0,
         alternate_hdr_headroom: 3.0,
         ..Default::default()
     };

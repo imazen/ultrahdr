@@ -26,12 +26,90 @@ pub const ITEM_NAMESPACE: &str = "http://ns.google.com/photos/1.0/container/item
 /// This creates the XMP packet that goes in the primary JPEG's APP1 marker.
 /// For multi-item containers (e.g., gain map + depth map), use
 /// [`generate_xmp_with_items`] instead.
+///
+/// **Note:** This puts all metadata in the primary XMP. For maximum compatibility
+/// with libultrahdr, use [`generate_primary_xmp`] for the primary and
+/// [`generate_gainmap_xmp`] for the secondary JPEG instead.
 pub fn generate_xmp(metadata: &GainMapMetadata, gainmap_length: usize) -> String {
     let items = alloc::vec![
         ContainerItem::primary("image/jpeg"),
         ContainerItem::secondary(ItemSemantic::GainMap, "image/jpeg", gainmap_length),
     ];
     generate_xmp_with_items(metadata, &items)
+}
+
+/// Generate XMP for the primary JPEG (container directory only, no numeric metadata).
+///
+/// The primary image's XMP contains `hdrgm:Version` and the `Container:Directory`
+/// listing all secondary images with their semantics and byte lengths. The numeric
+/// gain map metadata goes in the secondary JPEG via [`generate_gainmap_xmp`].
+///
+/// This matches the structure produced by Google Camera / Android.
+pub fn generate_primary_xmp(gainmap_length: usize) -> String {
+    let items = alloc::vec![
+        ContainerItem::primary("image/jpeg"),
+        ContainerItem::secondary(ItemSemantic::GainMap, "image/jpeg", gainmap_length),
+    ];
+    generate_primary_xmp_with_items(&items)
+}
+
+/// Generate XMP for the primary JPEG with a custom container directory.
+pub fn generate_primary_xmp_with_items(items: &[ContainerItem]) -> String {
+    let container_dir = generate_container_directory(items);
+
+    format!(
+        r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+        xmlns:hdrgm="{HDRGM_NAMESPACE}"
+        xmlns:Container="{CONTAINER_NAMESPACE}"
+        xmlns:Item="{ITEM_NAMESPACE}"
+        hdrgm:Version="1.0">
+{container_dir}
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#
+    )
+}
+
+/// Generate XMP for the gain map (secondary) JPEG with numeric metadata only.
+///
+/// This XMP packet goes in the gain map JPEG's APP1 marker and contains the
+/// numeric gain map parameters that libultrahdr reads to reconstruct HDR.
+/// The `Container:Directory` goes in the primary JPEG via [`generate_primary_xmp`].
+pub fn generate_gainmap_xmp(metadata: &GainMapMetadata) -> String {
+    let is_single_channel = metadata.is_single_channel();
+
+    let gain_map_min = format_f64_value(&metadata.gain_map_min, is_single_channel);
+    let gain_map_max = format_f64_value(&metadata.gain_map_max, is_single_channel);
+    let gamma = format_f64_value(&metadata.gamma, is_single_channel);
+    let offset_sdr = format_f64_value(&metadata.base_offset, is_single_channel);
+    let offset_hdr = format_f64_value(&metadata.alternate_offset, is_single_channel);
+
+    let hdr_capacity_min = metadata.base_hdr_headroom;
+    let hdr_capacity_max = metadata.alternate_hdr_headroom;
+
+    format!(
+        r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+        xmlns:hdrgm="{HDRGM_NAMESPACE}"
+        hdrgm:Version="1.0"
+        hdrgm:GainMapMin="{gain_map_min}"
+        hdrgm:GainMapMax="{gain_map_max}"
+        hdrgm:Gamma="{gamma}"
+        hdrgm:OffsetSDR="{offset_sdr}"
+        hdrgm:OffsetHDR="{offset_hdr}"
+        hdrgm:HDRCapacityMin="{hdr_capacity_min:.6}"
+        hdrgm:HDRCapacityMax="{hdr_capacity_max:.6}"
+        hdrgm:BaseRenditionIsHDR="False"/>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#
+    )
 }
 
 /// Generate XMP metadata with a custom container directory.

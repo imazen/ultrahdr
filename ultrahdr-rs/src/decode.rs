@@ -188,13 +188,17 @@ impl<'a> Decoder<'a> {
         // Scan APP segments efficiently (walks marker-to-marker, not byte-by-byte)
         let segments = container::scan_segments(self.data);
 
-        // Find XMP metadata with hdrgm namespace
+        // Find XMP metadata with hdrgm namespace in primary
         if let Some(xmp_str) = find_xmp_in_segments(&segments)
             && (xmp_str.contains("hdrgm:") || xmp_str.contains("http://ns.adobe.com/hdr-gain-map/"))
-            && let Ok((metadata, _gainmap_len)) = parse_xmp(&xmp_str)
         {
-            self.metadata = Some(metadata);
             self.is_ultrahdr = true;
+            // Try parsing numeric metadata from primary XMP (legacy format)
+            if let Ok((metadata, _gainmap_len)) = parse_xmp(&xmp_str) {
+                if metadata.alternate_hdr_headroom != 0.0 || metadata.gain_map_max != [0.0; 3] {
+                    self.metadata = Some(metadata);
+                }
+            }
         }
 
         // Try to parse MPF to find gain map (reuses container module's parser)
@@ -212,6 +216,18 @@ impl<'a> Decoder<'a> {
                 let gm_start = gm.as_ptr() as usize - self.data.as_ptr() as usize;
                 self.gainmap_jpeg = Some((gm_start, gm_start + gm.len()));
                 self.is_ultrahdr = true;
+
+                // Check gain map JPEG for metadata XMP (modern format:
+                // libultrahdr puts metadata in the secondary JPEG's XMP)
+                if self.metadata.is_none() {
+                    let gm_segments = container::scan_segments(gm);
+                    if let Some(gm_xmp) = find_xmp_in_segments(&gm_segments)
+                        && gm_xmp.contains("hdrgm:")
+                        && let Ok((gm_metadata, _)) = parse_xmp(&gm_xmp)
+                    {
+                        self.metadata = Some(gm_metadata);
+                    }
+                }
             }
         }
 
@@ -221,6 +237,19 @@ impl<'a> Decoder<'a> {
             if boundaries.len() >= 2 {
                 self.primary_jpeg = Some(boundaries[0]);
                 self.gainmap_jpeg = Some(boundaries[1]);
+
+                // Also try to find metadata in the gain map JPEG
+                if self.metadata.is_none() {
+                    let (gm_start, gm_end) = boundaries[1];
+                    let gm_data = &self.data[gm_start..gm_end];
+                    let gm_segments = container::scan_segments(gm_data);
+                    if let Some(gm_xmp) = find_xmp_in_segments(&gm_segments)
+                        && gm_xmp.contains("hdrgm:")
+                        && let Ok((gm_metadata, _)) = parse_xmp(&gm_xmp)
+                    {
+                        self.metadata = Some(gm_metadata);
+                    }
+                }
             }
         }
 

@@ -112,8 +112,8 @@ fn test_streaming_pipeline_memory_usage() {
         scale_factor: 4,
         gamma: 1.0,
         multi_channel: false,
-        gain_map_min: 1.0,
-        gain_map_max: 6.0, // Pre-defined range for streaming
+        min_boost: 1.0,
+        max_boost: 6.0, // Pre-defined range for streaming
         base_offset: 1.0 / 64.0,
         alternate_offset: 1.0 / 64.0,
         base_hdr_headroom: 0.0,
@@ -289,8 +289,8 @@ fn test_streaming_vs_batch_equivalence() {
         scale_factor: 4,
         gamma: 1.0,
         multi_channel: false,
-        gain_map_min: 1.0,
-        gain_map_max: 6.0,
+        min_boost: 1.0,
+        max_boost: 6.0,
         base_offset: 1.0 / 64.0,
         alternate_offset: 1.0 / 64.0,
         base_hdr_headroom: 0.0,
