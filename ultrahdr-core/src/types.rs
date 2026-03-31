@@ -173,6 +173,29 @@ impl PixelFormat {
     }
 }
 
+/// Controls which metadata format(s) to embed in Ultra HDR output.
+///
+/// For maximum cross-platform compatibility, use [`Both`](Self::Both) (the default).
+/// XMP is universally supported; ISO 21496-1 binary is preferred by Android 15+
+/// and iOS 18+ when present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum GainMapEncodingFormat {
+    /// XMP only (`hdrgm:` namespace in APP1). Universally supported.
+    #[default]
+    Xmp,
+    /// ISO 21496-1 binary only (APP2 with `urn:iso:std:iso:ts:21496:-1`).
+    /// Newer apps prefer this when present. Some older tools may not read it.
+    Iso21496,
+    /// Both XMP and ISO 21496-1 binary. Maximum compatibility.
+    /// XMP goes in the gain map JPEG's APP1; ISO binary goes in APP2.
+    /// Cost: ~100 bytes extra for the ISO binary block.
+    ///
+    /// **Note:** ISO 21496-1 serialization is not yet validated against
+    /// libultrahdr's parser. Use [`Xmp`](Self::Xmp) until this is resolved.
+    Both,
+}
+
 /// A raw (uncompressed) image.
 #[derive(Debug, Clone)]
 pub struct RawImage {

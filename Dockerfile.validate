@@ -1,0 +1,86 @@
+# Dockerfile for validating Ultra HDR output against libultrahdr reference
+#
+# Build from ~/work/zen/ (parent of both ultrahdr/ and zenjpeg/):
+#   docker build -f ultrahdr/Dockerfile.validate -t ultrahdr-validate .
+#
+# Run:
+#   docker run --rm ultrahdr-validate
+#
+# With local sample images mounted:
+#   docker run --rm -v /path/to/samples:/samples ultrahdr-validate
+#
+# Validates:
+# 1. libultrahdr C++ reference can decode our output
+# 2. ISO 21496-1 binary metadata round-trip
+# 3. XMP metadata validation via ExifTool
+# 4. MPF structure correctness
+# 5. Cross-decode: our encoder → libultrahdr decoder
+
+FROM rust:1.93-bookworm
+
+# Build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential cmake ninja-build nasm yasm \
+    pkg-config libjpeg62-turbo-dev libclang-dev clang \
+    git curl ca-certificates \
+    libimage-exiftool-perl python3 jq xxd \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Build libultrahdr C++ reference (ultrahdr_app CLI)
+RUN git clone --depth 1 https://github.com/google/libultrahdr.git && \
+    cd libultrahdr && mkdir build && cd build && \
+    cmake -G Ninja \
+        -DCMAKE_C_COMPILER=clang \
+        -DCMAKE_CXX_COMPILER=clang++ \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DUHDR_BUILD_TESTS=ON \
+        .. && \
+    ninja ultrahdr_app ultrahdr_unit_test && \
+    cp ultrahdr_app /usr/local/bin/ && \
+    cp ultrahdr_unit_test /usr/local/bin/ && \
+    echo "=== libultrahdr built ==="
+
+# Clone zune-image (dependency)
+RUN git clone --depth 1 https://github.com/etemesi254/zune-image.git
+
+# Copy our crates (build context is ~/work/zen/)
+COPY ultrahdr/ ultrahdr/
+COPY zenjpeg/ zenjpeg/
+
+# Fix zune-image path dependency
+RUN sed -i 's|path = "../zune-image|path = "/workspace/zune-image|g' \
+    ultrahdr/Cargo.toml ultrahdr/ultrahdr-rs/Cargo.toml ultrahdr/ultrahdr-core/Cargo.toml 2>/dev/null; true
+
+# Download Ultra HDR sample images
+RUN mkdir -p ultrahdr/test_images && cd ultrahdr/test_images && \
+    for i in 01 02 03; do \
+        curl -fsSL -o "sample_${i}.jpg" \
+            "https://raw.githubusercontent.com/MishaalRahmanGH/Ultra_HDR_Samples/main/Originals/Ultra_HDR_Samples_Originals_${i}.jpg" 2>/dev/null && \
+        echo "Downloaded sample_${i}.jpg ($(wc -c < sample_${i}.jpg) bytes)" || \
+        echo "Warning: Failed to download sample_${i}.jpg"; \
+    done
+
+WORKDIR /workspace/ultrahdr
+
+# Copy validation script
+COPY ultrahdr/validate_ultrahdr.sh /workspace/validate_ultrahdr.sh
+RUN chmod +x /workspace/validate_ultrahdr.sh
+
+# Build and test core (no FFI needed)
+RUN echo "=== Building ultrahdr-core ===" && \
+    cargo test --release -p ultrahdr-core --no-run 2>&1 | tail -5
+
+# Build with test helpers (needs zenjpeg)
+RUN echo "=== Building ultrahdr-rs with test helpers ===" && \
+    cargo test --release -p ultrahdr-rs --features _test-helpers --no-run 2>&1 | tail -10 || \
+    echo "Warning: test-helpers build failed (zenjpeg dep issue)"
+
+# Build FFI tests
+RUN echo "=== Building FFI parity tests ===" && \
+    cargo test --release --features ffi-tests --no-run 2>&1 | tail -10 || \
+    echo "Warning: FFI build failed (may need ultrahdr-sys adjustments)"
+
+# Run validation at container start
+CMD ["/workspace/validate_ultrahdr.sh"]

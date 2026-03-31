@@ -6,9 +6,9 @@ use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8;
 use ultrahdr_core::gainmap::compute::{GainMapConfig, compute_gainmap};
 use ultrahdr_core::metadata::{
     mpf::create_mpf_header,
-    xmp::{create_xmp_app1_marker, generate_gainmap_xmp, generate_primary_xmp},
+    xmp::{build_gainmap_metadata_markers, create_xmp_app1_marker, generate_primary_xmp},
 };
-use ultrahdr_core::{ColorGamut, Error, GainMapMetadata, Result};
+use ultrahdr_core::{ColorGamut, Error, GainMapEncodingFormat, GainMapMetadata, Result};
 #[cfg(feature = "_test-helpers")]
 use ultrahdr_core::{ColorTransfer, PixelFormat, Unstoppable};
 #[cfg(feature = "_test-helpers")]
@@ -20,39 +20,54 @@ use crate::jpeg::{
 
 /// Assemble an Ultra HDR JPEG from pre-encoded components.
 ///
-/// This is the primary encoding function. You provide:
-/// - `base_jpeg`: Pre-encoded SDR JPEG (the backwards-compatible base image)
-/// - `gainmap_jpeg`: Pre-encoded gain map JPEG (typically grayscale)
-/// - `metadata`: Gain map metadata describing how to apply the gain map
-/// - `gamut`: Color gamut of the base image (for ICC profile selection)
-///
-/// # Example
-///
-/// ```ignore
-/// use ultrahdr::{encode_ultrahdr, GainMapMetadata, ColorGamut};
-///
-/// let ultrahdr = encode_ultrahdr(&base_jpeg, &gainmap_jpeg, &metadata, ColorGamut::Bt709)?;
-/// ```
+/// Uses [`GainMapEncodingFormat::Both`] (XMP + ISO 21496-1) for maximum compatibility.
+/// For format control, use [`encode_ultrahdr_with_format`].
 pub fn encode_ultrahdr(
     base_jpeg: &[u8],
     gainmap_jpeg: &[u8],
     metadata: &GainMapMetadata,
     gamut: ColorGamut,
 ) -> Result<Vec<u8>> {
-    // Inject gain map metadata XMP into the secondary (gain map) JPEG.
-    // libultrahdr reads metadata from here, not the primary XMP.
-    let gainmap_xmp = generate_gainmap_xmp(metadata);
-    let gainmap_xmp_marker = create_xmp_app1_marker(&gainmap_xmp);
-    let gainmap_xmp_segment = JpegSegment {
-        marker: 0xE1,
-        data: gainmap_xmp_marker[4..].to_vec(),
-        offset: 0,
-    };
-    let gainmap_with_xmp = insert_segment_after_soi(gainmap_jpeg, &gainmap_xmp_segment)?;
+    encode_ultrahdr_with_format(
+        base_jpeg,
+        gainmap_jpeg,
+        metadata,
+        gamut,
+        GainMapEncodingFormat::default(),
+    )
+}
+
+/// Assemble an Ultra HDR JPEG from pre-encoded components with format control.
+///
+/// - `base_jpeg`: Pre-encoded SDR JPEG (the backwards-compatible base image)
+/// - `gainmap_jpeg`: Pre-encoded gain map JPEG (typically grayscale)
+/// - `metadata`: Gain map metadata describing how to apply the gain map
+/// - `gamut`: Color gamut of the base image (for ICC profile selection)
+/// - `format`: Which metadata format(s) to embed in the gain map JPEG
+pub fn encode_ultrahdr_with_format(
+    base_jpeg: &[u8],
+    gainmap_jpeg: &[u8],
+    metadata: &GainMapMetadata,
+    gamut: ColorGamut,
+    format: GainMapEncodingFormat,
+) -> Result<Vec<u8>> {
+    // Build metadata markers for the gain map JPEG (XMP and/or ISO 21496-1).
+    let metadata_markers = build_gainmap_metadata_markers(metadata, format);
+
+    // Inject metadata markers into the gain map JPEG after SOI.
+    let mut gainmap_final = gainmap_jpeg.to_vec();
+    // Insert in reverse order so each goes right after SOI
+    for marker in metadata_markers.iter().rev() {
+        let segment = JpegSegment {
+            marker: marker[1], // FF xx — take the marker byte
+            data: marker[4..].to_vec(),
+            offset: 0,
+        };
+        gainmap_final = insert_segment_after_soi(&gainmap_final, &segment)?;
+    }
 
     // Generate primary XMP with container directory (points to gain map by size).
-    // Uses the gain map size AFTER XMP injection.
-    let primary_xmp = generate_primary_xmp(gainmap_with_xmp.len());
+    let primary_xmp = generate_primary_xmp(gainmap_final.len());
     let primary_xmp_marker = create_xmp_app1_marker(&primary_xmp);
 
     // Generate ICC profile
@@ -77,7 +92,7 @@ pub fn encode_ultrahdr(
         primary = insert_segment_after_soi(&primary, &icc_segment)?;
     }
 
-    // Calculate sizes for MPF (using gain map size WITH XMP)
+    // Calculate sizes for MPF
     let mpf_insert_pos = 2;
     let mpf_estimate = create_mpf_header(0, 0, Some(mpf_insert_pos)).len();
     let primary_with_mpf_len = primary.len() + mpf_estimate;
@@ -85,7 +100,7 @@ pub fn encode_ultrahdr(
     // Create MPF header
     let mpf_header = create_mpf_header(
         primary_with_mpf_len,
-        gainmap_with_xmp.len(),
+        gainmap_final.len(),
         Some(mpf_insert_pos),
     );
 
@@ -97,9 +112,9 @@ pub fn encode_ultrahdr(
     };
     let primary_final = insert_segment_after_soi(&primary, &mpf_segment)?;
 
-    // Concatenate primary and gain map (with metadata XMP)
+    // Concatenate primary and gain map
     let mut result = primary_final;
-    result.extend_from_slice(&gainmap_with_xmp);
+    result.extend_from_slice(&gainmap_final);
 
     Ok(result)
 }

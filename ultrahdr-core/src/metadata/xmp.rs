@@ -303,6 +303,43 @@ pub fn create_xmp_app1_marker(xmp: &str) -> Vec<u8> {
     marker
 }
 
+/// Build raw JPEG marker bytes for gain map metadata in the requested format(s).
+///
+/// Returns a `Vec<Vec<u8>>` of complete JPEG marker segments (including FF xx headers)
+/// ready to inject after the gain map JPEG's SOI. The order matters: XMP APP1 first,
+/// then ISO 21496-1 APP2.
+///
+/// This is the canonical way to serialize gain map metadata for embedding.
+pub fn build_gainmap_metadata_markers(
+    metadata: &GainMapMetadata,
+    format: crate::GainMapEncodingFormat,
+) -> Vec<Vec<u8>> {
+    use crate::GainMapEncodingFormat;
+
+    let mut markers = Vec::with_capacity(2);
+
+    let include_xmp = matches!(
+        format,
+        GainMapEncodingFormat::Xmp | GainMapEncodingFormat::Both
+    );
+    let include_iso = matches!(
+        format,
+        GainMapEncodingFormat::Iso21496 | GainMapEncodingFormat::Both
+    );
+
+    if include_xmp {
+        let xmp = generate_gainmap_xmp(metadata);
+        markers.push(create_xmp_app1_marker(&xmp));
+    }
+
+    if include_iso {
+        let iso_data = super::iso21496::serialize_iso21496(metadata);
+        markers.push(super::iso21496::create_iso_app2_marker(&iso_data));
+    }
+
+    markers
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
