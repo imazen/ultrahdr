@@ -73,3 +73,4 @@ optional = true
 [dependencies.zenpixels]
 workspace = true
 optional = true
+version = "0.2.2"
