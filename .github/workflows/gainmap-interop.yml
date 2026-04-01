@@ -63,6 +63,12 @@ jobs:
           git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
           git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
 
+      - name: Strip workspace for standalone core tests
+        run: |
+          cp Cargo.toml Cargo.toml.full
+          sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' Cargo.toml
+          rm -f Cargo.lock
+
       - name: Download Ultra HDR sample images
         run: |
           mkdir -p /tmp/samples
@@ -76,6 +82,8 @@ jobs:
 
       - name: Generate test Ultra HDR JPEG
         run: |
+          cp Cargo.toml.full Cargo.toml
+          rm -f Cargo.lock
           cargo test --release -p ultrahdr-rs --features _test-helpers \
             --test encode_basic -- write_test_ultrahdr --ignored --nocapture
           cp /tmp/test_ultrahdr_output.jpg /tmp/samples/rust_encoded.jpg
