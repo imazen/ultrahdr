@@ -683,6 +683,24 @@ mod zencodec_interop {
             params
         }
     }
+
+    impl From<Iso21496Format> for zencodec::Iso21496Format {
+        fn from(f: Iso21496Format) -> Self {
+            match f {
+                Iso21496Format::AvifTmap => zencodec::Iso21496Format::AvifTmap,
+                Iso21496Format::JpegApp2 => zencodec::Iso21496Format::JpegApp2,
+            }
+        }
+    }
+
+    impl From<zencodec::Iso21496Format> for Iso21496Format {
+        fn from(f: zencodec::Iso21496Format) -> Self {
+            match f {
+                zencodec::Iso21496Format::AvifTmap => Iso21496Format::AvifTmap,
+                zencodec::Iso21496Format::JpegApp2 => Iso21496Format::JpegApp2,
+            }
+        }
+    }
 }
 
 /// Convert a float to an unsigned fraction using continued fractions.

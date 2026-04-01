@@ -135,29 +135,40 @@ fn parse_iso21496_avif(data: &[u8]) -> Result<GainMapMetadata> {
     let is_multichannel = (flags & FLAG_MULTI_CHANNEL) != 0;
     let use_base_colour_space = (flags & FLAG_USE_BASE_COLOUR_SPACE) != 0;
     let backward_direction = (flags & FLAG_BACKWARD_DIRECTION) != 0;
+    let common_denominator = (flags & FLAG_COMMON_DENOMINATOR) != 0;
 
     let channel_count: usize = if is_multichannel { 3 } else { 1 };
 
-    // Validate remaining data length
-    let required = HEADER_SIZE
-        + HEADROOM_FRACTIONS * FRACTION_SIZE
-        + channel_count * FRACTIONS_PER_CHANNEL * FRACTION_SIZE;
-    if data.len() < required {
-        return Err(Error::IsoParse(format!(
-            "data truncated: need {} bytes for {} channel(s), got {}",
-            required,
+    if common_denominator {
+        read_payload_common_denom(
+            data,
+            pos,
             channel_count,
-            data.len()
-        )));
-    }
+            use_base_colour_space,
+            backward_direction,
+        )
+    } else {
+        // Validate remaining data length for full format
+        let required = HEADER_SIZE
+            + HEADROOM_FRACTIONS * FRACTION_SIZE
+            + channel_count * FRACTIONS_PER_CHANNEL * FRACTION_SIZE;
+        if data.len() < required {
+            return Err(Error::IsoParse(format!(
+                "data truncated: need {} bytes for {} channel(s), got {}",
+                required,
+                channel_count,
+                data.len()
+            )));
+        }
 
-    read_payload(
-        data,
-        pos,
-        channel_count,
-        use_base_colour_space,
-        backward_direction,
-    )
+        read_payload(
+            data,
+            pos,
+            channel_count,
+            use_base_colour_space,
+            backward_direction,
+        )
+    }
 }
 
 /// Serialize gain map metadata with AVIF `tmap` version byte prefix.
@@ -273,28 +284,39 @@ fn parse_iso21496_jpeg(data: &[u8]) -> Result<GainMapMetadata> {
     let is_multichannel = (flags & FLAG_MULTI_CHANNEL) != 0;
     let use_base_colour_space = (flags & FLAG_USE_BASE_COLOUR_SPACE) != 0;
     let backward_direction = (flags & FLAG_BACKWARD_DIRECTION) != 0;
+    let common_denominator = (flags & FLAG_COMMON_DENOMINATOR) != 0;
 
     let channel_count: usize = if is_multichannel { 3 } else { 1 };
 
-    let required = JPEG_HEADER_SIZE
-        + HEADROOM_FRACTIONS * FRACTION_SIZE
-        + channel_count * FRACTIONS_PER_CHANNEL * FRACTION_SIZE;
-    if data.len() < required {
-        return Err(Error::IsoParse(format!(
-            "data truncated: need {} bytes for {} channel(s), got {}",
-            required,
+    if common_denominator {
+        read_payload_common_denom(
+            data,
+            pos,
             channel_count,
-            data.len()
-        )));
-    }
+            use_base_colour_space,
+            backward_direction,
+        )
+    } else {
+        let required = JPEG_HEADER_SIZE
+            + HEADROOM_FRACTIONS * FRACTION_SIZE
+            + channel_count * FRACTIONS_PER_CHANNEL * FRACTION_SIZE;
+        if data.len() < required {
+            return Err(Error::IsoParse(format!(
+                "data truncated: need {} bytes for {} channel(s), got {}",
+                required,
+                channel_count,
+                data.len()
+            )));
+        }
 
-    read_payload(
-        data,
-        pos,
-        channel_count,
-        use_base_colour_space,
-        backward_direction,
-    )
+        read_payload(
+            data,
+            pos,
+            channel_count,
+            use_base_colour_space,
+            backward_direction,
+        )
+    }
 }
 
 /// The two ISO 21496-1 APP2 markers needed for a canonical Ultra HDR JPEG.
@@ -486,6 +508,96 @@ fn read_payload(
         let alt_off = alt_offset_frac.to_f32() as f64;
 
         if is_multichannel {
+            metadata.gain_map_min[ch] = min_val;
+            metadata.gain_map_max[ch] = max_val;
+            metadata.gamma[ch] = gamma_val;
+            metadata.base_offset[ch] = base_off;
+            metadata.alternate_offset[ch] = alt_off;
+        } else {
+            metadata.gain_map_min = [min_val; 3];
+            metadata.gain_map_max = [max_val; 3];
+            metadata.gamma = [gamma_val; 3];
+            metadata.base_offset = [base_off; 3];
+            metadata.alternate_offset = [alt_off; 3];
+        }
+    }
+
+    Ok(metadata)
+}
+
+/// Parse the compact payload: one shared denominator for all fractions.
+///
+/// Layout: `common_denom(u32)`, then numerator-only values with the shared
+/// denominator applied. Used by libultrahdr when all fractions share the same
+/// denominator.
+fn read_payload_common_denom(
+    data: &[u8],
+    mut pos: usize,
+    channel_count: usize,
+    use_base_colour_space: bool,
+    backward_direction: bool,
+) -> Result<GainMapMetadata> {
+    if pos + 4 > data.len() {
+        return Err(Error::IsoParse(
+            "unexpected end of data reading common denominator".into(),
+        ));
+    }
+    let common_d = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+    pos += 4;
+    if common_d == 0 {
+        return Err(Error::IsoParse("zero common denominator".into()));
+    }
+
+    // Headroom (numerators only, unsigned)
+    let values_needed = 2 + channel_count * 5; // 2 headroom + 5 per channel
+    if pos + values_needed * 4 > data.len() {
+        return Err(Error::IsoParse(format!(
+            "data truncated for common_denominator format: need {} bytes from pos {}, got {}",
+            values_needed * 4,
+            pos,
+            data.len() - pos
+        )));
+    }
+
+    let base_headroom_n =
+        u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+    pos += 4;
+    let alt_headroom_n =
+        u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+    pos += 4;
+
+    let base_hdr = UnsignedFraction::new(base_headroom_n, common_d).to_f32() as f64;
+    let alt_hdr = UnsignedFraction::new(alt_headroom_n, common_d).to_f32() as f64;
+
+    let mut metadata = GainMapMetadata {
+        base_hdr_headroom: base_hdr,
+        alternate_hdr_headroom: alt_hdr,
+        use_base_color_space: use_base_colour_space,
+        backward_direction,
+        ..Default::default()
+    };
+
+    for ch in 0..channel_count {
+        let min_n = i32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+        pos += 4;
+        let max_n = i32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+        pos += 4;
+        let gamma_n = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+        pos += 4;
+        let base_off_n =
+            i32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+        pos += 4;
+        let alt_off_n =
+            i32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+        pos += 4;
+
+        let min_val = Fraction::new(min_n, common_d).to_f32() as f64;
+        let max_val = Fraction::new(max_n, common_d).to_f32() as f64;
+        let gamma_val = UnsignedFraction::new(gamma_n, common_d).to_f32() as f64;
+        let base_off = Fraction::new(base_off_n, common_d).to_f32() as f64;
+        let alt_off = Fraction::new(alt_off_n, common_d).to_f32() as f64;
+
+        if channel_count == 3 {
             metadata.gain_map_min[ch] = min_val;
             metadata.gain_map_max[ch] = max_val;
             metadata.gamma[ch] = gamma_val;
