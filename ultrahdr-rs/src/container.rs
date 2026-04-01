@@ -359,12 +359,21 @@ pub fn parse_mpf_segment(data: &[u8], mpf_marker_offset: usize) -> Result<MpfDir
         }
     }
 
+    // Cap entry count against actual data size to prevent OOM from crafted inputs.
+    // Each MP entry is 16 bytes; also cap at a sane maximum of 1000 images.
+    let max_possible = if mp_entry_offset > 0 && mp_entry_offset < mpf_data.len() {
+        (mpf_data.len() - mp_entry_offset) / 16
+    } else {
+        0
+    };
+    let mp_entry_count = (mp_entry_count as usize).min(max_possible).min(1000);
+
     // Parse MP Entry array
-    let mut entries = Vec::with_capacity(mp_entry_count as usize);
+    let mut entries = Vec::with_capacity(mp_entry_count);
 
     if mp_entry_offset > 0 && mp_entry_count > 0 {
         for i in 0..mp_entry_count {
-            let entry_pos = mp_entry_offset + (i as usize) * 16;
+            let entry_pos = mp_entry_offset + i * 16;
             if entry_pos + 16 > mpf_data.len() {
                 break;
             }
@@ -382,7 +391,7 @@ pub fn parse_mpf_segment(data: &[u8], mpf_marker_offset: usize) -> Result<MpfDir
                 image_type: MpfImageType::from_attribute(attr),
                 size,
                 offset,
-                index: i,
+                index: i as u32,
             });
         }
     }
