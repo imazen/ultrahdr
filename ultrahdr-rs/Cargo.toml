@@ -12,7 +12,7 @@ readme = "../README.md"
 
 [dependencies]
 # Core gain map math and metadata
-ultrahdr-core = { workspace = true , path = "../ultrahdr-core" }
+ultrahdr-core = { workspace = true }
 
 # Color management
 moxcms = { workspace = true , path = "../../../moxcms" }
@@ -65,7 +65,6 @@ zencodec = ["ultrahdr-core/zencodec", "dep:zencodec", "dep:zenpixels", "dep:zenj
 [dependencies.zenjpeg]
 workspace = true
 optional = true
-path = "../../zenjpeg/zenjpeg"
 
 [dependencies.zencodec]
 workspace = true
