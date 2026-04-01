@@ -1239,8 +1239,8 @@ mod zencodec_tests {
         // GainMapMetadata stores values in log2 domain (e.g. 2.0 = log2(4) = 4× boost).
         // Conversion to GainMapParams is a trivial copy — both use log2 domain.
         let meta = GainMapMetadata {
-            gain_map_min: [1.0, 0.5, 2.0],  // log2 domain
-            gain_map_max: [2.0, 3.0, 4.0],  // log2 domain: 4×, 8×, 16× boosts
+            gain_map_min: [1.0, 0.5, 2.0], // log2 domain
+            gain_map_max: [2.0, 3.0, 4.0], // log2 domain: 4×, 8×, 16× boosts
             gamma: [1.0, 0.8, 1.2],
             base_offset: [0.01, 0.02, 0.03],
             alternate_offset: [0.04, 0.05, 0.06],
@@ -1390,8 +1390,7 @@ mod zencodec_tests {
             );
         }
         assert!(
-            (roundtripped_params.alternate_hdr_headroom
-                - original_params.alternate_hdr_headroom)
+            (roundtripped_params.alternate_hdr_headroom - original_params.alternate_hdr_headroom)
                 .abs()
                 < 1e-4,
             "alternate_hdr_headroom: original={}, roundtripped={}",
@@ -1415,8 +1414,8 @@ mod zencodec_tests {
 
         // Path B: via ISO21496 AVIF serialization + parsing
         let iso_bytes = serialize_iso21496(&original, Iso21496Format::AvifTmap);
-        let via_iso = parse_iso21496(&iso_bytes, Iso21496Format::AvifTmap)
-            .expect("ISO21496 parse failed");
+        let via_iso =
+            parse_iso21496(&iso_bytes, Iso21496Format::AvifTmap).expect("ISO21496 parse failed");
 
         for ch in 0..3 {
             assert!(
