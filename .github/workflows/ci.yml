@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Strip workspace members needing sibling repos
         shell: bash
-        run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
+        run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
