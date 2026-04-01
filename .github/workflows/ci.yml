@@ -98,7 +98,8 @@ jobs:
         run: cargo build --package ultrahdr-core --target wasm32-unknown-unknown --no-default-features
 
       - name: Build WASI benchmark
-        run: cargo build --package wasm-bench --target wasm32-wasip1 --release
+        # Override RUSTFLAGS — transitive wasi dep has extern blocks incompatible with -D warnings
+        run: RUSTFLAGS="" cargo build --package wasm-bench --target wasm32-wasip1 --release
 
       - name: Install wasmtime
         uses: bytecodealliance/actions/wasmtime/setup@v1
