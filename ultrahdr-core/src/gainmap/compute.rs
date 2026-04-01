@@ -127,6 +127,7 @@ pub fn compute_gainmap(
         base_hdr_headroom: (config.base_hdr_headroom as f64).log2(),
         alternate_hdr_headroom: (config.alternate_hdr_headroom.max(actual_max_boost) as f64).log2(),
         use_base_color_space: true,
+        backward_direction: false,
     };
 
     Ok((gainmap, metadata))

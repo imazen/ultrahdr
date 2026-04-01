@@ -195,8 +195,7 @@ impl<'a> Decoder<'a> {
             self.is_ultrahdr = true;
             // Try parsing numeric metadata from primary XMP (legacy format)
             if let Ok((metadata, _gainmap_len)) = parse_xmp(&xmp_str)
-                && (metadata.alternate_hdr_headroom != 0.0
-                    || metadata.gain_map_max != [0.0; 3])
+                && (metadata.alternate_hdr_headroom != 0.0 || metadata.gain_map_max != [0.0; 3])
             {
                 self.metadata = Some(metadata);
             }

@@ -10,7 +10,8 @@
 //! version:          u8   (must be 0)
 //! minimum_version:  u16  (must be 0)
 //! writer_version:   u16  (>= minimum_version)
-//! flags:            u8   (bit 7 = multichannel, bit 6 = use_base_colour_space)
+//! flags:            u8   (bit 7 = multichannel, bit 6 = use_base_colour_space,
+//!                         bit 3 = common_denominator, bit 2 = backward_direction)
 //!
 //! base_hdr_headroom_n:      u32
 //! base_hdr_headroom_d:      u32
@@ -43,6 +44,12 @@ const FLAG_MULTI_CHANNEL: u8 = 0x80;
 
 /// Flag bit: gain map uses base image colour space (bit 6 of flags byte).
 const FLAG_USE_BASE_COLOUR_SPACE: u8 = 0x40;
+
+/// Flag bit: common denominator encoding (bit 3 of flags byte).
+const FLAG_COMMON_DENOMINATOR: u8 = 0x08;
+
+/// Flag bit: backward direction — base is HDR, alternate is SDR (bit 2 of flags byte).
+const FLAG_BACKWARD_DIRECTION: u8 = 0x04;
 
 /// Header size: version (1) + minimum_version (2) + writer_version (2) + flags (1).
 const HEADER_SIZE: usize = 6;
@@ -127,6 +134,7 @@ fn parse_iso21496_avif(data: &[u8]) -> Result<GainMapMetadata> {
     pos += 1;
     let is_multichannel = (flags & FLAG_MULTI_CHANNEL) != 0;
     let use_base_colour_space = (flags & FLAG_USE_BASE_COLOUR_SPACE) != 0;
+    let backward_direction = (flags & FLAG_BACKWARD_DIRECTION) != 0;
 
     let channel_count: usize = if is_multichannel { 3 } else { 1 };
 
@@ -143,7 +151,13 @@ fn parse_iso21496_avif(data: &[u8]) -> Result<GainMapMetadata> {
         )));
     }
 
-    read_payload(data, pos, channel_count, use_base_colour_space)
+    read_payload(
+        data,
+        pos,
+        channel_count,
+        use_base_colour_space,
+        backward_direction,
+    )
 }
 
 /// Serialize gain map metadata with AVIF `tmap` version byte prefix.
@@ -172,6 +186,9 @@ fn serialize_iso21496_avif(metadata: &GainMapMetadata) -> Vec<u8> {
     }
     if metadata.use_base_color_space {
         flags |= FLAG_USE_BASE_COLOUR_SPACE;
+    }
+    if metadata.backward_direction {
+        flags |= FLAG_BACKWARD_DIRECTION;
     }
     buf.push(flags);
 
@@ -210,6 +227,9 @@ fn serialize_iso21496_jpeg(metadata: &GainMapMetadata) -> Vec<u8> {
     }
     if metadata.use_base_color_space {
         flags |= FLAG_USE_BASE_COLOUR_SPACE;
+    }
+    if metadata.backward_direction {
+        flags |= FLAG_BACKWARD_DIRECTION;
     }
     buf.push(flags);
 
@@ -252,6 +272,7 @@ fn parse_iso21496_jpeg(data: &[u8]) -> Result<GainMapMetadata> {
     pos += 1;
     let is_multichannel = (flags & FLAG_MULTI_CHANNEL) != 0;
     let use_base_colour_space = (flags & FLAG_USE_BASE_COLOUR_SPACE) != 0;
+    let backward_direction = (flags & FLAG_BACKWARD_DIRECTION) != 0;
 
     let channel_count: usize = if is_multichannel { 3 } else { 1 };
 
@@ -267,7 +288,13 @@ fn parse_iso21496_jpeg(data: &[u8]) -> Result<GainMapMetadata> {
         )));
     }
 
-    read_payload(data, pos, channel_count, use_base_colour_space)
+    read_payload(
+        data,
+        pos,
+        channel_count,
+        use_base_colour_space,
+        backward_direction,
+    )
 }
 
 /// The two ISO 21496-1 APP2 markers needed for a canonical Ultra HDR JPEG.
@@ -423,6 +450,7 @@ fn read_payload(
     mut pos: usize,
     channel_count: usize,
     use_base_colour_space: bool,
+    backward_direction: bool,
 ) -> Result<GainMapMetadata> {
     let is_multichannel = channel_count == 3;
 
@@ -435,6 +463,7 @@ fn read_payload(
         base_hdr_headroom: base_headroom.to_f32() as f64,
         alternate_hdr_headroom: alt_headroom.to_f32() as f64,
         use_base_color_space: use_base_colour_space,
+        backward_direction,
         ..Default::default()
     };
 
@@ -521,6 +550,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let serialized = serialize_iso21496_avif(&original);
@@ -545,6 +575,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 10000.0 / 203.0,
             use_base_color_space: false,
+            backward_direction: false,
         };
 
         let serialized = serialize_iso21496_avif(&original);
@@ -622,6 +653,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 1000.0 / 203.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let serialized = serialize_iso21496_avif(&original);
@@ -699,6 +731,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.585,
             use_base_color_space: true,
+            backward_direction: false,
         };
         let serialized = serialize_iso21496_avif(&metadata);
 
@@ -785,6 +818,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 3.0,
             use_base_color_space: false,
+            backward_direction: false,
         };
 
         let serialized = serialize_iso21496_avif(&original);
@@ -837,6 +871,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 1.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let serialized = serialize_iso21496_avif(&original);
@@ -871,6 +906,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 5.623, // log2(10000/203)
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let serialized = serialize_iso21496_avif(&original);
@@ -1303,6 +1339,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let serialized = serialize_iso21496_jpeg(&metadata);
@@ -1336,6 +1373,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 4.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let markers = create_jpeg_iso_markers(&metadata);
@@ -1419,6 +1457,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 10000.0_f64 / 203.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         for format in [
@@ -1466,6 +1505,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 4.0,
             use_base_color_space: false,
+            backward_direction: false,
         };
 
         // JPEG round-trip

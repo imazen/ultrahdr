@@ -365,6 +365,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let xmp = generate_xmp(&metadata, 10000);
@@ -386,6 +387,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let xmp = generate_xmp(&original, 5000);
@@ -440,6 +442,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.585,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let xmp = generate_xmp(&metadata, 5000);
@@ -527,6 +530,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let xmp = generate_xmp(&metadata, 8000);

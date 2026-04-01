@@ -772,6 +772,7 @@ impl RowEncoder {
             alternate_hdr_headroom: (self.config.alternate_hdr_headroom.max(actual_max) as f64)
                 .log2(),
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         Ok((gainmap, metadata))
@@ -1154,6 +1155,7 @@ impl StreamEncoder {
             base_hdr_headroom: 0.0, // log2(1.0) = 0
             alternate_hdr_headroom: (actual_max as f64).log2(),
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         Ok((gainmap, metadata))
@@ -1270,6 +1272,7 @@ mod tests {
             base_hdr_headroom: 0.0,      // log2(1.0)
             alternate_hdr_headroom: 2.0, // log2(4.0)
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
@@ -1343,6 +1346,7 @@ mod tests {
             base_hdr_headroom: 0.0,      // log2(1.0)
             alternate_hdr_headroom: 2.0, // log2(4.0)
             use_base_color_space: true,
+            backward_direction: false,
         }
     }
 

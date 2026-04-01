@@ -15,7 +15,7 @@ readme = "../README.md"
 ultrahdr-core = { workspace = true }
 
 # Color management
-moxcms = { workspace = true }
+moxcms = { workspace = true , path = "../../../moxcms" }
 
 # Image buffer abstractions
 imgref = { workspace = true }
@@ -38,7 +38,7 @@ libultrahdr = { package = "ultrahdr", version = "0.1", optional = true }
 
 [dev-dependencies]
 # Testing (WASM-compatible)
-fast-ssim2 = { workspace = true }
+fast-ssim2 = { workspace = true , path = "../../fast-ssim2/fast-ssim2" }
 
 # WASM testing
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
@@ -65,15 +65,18 @@ zencodec = ["ultrahdr-core/zencodec", "dep:zencodec", "dep:zenpixels", "dep:zenj
 [dependencies.zenjpeg]
 workspace = true
 optional = true
+path = "../../zenjpeg/zenjpeg"
 
 
 [dependencies.zencodec]
 workspace = true
 optional = true
+path = "../../zencodec"
 
 
 [dependencies.zenpixels]
 workspace = true
 optional = true
 version = "0.2.2"
+path = "../../zenpixels/zenpixels"
 

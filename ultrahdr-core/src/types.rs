@@ -481,6 +481,10 @@ pub struct GainMapMetadata {
 
     /// Whether the gain map uses the base image color space.
     pub use_base_color_space: bool,
+
+    /// Backward direction: when true, base is HDR and alternate is SDR.
+    /// Default false = base is SDR, alternate is HDR.
+    pub backward_direction: bool,
 }
 
 impl Default for GainMapMetadata {
@@ -494,6 +498,7 @@ impl Default for GainMapMetadata {
             base_hdr_headroom: 0.0, // log2(1.0) = 0 = SDR
             alternate_hdr_headroom: 0.0,
             use_base_color_space: true,
+            backward_direction: false,
         }
     }
 }
@@ -654,6 +659,7 @@ mod zencodec_interop {
             meta.base_hdr_headroom = p.base_hdr_headroom;
             meta.alternate_hdr_headroom = p.alternate_hdr_headroom;
             meta.use_base_color_space = p.use_base_color_space;
+            meta.backward_direction = p.backward_direction;
             meta
         }
     }
@@ -673,6 +679,7 @@ mod zencodec_interop {
             params.base_hdr_headroom = m.base_hdr_headroom;
             params.alternate_hdr_headroom = m.alternate_hdr_headroom;
             params.use_base_color_space = m.use_base_color_space;
+            params.backward_direction = m.backward_direction;
             params
         }
     }
@@ -921,6 +928,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 5.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
         let err = metadata.validate().unwrap_err();
         let msg = err.to_string();
@@ -943,6 +951,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
         let err = metadata.validate().unwrap_err();
         let msg = err.to_string();
@@ -968,6 +977,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: -0.5, // Invalid: negative in log2 domain
             use_base_color_space: true,
+            backward_direction: false,
         };
         let err = metadata.validate().unwrap_err();
         let msg = err.to_string();
@@ -991,6 +1001,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
         assert!(metadata.validate().is_err());
     }
@@ -1007,6 +1018,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
         assert!(base.validate().is_ok());
 
@@ -1173,6 +1185,7 @@ mod zencodec_tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let params = zencodec::GainMapParams::from(&meta);
@@ -1210,6 +1223,7 @@ mod zencodec_tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 10.0,
             use_base_color_space: false,
+            backward_direction: false,
         };
 
         let params = zencodec::GainMapParams::from(&meta);

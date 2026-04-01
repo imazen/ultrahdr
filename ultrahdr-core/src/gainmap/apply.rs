@@ -479,6 +479,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let result = apply_gainmap(
@@ -524,6 +525,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let sdr_val = 1.0_f32; // White pixel (linear)
@@ -588,6 +590,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 2.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let offset = 1.0_f32 / 64.0;
@@ -631,6 +634,7 @@ mod tests {
             base_hdr_headroom: 0.0,
             alternate_hdr_headroom: 3.0,
             use_base_color_space: true,
+            backward_direction: false,
         };
 
         let lut = GainMapLut::new(&metadata, 1.0);
@@ -706,6 +710,7 @@ mod tests {
             base_hdr_headroom: 0.0,      // log2(1.0)
             alternate_hdr_headroom: 2.0, // log2(4.0)
             use_base_color_space: true,
+            backward_direction: false,
         }
     }
 
