@@ -38,6 +38,7 @@ Ultra HDR is a backward-compatible HDR image format that embeds a gain map in a 
 | **Metadata** | | |
 | XMP (hdrgm namespace) | Yes | Yes |
 | ISO 21496-1 binary | Yes | Yes |
+| JPEG-R (ISO 21496-1 container) | Yes | Yes |
 | MPF (Multi-Picture Format) | Yes | Yes |
 | **Pixel Formats** | | |
 | RGBA 8-bit (SDR) | Yes | Yes |
@@ -58,7 +59,6 @@ Ultra HDR is a backward-compatible HDR image format that embeds a gain map in a 
 | `no_std` support | Yes (`ultrahdr-core`) | No |
 | JPEG codec bundled | Optional (zenjpeg) | Yes (built-in) |
 | **Not Yet Implemented** | | |
-| JPEG-R (ISO 21496-1 container) | No | Yes |
 | Editing API (in-place metadata update) | No | Yes |
 | GPU acceleration | No | Yes (OpenGL) |
 
