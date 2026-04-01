@@ -175,7 +175,7 @@ mod wasi {
     pub const CLOCKID_MONOTONIC: __wasi_clockid_t = 1;
 
     #[link(wasm_import_module = "wasi_snapshot_preview1")]
-    extern "C" {
+    unsafe extern "C" {
         #[link_name = "clock_time_get"]
         fn __wasi_clock_time_get(
             id: __wasi_clockid_t,
@@ -189,6 +189,6 @@ mod wasi {
         precision: __wasi_timestamp_t,
         time: &mut __wasi_timestamp_t,
     ) -> u16 {
-        __wasi_clock_time_get(id, precision, time)
+        unsafe { __wasi_clock_time_get(id, precision, time) }
     }
 }
