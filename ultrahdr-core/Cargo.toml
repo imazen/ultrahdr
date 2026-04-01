@@ -29,7 +29,7 @@ bytemuck = { version = "1.14", features = ["derive"] }
 thiserror = "2.0"
 
 # Transfer functions (optional)
-linear-srgb = { version = "0.6", optional = true, features = ["transfer"] }
+linear-srgb = { version = "0.6.7", optional = true, features = ["transfer"] }
 
 # Zen ecosystem interop (optional)
 zenpixels = { workspace = true, optional = true , version = "0.2.2" , path = "../../zenpixels/zenpixels" }
