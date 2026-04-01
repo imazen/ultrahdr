@@ -304,6 +304,27 @@ impl RawImage {
         Ok(())
     }
 
+    /// Validate that pixel data is large enough for declared dimensions.
+    ///
+    /// This should be called at entry points that iterate over pixel data
+    /// (e.g., gain map apply/compute, tonemapping) to prevent OOB panics
+    /// when stride or dimensions are inconsistent with data length.
+    pub fn validate_data_bounds(&self) -> Result<()> {
+        let required =
+            Self::calculate_data_size(self.width, self.height, self.stride, self.format)?;
+        if self.data.len() < required {
+            return Err(Error::InvalidPixelData(format!(
+                "data too small for {}x{} {:?}: need {} bytes, have {}",
+                self.width,
+                self.height,
+                self.format,
+                required,
+                self.data.len()
+            )));
+        }
+        Ok(())
+    }
+
     /// Calculate required data size with overflow checking.
     fn calculate_data_size(
         _width: u32,
