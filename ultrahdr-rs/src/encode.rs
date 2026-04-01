@@ -5,6 +5,7 @@ use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8;
 #[cfg(feature = "_test-helpers")]
 use ultrahdr_core::gainmap::compute::{GainMapConfig, compute_gainmap};
 use ultrahdr_core::metadata::{
+    iso21496::create_version_only_iso_app2,
     mpf::create_mpf_header,
     xmp::{build_gainmap_metadata_markers, create_xmp_app1_marker, generate_primary_xmp},
 };
@@ -81,6 +82,23 @@ pub fn encode_ultrahdr_with_format(
         offset: 0,
     };
     let mut primary = insert_segment_after_soi(base_jpeg, &xmp_segment)?;
+
+    // Insert version-only ISO 21496-1 APP2 into primary JPEG when ISO is enabled.
+    // This 4-byte block (min_version=0, writer_version=0) signals ISO 21496-1
+    // awareness. The actual gain map metadata lives in the secondary JPEG's APP2.
+    let include_iso = matches!(
+        format,
+        GainMapEncodingFormat::Iso21496 | GainMapEncodingFormat::Both
+    );
+    if include_iso {
+        let version_marker = create_version_only_iso_app2();
+        let iso_segment = JpegSegment {
+            marker: 0xE2,
+            data: version_marker[4..].to_vec(),
+            offset: 0,
+        };
+        primary = insert_segment_after_soi(&primary, &iso_segment)?;
+    }
 
     // Insert ICC markers
     for icc_marker in &icc_markers {
