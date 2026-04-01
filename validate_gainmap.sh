@@ -10,7 +10,7 @@
 #   validate_gainmap                    # validate built-in test files
 #   validate_gainmap /path/to/file.jpg  # validate a specific JPEG
 #   validate_gainmap /path/to/dir/      # validate all JPEGs/AVIFs in directory
-set -euo pipefail
+set -uo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 PASS=0; FAIL=0; SKIP=0
@@ -19,6 +19,7 @@ fail() { echo -e "  ${RED}FAIL${NC}: $1"; ((FAIL++)); }
 skip() { echo -e "  ${YELLOW}SKIP${NC}: $1"; ((SKIP++)); }
 section() { echo -e "\n${BLUE}=== $1 ===${NC}\n"; }
 
+shopt -s nullglob
 SAMPLES="${1:-/samples}"
 OUTDIR="/tmp/gainmap_validation"
 mkdir -p "$OUTDIR"
