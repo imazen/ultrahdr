@@ -270,6 +270,17 @@ fn parse_iso21496_jpeg(data: &[u8]) -> Result<GainMapMetadata> {
     read_payload(data, pos, channel_count, use_base_colour_space)
 }
 
+/// Create the version-only ISO 21496-1 APP2 marker for the primary JPEG.
+///
+/// Canonical Ultra HDR JPEGs include a 4-byte version-only ISO APP2 block
+/// (`min_version=0, writer_version=0`) in the primary JPEG codestream.
+/// This signals ISO 21496-1 awareness without carrying gain map parameters
+/// (those live in the secondary/gain-map JPEG's APP2).
+pub fn create_version_only_iso_app2() -> Vec<u8> {
+    let version_payload: &[u8] = &[0x00, 0x00, 0x00, 0x00]; // min_version=0, writer_version=0
+    create_iso_app2_marker(version_payload)
+}
+
 /// Create APP2 marker with ISO 21496-1 data.
 pub fn create_iso_app2_marker(iso_data: &[u8]) -> Vec<u8> {
     // ISO 21496-1 uses a specific APP2 marker format
@@ -1001,5 +1012,266 @@ mod tests {
     fn test_unsigned_fraction_zero_denominator() {
         let frac = UnsignedFraction::new(42, 0);
         assert_eq!(frac.to_f32(), 0.0);
+    }
+
+    // ========================================================================
+    // Continued fraction canonicality tests
+    // ========================================================================
+
+    #[test]
+    fn test_fraction_produces_canonical_denominators() {
+        // Exact binary float values should produce compact fractions,
+        // matching libultrahdr's continued fraction output.
+        let cases: &[(f32, i32, u32)] = &[
+            (0.0, 0, 1),
+            (1.0, 1, 1),
+            (2.0, 2, 1),
+            (4.0, 4, 1),
+            (-1.0, -1, 1),
+            (0.5, 1, 2),
+            (0.25, 1, 4),
+            (0.015625, 1, 64), // 1/64, common offset
+            (-0.015625, -1, 64),
+        ];
+        for &(value, exp_num, exp_den) in cases {
+            let frac = Fraction::from_f32(value);
+            assert_eq!(
+                (frac.numerator, frac.denominator),
+                (exp_num, exp_den),
+                "Fraction::from_f32({value}): expected {exp_num}/{exp_den}, got {}/{}",
+                frac.numerator,
+                frac.denominator
+            );
+        }
+    }
+
+    #[test]
+    fn test_unsigned_fraction_produces_canonical_denominators() {
+        let cases: &[(f32, u32, u32)] = &[
+            (0.0, 0, 1),
+            (1.0, 1, 1),
+            (2.0, 2, 1),
+            (4.0, 4, 1),
+            (0.5, 1, 2),
+            (0.25, 1, 4),
+            (0.015625, 1, 64),
+        ];
+        for &(value, exp_num, exp_den) in cases {
+            let frac = UnsignedFraction::from_f32(value);
+            assert_eq!(
+                (frac.numerator, frac.denominator),
+                (exp_num, exp_den),
+                "UnsignedFraction::from_f32({value}): expected {exp_num}/{exp_den}, got {}/{}",
+                frac.numerator,
+                frac.denominator
+            );
+        }
+    }
+
+    // ========================================================================
+    // Canonical Adobe fixture tests
+    // ========================================================================
+
+    /// The exact ISO 21496-1 APP2 payload from Adobe Photoshop 27.3's
+    /// `fullColor-fullRes-IDEAL.jpg` primary JPEG (version-only block).
+    const ADOBE_PRIMARY_ISO_PAYLOAD: [u8; 4] = [0x00, 0x00, 0x00, 0x00];
+
+    /// The exact ISO 21496-1 APP2 payload from Adobe Photoshop 27.3's
+    /// `fullColor-fullRes-IDEAL.jpg` secondary (gain map) JPEG.
+    /// Single-channel, use_base_colour_space=true.
+    ///
+    /// Metadata: base_headroom=0/1, alt_headroom=4/1,
+    /// gain_map_min=0/1, gain_map_max=5895489/1048576 (~5.622),
+    /// gamma=1/1, base_offset=0/1, alt_offset=0/1.
+    #[rustfmt::skip]
+    const ADOBE_GAINMAP_ISO_PAYLOAD: [u8; 61] = [
+        // Header (JPEG format: no version byte)
+        0x00, 0x00,             // minimum_version = 0
+        0x00, 0x00,             // writer_version = 0
+        0x40,                   // flags = 0x40 (use_base_colour_space)
+        // base_hdr_headroom = 0/1
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01,
+        // alternate_hdr_headroom = 4/1
+        0x00, 0x00, 0x00, 0x04,
+        0x00, 0x00, 0x00, 0x01,
+        // gain_map_min = 0/1
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01,
+        // gain_map_max = 5895489/1048576
+        0x00, 0x59, 0xF5, 0x41,
+        0x00, 0x10, 0x00, 0x00,
+        // gamma = 1/1
+        0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x01,
+        // base_offset = 0/1
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01,
+        // alternate_offset = 0/1
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01,
+    ];
+
+    #[test]
+    fn test_parse_adobe_primary_version_block() {
+        // The 4-byte version-only block is NOT valid gain map metadata —
+        // it should fail to parse as a gain map payload (too short).
+        let result = parse_iso21496_jpeg(&ADOBE_PRIMARY_ISO_PAYLOAD);
+        assert!(
+            result.is_err(),
+            "version-only block should not parse as gain map metadata"
+        );
+    }
+
+    #[test]
+    fn test_parse_adobe_gainmap_payload() {
+        let parsed = parse_iso21496_jpeg(&ADOBE_GAINMAP_ISO_PAYLOAD)
+            .expect("should parse canonical Adobe payload");
+
+        assert!(parsed.use_base_color_space);
+        assert_eq!(parsed.base_hdr_headroom, 0.0);
+        assert!((parsed.alternate_hdr_headroom - 4.0).abs() < 0.001);
+        assert_eq!(parsed.gain_map_min, [0.0; 3]);
+        // 5895489/1048576 ≈ 5.6224
+        let expected_max = 5_895_489.0 / 1_048_576.0;
+        assert!(
+            (parsed.gain_map_max[0] - expected_max).abs() < 0.001,
+            "gain_map_max: {} vs {}",
+            parsed.gain_map_max[0],
+            expected_max
+        );
+        assert_eq!(parsed.gamma, [1.0; 3]);
+        assert_eq!(parsed.base_offset, [0.0; 3]);
+        assert_eq!(parsed.alternate_offset, [0.0; 3]);
+    }
+
+    #[test]
+    fn test_serialize_matches_adobe_fixture_structure() {
+        // Parse the Adobe payload, re-serialize, and verify the structure matches.
+        let parsed = parse_iso21496_jpeg(&ADOBE_GAINMAP_ISO_PAYLOAD).unwrap();
+        let reserialized = serialize_iso21496_jpeg(&parsed);
+
+        // Same length
+        assert_eq!(
+            reserialized.len(),
+            ADOBE_GAINMAP_ISO_PAYLOAD.len(),
+            "serialized length mismatch"
+        );
+
+        // Header must match exactly
+        assert_eq!(
+            &reserialized[..5],
+            &ADOBE_GAINMAP_ISO_PAYLOAD[..5],
+            "header mismatch"
+        );
+
+        // Headroom fractions must match exactly (0/1 and 4/1 are exact)
+        assert_eq!(
+            &reserialized[5..21],
+            &ADOBE_GAINMAP_ISO_PAYLOAD[5..21],
+            "headroom fractions mismatch"
+        );
+
+        // All exact-value fractions (0/1, 1/1) must match
+        // gain_map_min = 0/1 at offset 21..29
+        assert_eq!(
+            &reserialized[21..29],
+            &ADOBE_GAINMAP_ISO_PAYLOAD[21..29],
+            "gain_map_min mismatch"
+        );
+
+        // gamma = 1/1 at offset 37..45
+        assert_eq!(
+            &reserialized[37..45],
+            &ADOBE_GAINMAP_ISO_PAYLOAD[37..45],
+            "gamma mismatch"
+        );
+
+        // base_offset = 0/1 at offset 45..53
+        assert_eq!(
+            &reserialized[45..53],
+            &ADOBE_GAINMAP_ISO_PAYLOAD[45..53],
+            "base_offset mismatch"
+        );
+
+        // alt_offset = 0/1 at offset 53..61
+        assert_eq!(
+            &reserialized[53..61],
+            &ADOBE_GAINMAP_ISO_PAYLOAD[53..61],
+            "alt_offset mismatch"
+        );
+
+        // gain_map_max: the value goes through f32 roundtrip so the
+        // continued fraction may not reproduce the exact same numerator.
+        // Verify the decoded value matches within f32 precision.
+        let our_max_n = i32::from_be_bytes([
+            reserialized[29],
+            reserialized[30],
+            reserialized[31],
+            reserialized[32],
+        ]);
+        let our_max_d = u32::from_be_bytes([
+            reserialized[33],
+            reserialized[34],
+            reserialized[35],
+            reserialized[36],
+        ]);
+        let our_val = our_max_n as f64 / our_max_d as f64;
+        let adobe_val = 5_895_489.0 / 1_048_576.0;
+        assert!(
+            (our_val - adobe_val).abs() < 1e-6,
+            "gain_map_max value mismatch: {our_val} vs {adobe_val}"
+        );
+    }
+
+    #[test]
+    fn test_version_only_app2_marker() {
+        let marker = create_version_only_iso_app2();
+
+        // Must start with APP2 marker
+        assert_eq!(marker[0], 0xFF);
+        assert_eq!(marker[1], 0xE2);
+
+        // Extract payload after marker + length + namespace
+        let namespace = b"urn:iso:std:iso:ts:21496:-1\0";
+        let payload_start = 4 + namespace.len();
+        let payload = &marker[payload_start..];
+
+        // Must be exactly the 4-byte version-only block
+        assert_eq!(payload, &ADOBE_PRIMARY_ISO_PAYLOAD);
+    }
+
+    #[test]
+    fn test_serialize_canonical_simple_metadata() {
+        // Metadata with values that should produce exact canonical fractions.
+        let metadata = GainMapMetadata {
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
+            gamma: [1.0; 3],
+            base_offset: [0.015625; 3], // 1/64
+            alternate_offset: [0.015625; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 2.0,
+            use_base_color_space: true,
+        };
+
+        let serialized = serialize_iso21496_jpeg(&metadata);
+
+        // Verify exact bytes for known fractions
+        let pos = 5; // after header
+        // base_hdr_headroom = 0/1
+        assert_eq!(&serialized[pos..pos + 8], &[0, 0, 0, 0, 0, 0, 0, 1]);
+        // alt_hdr_headroom = 2/1
+        assert_eq!(&serialized[pos + 8..pos + 16], &[0, 0, 0, 2, 0, 0, 0, 1]);
+        // gain_map_min = 0/1
+        assert_eq!(&serialized[pos + 16..pos + 24], &[0, 0, 0, 0, 0, 0, 0, 1]);
+        // gain_map_max = 2/1
+        assert_eq!(&serialized[pos + 24..pos + 32], &[0, 0, 0, 2, 0, 0, 0, 1]);
+        // gamma = 1/1
+        assert_eq!(&serialized[pos + 32..pos + 40], &[0, 0, 0, 1, 0, 0, 0, 1]);
+        // base_offset = 1/64
+        assert_eq!(&serialized[pos + 40..pos + 48], &[0, 0, 0, 1, 0, 0, 0, 64]);
+        // alt_offset = 1/64
+        assert_eq!(&serialized[pos + 48..pos + 56], &[0, 0, 0, 1, 0, 0, 0, 64]);
     }
 }

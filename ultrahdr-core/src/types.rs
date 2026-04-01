@@ -678,6 +678,64 @@ mod zencodec_interop {
     }
 }
 
+/// Convert a float to an unsigned fraction using continued fractions.
+///
+/// Ported from libultrahdr's `floatToUnsignedFractionImpl`. Finds the best
+/// rational approximation with `numerator <= max_numerator` and
+/// `denominator <= u32::MAX`.
+///
+/// Returns `false` for NaN, negative, or out-of-range values.
+fn float_to_unsigned_fraction(
+    v: f32,
+    max_numerator: u32,
+    numerator: &mut u32,
+    denominator: &mut u32,
+) -> bool {
+    let v = v as f64;
+    if v.is_nan() || v < 0.0 || v > max_numerator as f64 {
+        return false;
+    }
+
+    let max_d: u64 = if v <= 1.0 {
+        u32::MAX as u64
+    } else {
+        (max_numerator as f64 / v).floor() as u64
+    };
+
+    *denominator = 1;
+    let mut previous_d: u32 = 0;
+    let mut current_v = v - v.floor();
+
+    // Continued fraction convergence loop. The golden ratio is the worst
+    // case and converges in 39 iterations.
+    const MAX_ITER: usize = 39;
+
+    for _ in 0..MAX_ITER {
+        let num_double = (*denominator as f64) * v;
+        if num_double > max_numerator as f64 {
+            return false;
+        }
+        *numerator = num_double.round() as u32;
+        if (num_double - (*numerator as f64)).abs() == 0.0 {
+            return true;
+        }
+        current_v = 1.0 / current_v;
+        let new_d = previous_d as f64 + current_v.floor() * (*denominator as f64);
+        if new_d > max_d as f64 {
+            return true;
+        }
+        previous_d = *denominator;
+        if new_d > u32::MAX as f64 {
+            return false;
+        }
+        *denominator = new_d as u32;
+        current_v -= current_v.floor();
+    }
+
+    *numerator = ((*denominator as f64) * v).round() as u32;
+    true
+}
+
 /// A fraction for ISO 21496-1 metadata encoding.
 ///
 /// ISO 21496-1 uses fractional representation for gain map metadata
@@ -699,15 +757,33 @@ impl Fraction {
         }
     }
 
-    /// Convert a floating-point value to a fraction.
+    /// Convert a floating-point value to a fraction using continued fractions.
     ///
-    /// Uses a fixed denominator of 1,000,000 for reasonable precision.
+    /// Finds the best rational approximation, matching the algorithm used by
+    /// libultrahdr and canonical ISO 21496-1 encoders. Produces compact
+    /// fractions (e.g. `1/64` instead of `15625/1000000`).
     pub fn from_f32(value: f32) -> Self {
-        // Use a reasonable denominator for precision
-        let denominator = 1_000_000u32;
-        let numerator = (value * denominator as f32).round() as i32;
+        let mut numerator = 0u32;
+        let mut denominator = 1u32;
+        if !float_to_unsigned_fraction(
+            value.abs(),
+            i32::MAX as u32,
+            &mut numerator,
+            &mut denominator,
+        ) {
+            // Fallback for NaN/infinity/out-of-range
+            return Self {
+                numerator: 0,
+                denominator: 1,
+            };
+        }
+        let signed_num = if value < 0.0 {
+            -(numerator as i32)
+        } else {
+            numerator as i32
+        };
         Self {
-            numerator,
+            numerator: signed_num,
             denominator,
         }
     }
@@ -744,13 +820,22 @@ impl UnsignedFraction {
         }
     }
 
-    /// Convert a non-negative floating-point value to an unsigned fraction.
+    /// Convert a non-negative floating-point value to an unsigned fraction using
+    /// continued fractions.
     ///
-    /// Uses a fixed denominator of 1,000,000 for reasonable precision.
-    /// Negative values are clamped to zero.
+    /// Finds the best rational approximation, matching the algorithm used by
+    /// libultrahdr and canonical ISO 21496-1 encoders. Negative values are
+    /// clamped to zero.
     pub fn from_f32(value: f32) -> Self {
-        let denominator = 1_000_000u32;
-        let numerator = (value.max(0.0) * denominator as f32).round() as u32;
+        let value = value.max(0.0);
+        let mut numerator = 0u32;
+        let mut denominator = 1u32;
+        if !float_to_unsigned_fraction(value, u32::MAX, &mut numerator, &mut denominator) {
+            return Self {
+                numerator: 0,
+                denominator: 1,
+            };
+        }
         Self {
             numerator,
             denominator,
