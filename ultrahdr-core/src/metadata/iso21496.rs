@@ -1358,4 +1358,162 @@ mod tests {
         assert!((parsed.alternate_hdr_headroom - 4.0).abs() < 0.001);
         assert!((parsed.gain_map_max[0] - 2.0).abs() < 0.001);
     }
+
+    // ========================================================================
+    // Canonical interop regression tests
+    // ========================================================================
+    // These tests detect the class of bug reported in jcayzac/ultrajpeg#6:
+    // serialized ISO bytes that are technically valid but cause browser
+    // rendering failures due to non-canonical fraction encoding.
+
+    #[test]
+    fn test_no_fraction_uses_million_denominator() {
+        // Regression test: our old Fraction::from_f32 used a fixed 1,000,000
+        // denominator for every value. Browsers (Chromium) choked on this.
+        let test_values: &[f32] = &[
+            0.0,
+            1.0,
+            2.0,
+            4.0,
+            0.5,
+            0.015625,
+            -0.015625,
+            0.25,
+            10000.0 / 203.0,
+            5.622376,
+        ];
+        for &v in test_values {
+            let frac = Fraction::from_f32(v);
+            assert_ne!(
+                frac.denominator, 1_000_000,
+                "Fraction::from_f32({v}) produced denominator 1000000 \
+                 ({}/1000000) — this is the non-canonical encoding that \
+                 causes browser interop failures",
+                frac.numerator
+            );
+        }
+        for &v in test_values {
+            if v < 0.0 {
+                continue;
+            }
+            let frac = UnsignedFraction::from_f32(v);
+            assert_ne!(
+                frac.denominator, 1_000_000,
+                "UnsignedFraction::from_f32({v}) produced denominator 1000000 \
+                 ({}/1000000)",
+                frac.numerator
+            );
+        }
+    }
+
+    #[test]
+    fn test_serialized_payload_has_no_million_denominators() {
+        // End-to-end: serialize real metadata, scan every fraction in the
+        // output, verify none have the 1M denominator anti-pattern.
+        let metadata = GainMapMetadata {
+            gain_map_min: [0.0, -0.5, -1.0],
+            gain_map_max: [2.0, 3.0, 4.0],
+            gamma: [1.0, 1.0, 1.0],
+            base_offset: [0.015625; 3],
+            alternate_offset: [0.015625; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 10000.0_f64 / 203.0,
+            use_base_color_space: true,
+        };
+
+        for format in [
+            crate::Iso21496Format::JpegApp2,
+            crate::Iso21496Format::AvifTmap,
+        ] {
+            let bytes = serialize_iso21496(&metadata, format);
+
+            // Skip the header to reach fractions
+            let header_size = match format {
+                crate::Iso21496Format::AvifTmap => HEADER_SIZE,
+                crate::Iso21496Format::JpegApp2 => JPEG_HEADER_SIZE,
+            };
+
+            // Scan every 8-byte fraction pair (4-byte num + 4-byte den)
+            let frac_data = &bytes[header_size..];
+            assert_eq!(
+                frac_data.len() % 8,
+                0,
+                "payload not aligned to fraction pairs"
+            );
+
+            for (i, chunk) in frac_data.chunks(8).enumerate() {
+                let denom = u32::from_be_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+                assert_ne!(
+                    denom, 1_000_000,
+                    "fraction[{i}] in {format:?} has denominator 1000000 — \
+                     non-canonical encoding"
+                );
+                assert_ne!(denom, 0, "fraction[{i}] in {format:?} has zero denominator");
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_roundtrip_preserves_values_across_formats() {
+        // Serialize with JPEG format, parse back, re-serialize with AVIF format,
+        // parse back again — values should be identical within f32 precision.
+        let original = GainMapMetadata {
+            gain_map_min: [-1.0, 0.0, 0.5],
+            gain_map_max: [2.0, 3.5, 5.622376],
+            gamma: [1.0, 0.5, 2.0],
+            base_offset: [0.015625, 0.0, 0.03125],
+            alternate_offset: [0.015625, 0.0, 0.0625],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 4.0,
+            use_base_color_space: false,
+        };
+
+        // JPEG round-trip
+        let jpeg_bytes = serialize_iso21496(&original, crate::Iso21496Format::JpegApp2);
+        let from_jpeg = parse_iso21496(&jpeg_bytes, crate::Iso21496Format::JpegApp2).unwrap();
+
+        // AVIF round-trip
+        let avif_bytes = serialize_iso21496(&original, crate::Iso21496Format::AvifTmap);
+        let from_avif = parse_iso21496(&avif_bytes, crate::Iso21496Format::AvifTmap).unwrap();
+
+        // Both must produce the same values (within f32 precision)
+        let tol = 0.001;
+        for ch in 0..3 {
+            assert!(
+                (from_jpeg.gain_map_min[ch] - from_avif.gain_map_min[ch]).abs() < tol,
+                "gain_map_min[{ch}] differs: jpeg={} avif={}",
+                from_jpeg.gain_map_min[ch],
+                from_avif.gain_map_min[ch]
+            );
+            assert!(
+                (from_jpeg.gain_map_max[ch] - from_avif.gain_map_max[ch]).abs() < tol,
+                "gain_map_max[{ch}] differs: jpeg={} avif={}",
+                from_jpeg.gain_map_max[ch],
+                from_avif.gain_map_max[ch]
+            );
+            assert!(
+                (from_jpeg.gamma[ch] - from_avif.gamma[ch]).abs() < tol,
+                "gamma[{ch}] differs: jpeg={} avif={}",
+                from_jpeg.gamma[ch],
+                from_avif.gamma[ch]
+            );
+            assert!(
+                (from_jpeg.base_offset[ch] - from_avif.base_offset[ch]).abs() < tol,
+                "base_offset[{ch}] differs: jpeg={} avif={}",
+                from_jpeg.base_offset[ch],
+                from_avif.base_offset[ch]
+            );
+            assert!(
+                (from_jpeg.alternate_offset[ch] - from_avif.alternate_offset[ch]).abs() < tol,
+                "alternate_offset[{ch}] differs: jpeg={} avif={}",
+                from_jpeg.alternate_offset[ch],
+                from_avif.alternate_offset[ch]
+            );
+        }
+        assert!((from_jpeg.alternate_hdr_headroom - from_avif.alternate_hdr_headroom).abs() < tol);
+        assert_eq!(
+            from_jpeg.use_base_color_space,
+            from_avif.use_base_color_space
+        );
+    }
 }

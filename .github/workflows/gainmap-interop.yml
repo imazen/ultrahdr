@@ -113,9 +113,113 @@ jobs:
           print(f'ISO 21496-1 block: {\"FOUND\" if idx >= 0 else \"NOT FOUND\"} (offset {idx})')
           "
 
+      - name: Validate metadata values from libultrahdr probe
+        run: |
+          echo "=== Checking libultrahdr parses sane metadata values ==="
+          probe=$(ultrahdr_app -m 1 -P -j /tmp/samples/rust_encoded.jpg 2>&1)
+          python3 << 'PYEOF'
+          import sys, re
+
+          probe = """$probe"""
+
+          def extract(key):
+              m = re.search(rf'{key}\s+([\d.eE+\-]+|inf|-inf|nan)', probe)
+              return float(m.group(1)) if m else None
+
+          checks = []
+          max_boost = extract('maxContentBoost')
+          cap_max = extract('hdrCapacityMax')
+          cap_min = extract('hdrCapacityMin')
+          gamma = extract('gamma')
+
+          if max_boost is None or max_boost <= 0:
+              checks.append(f'maxContentBoost invalid: {max_boost}')
+          else:
+              print(f'maxContentBoost = {max_boost:.4f} (OK)')
+
+          if cap_max is None or cap_max <= 0 or cap_max > 1e6:
+              checks.append(f'hdrCapacityMax invalid: {cap_max}')
+          else:
+              print(f'hdrCapacityMax  = {cap_max:.4f} (OK)')
+
+          # hdrCapacityMin must NOT be inf
+          if cap_min is None or cap_min >= 1e6:
+              checks.append(f'hdrCapacityMin is inf or missing: {cap_min}')
+          else:
+              print(f'hdrCapacityMin  = {cap_min:.4f} (OK)')
+
+          if gamma is None or gamma <= 0:
+              checks.append(f'gamma invalid: {gamma}')
+          else:
+              print(f'gamma           = {gamma:.4f} (OK)')
+
+          if checks:
+              for c in checks:
+                  print(f'FAIL: {c}', file=sys.stderr)
+              sys.exit(1)
+          print('All metadata values are sane.')
+          PYEOF
+
+      - name: Validate canonical fraction encoding
+        run: |
+          echo "=== Checking for non-canonical 1000000 denominators ==="
+          python3 << 'PYEOF'
+          import struct, sys
+
+          for path in ['/tmp/samples/rust_encoded.jpg']:
+              data = open(path, 'rb').read()
+              urn = b'urn:iso:std:iso:ts:21496:-1\x00'
+              pos = 0
+              found = False
+              bad = False
+
+              while True:
+                  idx = data.find(urn, pos)
+                  if idx < 0:
+                      break
+
+                  mp = idx - 4
+                  length = struct.unpack('>H', data[mp+2:mp+4])[0]
+                  payload = data[idx + len(urn):mp + 2 + length]
+
+                  if len(payload) < 5:
+                      pos = idx + 1
+                      continue
+
+                  found = True
+                  flags = payload[4]
+                  channels = 3 if (flags & 0x80) else 1
+                  frac_start = 5
+                  frac_count = 2 + channels * 5
+
+                  for i in range(frac_count):
+                      denom_off = frac_start + i * 8 + 4
+                      if denom_off + 4 > len(payload):
+                          break
+                      denom = struct.unpack('>I', payload[denom_off:denom_off+4])[0]
+                      if denom == 1000000:
+                          numer_off = frac_start + i * 8
+                          numer = struct.unpack('>I', payload[numer_off:numer_off+4])[0]
+                          print(f'BAD: fraction[{i}] = {numer}/1000000', file=sys.stderr)
+                          bad = True
+
+                  pos = idx + 1
+
+              if not found:
+                  print(f'No ISO 21496-1 payload found in {path}', file=sys.stderr)
+                  sys.exit(1)
+
+              if bad:
+                  print(f'FAIL: {path} has non-canonical 1000000 denominators', file=sys.stderr)
+                  sys.exit(1)
+
+              print(f'{path}: canonical fractions (no 1000000 denominators)')
+
+          PYEOF
+
       - name: Validate AVIF gain map round-trip (libavif C API)
         run: |
-          # Build and run the C validation test
+          # Build and run the C validation test using canonical fractions
           cat > /tmp/test_avif_gainmap.c << 'CEOF'
           #include <stdio.h>
           #include <stdlib.h>
@@ -124,6 +228,14 @@ jobs:
           #include <avif/avif.h>
 
           #define CHECK(c,m) do{if(!(c)){fprintf(stderr,"FAIL: %s\n",m);return 1;}}while(0)
+          #define FCHECK(name, actual, expected, tol) do { \
+              double a = (actual), e = (expected); \
+              if (fabs(a - e) > (tol)) { \
+                  fprintf(stderr, "FAIL: %s = %.6f, expected %.6f (tol %.6f)\n", name, a, e, tol); \
+                  return 1; \
+              } \
+              printf("  %s = %.6f (expected %.6f) OK\n", name, a, e); \
+          } while(0)
 
           int main(void) {
               avifImage *img = avifImageCreate(4, 4, 10, AVIF_PIXEL_FORMAT_YUV444);
@@ -145,15 +257,16 @@ jobs:
               avifImageAllocatePlanes(gm->image, AVIF_PLANES_YUV);
               memset(gm->image->yuvPlanes[0], 128, gm->image->yuvRowBytes[0]*4);
 
-              // Set metadata using denominator=1000000 (our Rust format)
-              gm->baseHdrHeadroom = (avifUnsignedFraction){0, 1000000};
-              gm->alternateHdrHeadroom = (avifUnsignedFraction){2000000, 1000000};
+              /* Use canonical compact fractions matching libultrahdr output.
+               * Old test used 1000000 denominators which masked interop bugs. */
+              gm->baseHdrHeadroom = (avifUnsignedFraction){0, 1};
+              gm->alternateHdrHeadroom = (avifUnsignedFraction){2, 1};
               for(int c=0;c<3;c++){
-                  gm->gainMapMin[c] = (avifSignedFraction){0, 1000000};
-                  gm->gainMapMax[c] = (avifSignedFraction){2000000, 1000000};
-                  gm->gainMapGamma[c] = (avifUnsignedFraction){1000000, 1000000};
-                  gm->baseOffset[c] = (avifSignedFraction){15625, 1000000};
-                  gm->alternateOffset[c] = (avifSignedFraction){15625, 1000000};
+                  gm->gainMapMin[c] = (avifSignedFraction){0, 1};
+                  gm->gainMapMax[c] = (avifSignedFraction){2, 1};
+                  gm->gainMapGamma[c] = (avifUnsignedFraction){1, 1};
+                  gm->baseOffset[c] = (avifSignedFraction){1, 64};
+                  gm->alternateOffset[c] = (avifSignedFraction){1, 64};
               }
               gm->useBaseColorSpace = AVIF_TRUE;
               img->gainMap = gm;
@@ -166,18 +279,33 @@ jobs:
               CHECK(avifEncoderAddImage(enc,img,1,AVIF_ADD_IMAGE_FLAG_SINGLE)==AVIF_RESULT_OK,"encode");
               CHECK(avifEncoderFinish(enc,&out)==AVIF_RESULT_OK,"finish");
 
+              printf("Encoded AVIF: %zu bytes\n", out.size);
+
+              /* Decode and verify metadata round-trips correctly */
               avifDecoder *dec = avifDecoderCreate();
               CHECK(avifDecoderSetIOMemory(dec,out.data,out.size)==AVIF_RESULT_OK,"set io");
               CHECK(avifDecoderParse(dec)==AVIF_RESULT_OK,"parse");
               CHECK(dec->image->gainMap,"decoded gain map");
 
               avifGainMap *d = dec->image->gainMap;
+              double base_h = (double)d->baseHdrHeadroom.n/d->baseHdrHeadroom.d;
               double alt_h = (double)d->alternateHdrHeadroom.n/d->alternateHdrHeadroom.d;
+              double gm_min = (double)d->gainMapMin[0].n/d->gainMapMin[0].d;
               double gm_max = (double)d->gainMapMax[0].n/d->gainMapMax[0].d;
-              printf("alt_headroom=%.6f (expect 2.0), gainMapMax=%.6f (expect 2.0)\n",alt_h,gm_max);
-              CHECK(fabs(alt_h-2.0)<0.001,"alt_headroom");
-              CHECK(fabs(gm_max-2.0)<0.001,"gainMapMax");
-              printf("AVIF gain map round-trip: PASS\n");
+              double gm_gamma = (double)d->gainMapGamma[0].n/d->gainMapGamma[0].d;
+              double base_off = (double)d->baseOffset[0].n/d->baseOffset[0].d;
+              double alt_off = (double)d->alternateOffset[0].n/d->alternateOffset[0].d;
+
+              printf("Decoded metadata:\n");
+              FCHECK("baseHdrHeadroom",    base_h,  0.0,      0.001);
+              FCHECK("altHdrHeadroom",     alt_h,   2.0,      0.001);
+              FCHECK("gainMapMin",         gm_min,  0.0,      0.001);
+              FCHECK("gainMapMax",         gm_max,  2.0,      0.001);
+              FCHECK("gainMapGamma",       gm_gamma,1.0,      0.001);
+              FCHECK("baseOffset",         base_off,0.015625, 0.001);
+              FCHECK("alternateOffset",    alt_off, 0.015625, 0.001);
+
+              printf("\nAVIF gain map round-trip: PASS\n");
 
               avifDecoderDestroy(dec);
               avifRWDataFree(&out);
