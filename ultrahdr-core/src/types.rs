@@ -193,6 +193,31 @@ pub enum GainMapEncodingFormat {
     Both,
 }
 
+/// Wire format variant for ISO 21496-1 gain map metadata serialization.
+///
+/// The GainMapMetadata payload (flags + fractions) is identical in all contexts.
+/// The difference is whether the payload is prefixed with a `version(u8)` byte:
+///
+/// | Context | Envelope | Use this variant |
+/// |---------|----------|-----------------|
+/// | JPEG APP2 | `min_ver(u16) + writer_ver(u16) + payload` | [`Iso21496Format::JpegApp2`] |
+/// | JXL `jhgm` | `min_ver(u16) + writer_ver(u16) + payload` | [`Iso21496Format::JpegApp2`] |
+/// | AVIF `tmap` | `version(u8) + min_ver(u16) + writer_ver(u16) + payload` | [`Iso21496Format::AvifTmap`] |
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Iso21496Format {
+    /// JPEG APP2 and JXL `jhgm` format: no version byte prefix.
+    ///
+    /// The payload starts with `minimum_version(u16)`. Used by libultrahdr
+    /// for JPEG and by libjxl for the `gain_map_metadata` field in `jhgm` boxes.
+    JpegApp2,
+    /// AVIF `tmap` item format: includes `version(u8)` prefix.
+    ///
+    /// The `ToneMapImage` box wraps `GainMapMetadata` with a version byte.
+    /// Used by libavif for the `tmap` derived image item payload.
+    AvifTmap,
+}
+
 /// A raw (uncompressed) image.
 #[derive(Debug, Clone)]
 pub struct RawImage {

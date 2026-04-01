@@ -333,7 +333,8 @@ pub fn build_gainmap_metadata_markers(
     }
 
     if include_iso {
-        let iso_data = super::iso21496::serialize_iso21496_jpeg(metadata);
+        let iso_data =
+            super::iso21496::serialize_iso21496(metadata, crate::Iso21496Format::JpegApp2);
         markers.push(super::iso21496::create_iso_app2_marker(&iso_data));
     }
 

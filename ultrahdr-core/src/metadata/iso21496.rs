@@ -58,9 +58,30 @@ const FRACTIONS_PER_CHANNEL: usize = 5;
 
 /// Parse ISO 21496-1 binary gain map metadata.
 ///
-/// This is the format used in AVIF `tmap` item payloads and JXL `jhgm` boxes.
-/// The wire format matches `zenavif-parse::parse_tone_map_image()`.
-pub fn parse_iso21496(data: &[u8]) -> Result<GainMapMetadata> {
+/// The `format` parameter selects the wire format variant:
+/// - [`Iso21496Format::AvifTmap`]: expects `version(u8)` prefix (AVIF `tmap` item payload)
+/// - [`Iso21496Format::JpegApp2`]: no version prefix (JPEG APP2, JXL `jhgm`)
+pub fn parse_iso21496(data: &[u8], format: crate::Iso21496Format) -> Result<GainMapMetadata> {
+    match format {
+        crate::Iso21496Format::AvifTmap => parse_iso21496_avif(data),
+        crate::Iso21496Format::JpegApp2 => parse_iso21496_jpeg(data),
+    }
+}
+
+/// Serialize gain map metadata to ISO 21496-1 binary format.
+///
+/// The `format` parameter selects the wire format variant:
+/// - [`Iso21496Format::AvifTmap`]: includes `version(u8)` prefix
+/// - [`Iso21496Format::JpegApp2`]: no version prefix (also correct for JXL `jhgm`)
+pub fn serialize_iso21496(metadata: &GainMapMetadata, format: crate::Iso21496Format) -> Vec<u8> {
+    match format {
+        crate::Iso21496Format::AvifTmap => serialize_iso21496_avif(metadata),
+        crate::Iso21496Format::JpegApp2 => serialize_iso21496_jpeg(metadata),
+    }
+}
+
+/// Parse ISO 21496-1 from AVIF `tmap` item payload (with version byte prefix).
+fn parse_iso21496_avif(data: &[u8]) -> Result<GainMapMetadata> {
     if data.len() < HEADER_SIZE {
         return Err(Error::IsoParse(format!(
             "data too short: need at least {} bytes, got {}",
@@ -125,11 +146,8 @@ pub fn parse_iso21496(data: &[u8]) -> Result<GainMapMetadata> {
     read_payload(data, pos, channel_count, use_base_colour_space)
 }
 
-/// Serialize gain map metadata to ISO 21496-1 binary format.
-///
-/// Produces a blob suitable for AVIF `tmap` item payloads or JXL `jhgm` boxes.
-/// The wire format matches `zenavif-parse::parse_tone_map_image()`.
-pub fn serialize_iso21496(metadata: &GainMapMetadata) -> Vec<u8> {
+/// Serialize gain map metadata with AVIF `tmap` version byte prefix.
+fn serialize_iso21496_avif(metadata: &GainMapMetadata) -> Vec<u8> {
     let is_multichannel = !metadata.is_single_channel();
     let channel_count: usize = if is_multichannel { 3 } else { 1 };
 
@@ -161,27 +179,14 @@ pub fn serialize_iso21496(metadata: &GainMapMetadata) -> Vec<u8> {
     buf
 }
 
-/// Alias for backward compatibility.
-pub fn deserialize_iso21496(data: &[u8]) -> Result<GainMapMetadata> {
-    parse_iso21496(data)
-}
-
 /// JPEG APP2 header size: minimum_version (2) + writer_version (2) + flags (1).
 ///
 /// The JPEG APP2 variant omits the version byte that AVIF/JXL box formats include,
 /// because the APP2 URN namespace already identifies the format.
 const JPEG_HEADER_SIZE: usize = 5;
 
-/// Serialize gain map metadata to ISO 21496-1 binary format for JPEG APP2.
-///
-/// This produces the wire format used by libultrahdr in JPEG APP2 markers.
-/// Unlike [`serialize_iso21496`] (which includes a version byte prefix for
-/// AVIF `tmap` / JXL `jhgm` boxes), this format starts directly with
-/// `minimum_version(u16)` — the APP2 URN namespace already identifies
-/// the format version.
-///
-/// Use [`create_iso_app2_marker`] to wrap the result in a complete APP2 marker.
-pub fn serialize_iso21496_jpeg(metadata: &GainMapMetadata) -> Vec<u8> {
+/// Serialize gain map metadata without version byte prefix (JPEG APP2 / JXL jhgm).
+fn serialize_iso21496_jpeg(metadata: &GainMapMetadata) -> Vec<u8> {
     let is_multichannel = !metadata.is_single_channel();
     let channel_count: usize = if is_multichannel { 3 } else { 1 };
 
@@ -216,11 +221,8 @@ pub fn serialize_iso21496_jpeg(metadata: &GainMapMetadata) -> Vec<u8> {
 ///
 /// This is the wire format used by libultrahdr in JPEG APP2 markers.
 /// Unlike [`parse_iso21496`], this format has no version byte prefix —
-/// it starts directly with `minimum_version(u16)`.
-///
-/// The input should be the raw payload after the `urn:iso:std:iso:ts:21496:-1\0`
-/// namespace in the APP2 segment.
-pub fn parse_iso21496_jpeg(data: &[u8]) -> Result<GainMapMetadata> {
+/// Parse gain map metadata without version byte prefix (JPEG APP2 / JXL jhgm).
+fn parse_iso21496_jpeg(data: &[u8]) -> Result<GainMapMetadata> {
     if data.len() < JPEG_HEADER_SIZE {
         return Err(Error::IsoParse(format!(
             "JPEG ISO data too short: need at least {} bytes, got {}",
@@ -460,8 +462,8 @@ mod tests {
             use_base_color_space: true,
         };
 
-        let serialized = serialize_iso21496(&original);
-        let parsed = parse_iso21496(&serialized).unwrap();
+        let serialized = serialize_iso21496_avif(&original);
+        let parsed = parse_iso21496_avif(&serialized).unwrap();
 
         assert!((parsed.gain_map_max[0] - 2.0).abs() < 0.01);
         assert!((parsed.gain_map_min[0] - 0.0).abs() < 0.01);
@@ -484,8 +486,8 @@ mod tests {
             use_base_color_space: false,
         };
 
-        let serialized = serialize_iso21496(&original);
-        let parsed = parse_iso21496(&serialized).unwrap();
+        let serialized = serialize_iso21496_avif(&original);
+        let parsed = parse_iso21496_avif(&serialized).unwrap();
 
         // Verify multichannel flag is set
         assert_ne!(
@@ -561,8 +563,8 @@ mod tests {
             use_base_color_space: true,
         };
 
-        let serialized = serialize_iso21496(&original);
-        let parsed = parse_iso21496(&serialized).unwrap();
+        let serialized = serialize_iso21496_avif(&original);
+        let parsed = parse_iso21496_avif(&serialized).unwrap();
 
         assert!(parsed.use_base_color_space);
 
@@ -592,7 +594,7 @@ mod tests {
     #[test]
     fn test_header_layout() {
         let metadata = GainMapMetadata::new();
-        let serialized = serialize_iso21496(&metadata);
+        let serialized = serialize_iso21496_avif(&metadata);
 
         // Byte 0: version
         assert_eq!(serialized[0], ISO_VERSION);
@@ -613,7 +615,7 @@ mod tests {
     #[test]
     fn test_single_channel_size() {
         let metadata = GainMapMetadata::new();
-        let serialized = serialize_iso21496(&metadata);
+        let serialized = serialize_iso21496_avif(&metadata);
 
         // Header (6) + headroom (2*8=16) + 1 channel * 5 fractions * 8 = 62
         assert_eq!(
@@ -637,7 +639,7 @@ mod tests {
             alternate_hdr_headroom: 2.585,
             use_base_color_space: true,
         };
-        let serialized = serialize_iso21496(&metadata);
+        let serialized = serialize_iso21496_avif(&metadata);
 
         // Header (6) + headroom (16) + 3 channels * 5 fractions * 8 = 142
         assert_eq!(
@@ -695,7 +697,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x40, // denominator = 64
         ].to_vec();
 
-        let parsed = parse_iso21496(&blob).unwrap();
+        let parsed = parse_iso21496_avif(&blob).unwrap();
 
         assert_eq!(parsed.base_hdr_headroom, 0.0); // wire: 0/1 → log2 = 0
         assert!((parsed.alternate_hdr_headroom - 2.0).abs() < 0.001); // wire: 2/1 → log2 = 2
@@ -724,14 +726,14 @@ mod tests {
             use_base_color_space: false,
         };
 
-        let serialized = serialize_iso21496(&original);
+        let serialized = serialize_iso21496_avif(&original);
         assert_eq!(
             serialized[FLAGS_OFFSET] & FLAG_MULTI_CHANNEL,
             0,
             "should serialize as single channel"
         );
 
-        let parsed = parse_iso21496(&serialized).unwrap();
+        let parsed = parse_iso21496_avif(&serialized).unwrap();
 
         for i in 1..3 {
             assert_eq!(
@@ -776,8 +778,8 @@ mod tests {
             use_base_color_space: true,
         };
 
-        let serialized = serialize_iso21496(&original);
-        let parsed = parse_iso21496(&serialized).unwrap();
+        let serialized = serialize_iso21496_avif(&original);
+        let parsed = parse_iso21496_avif(&serialized).unwrap();
 
         assert!((parsed.base_hdr_headroom - 0.0).abs() < 0.001);
         assert!((parsed.alternate_hdr_headroom - 1.0).abs() < 0.001); // log2 = 1.0 → 2× boost
@@ -790,8 +792,8 @@ mod tests {
             ..GainMapMetadata::new()
         };
 
-        let serialized = serialize_iso21496(&original);
-        let parsed = parse_iso21496(&serialized).unwrap();
+        let serialized = serialize_iso21496_avif(&original);
+        let parsed = parse_iso21496_avif(&serialized).unwrap();
 
         assert!((parsed.gamma[0] - 1.0).abs() < 0.001);
     }
@@ -810,8 +812,8 @@ mod tests {
             use_base_color_space: true,
         };
 
-        let serialized = serialize_iso21496(&original);
-        let parsed = parse_iso21496(&serialized).unwrap();
+        let serialized = serialize_iso21496_avif(&original);
+        let parsed = parse_iso21496_avif(&serialized).unwrap();
 
         let tol = 0.01;
         assert!(
@@ -837,22 +839,22 @@ mod tests {
 
     #[test]
     fn test_empty_data() {
-        assert!(parse_iso21496(&[]).is_err());
+        assert!(parse_iso21496_avif(&[]).is_err());
     }
 
     #[test]
     fn test_too_short() {
         // Just the version byte — not enough for the full header
-        assert!(parse_iso21496(&[0x00]).is_err());
-        assert!(parse_iso21496(&[0x00, 0x00]).is_err());
-        assert!(parse_iso21496(&[0x00, 0x00, 0x00, 0x00, 0x00]).is_err());
+        assert!(parse_iso21496_avif(&[0x00]).is_err());
+        assert!(parse_iso21496_avif(&[0x00, 0x00]).is_err());
+        assert!(parse_iso21496_avif(&[0x00, 0x00, 0x00, 0x00, 0x00]).is_err());
     }
 
     #[test]
     fn test_invalid_version() {
         let mut blob = vec![0u8; 62];
         blob[0] = 1; // version 1 — unsupported
-        let result = parse_iso21496(&blob);
+        let result = parse_iso21496_avif(&blob);
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(
@@ -872,7 +874,7 @@ mod tests {
             0x00, // flags (single channel)
             0x00, 0x00, 0x00, 0x01, // partial headroom
         ];
-        assert!(parse_iso21496(&data).is_err());
+        assert!(parse_iso21496_avif(&data).is_err());
     }
 
     #[test]
@@ -883,7 +885,7 @@ mod tests {
         // min_ver, writer_ver, flags all 0
         // base_hdr_headroom: numerator=0, denominator=0
         // denominator bytes at offset 10..14 are already 0
-        let result = parse_iso21496(&data);
+        let result = parse_iso21496_avif(&data);
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(
@@ -897,13 +899,13 @@ mod tests {
     fn test_zero_denominator_in_channel_fraction() {
         // Build a blob with valid headroom but zero denominator in gain_map_min_d
         let metadata = GainMapMetadata::new();
-        let mut data = serialize_iso21496(&metadata);
+        let mut data = serialize_iso21496_avif(&metadata);
         // gain_map_min_d is at offset: 6 (header) + 16 (headroom) + 4 (min_n) = 26..30
         data[26] = 0;
         data[27] = 0;
         data[28] = 0;
         data[29] = 0;
-        let result = parse_iso21496(&data);
+        let result = parse_iso21496_avif(&data);
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(
@@ -919,7 +921,7 @@ mod tests {
 
     #[test]
     fn test_app2_marker_structure() {
-        let iso_data = serialize_iso21496(&GainMapMetadata::new());
+        let iso_data = serialize_iso21496_avif(&GainMapMetadata::new());
         let marker = create_iso_app2_marker(&iso_data);
 
         assert_eq!(marker[0], 0xFF);
@@ -940,7 +942,8 @@ mod tests {
 
     #[test]
     fn test_app2_marker_roundtrip() {
-        let iso_data = serialize_iso21496(&GainMapMetadata::new());
+        // APP2 markers use JPEG format (no version byte)
+        let iso_data = serialize_iso21496_jpeg(&GainMapMetadata::new());
         let marker = create_iso_app2_marker(&iso_data);
 
         let namespace = b"urn:iso:std:iso:ts:21496:-1\0";
@@ -948,7 +951,7 @@ mod tests {
         let extracted = &marker[payload_start..];
         assert_eq!(extracted, &iso_data);
 
-        let parsed = parse_iso21496(extracted).unwrap();
+        let parsed = parse_iso21496_jpeg(extracted).unwrap();
         let original = GainMapMetadata::new();
         assert!((parsed.base_hdr_headroom - original.base_hdr_headroom).abs() < 0.01);
         assert!(parsed.use_base_color_space);
