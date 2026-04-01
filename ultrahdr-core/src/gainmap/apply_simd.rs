@@ -1,7 +1,7 @@
 //! SIMD-accelerated gain map application.
 //!
 //! Provides [`apply_gain_row_scalar`] (always available) and
-//! [`apply_gain_row_simd`] (requires `simd` feature) which dispatches
+//! `apply_gain_row_simd` (requires `simd` feature) which dispatches
 //! to the best available SIMD implementation at runtime:
 //!
 //! - **AVX2+FMA** on x86_64: 8 pixels per iteration

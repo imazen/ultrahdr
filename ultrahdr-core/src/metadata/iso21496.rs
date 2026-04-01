@@ -59,8 +59,8 @@ const FRACTIONS_PER_CHANNEL: usize = 5;
 /// Parse ISO 21496-1 binary gain map metadata.
 ///
 /// The `format` parameter selects the wire format variant:
-/// - [`Iso21496Format::AvifTmap`]: expects `version(u8)` prefix (AVIF `tmap` item payload)
-/// - [`Iso21496Format::JpegApp2`]: no version prefix (JPEG APP2, JXL `jhgm`)
+/// - [`crate::Iso21496Format::AvifTmap`]: expects `version(u8)` prefix (AVIF `tmap` item payload)
+/// - [`crate::Iso21496Format::JpegApp2`]: no version prefix (JPEG APP2, JXL `jhgm`)
 pub fn parse_iso21496(data: &[u8], format: crate::Iso21496Format) -> Result<GainMapMetadata> {
     match format {
         crate::Iso21496Format::AvifTmap => parse_iso21496_avif(data),
@@ -71,8 +71,8 @@ pub fn parse_iso21496(data: &[u8], format: crate::Iso21496Format) -> Result<Gain
 /// Serialize gain map metadata to ISO 21496-1 binary format.
 ///
 /// The `format` parameter selects the wire format variant:
-/// - [`Iso21496Format::AvifTmap`]: includes `version(u8)` prefix
-/// - [`Iso21496Format::JpegApp2`]: no version prefix (also correct for JXL `jhgm`)
+/// - [`crate::Iso21496Format::AvifTmap`]: includes `version(u8)` prefix
+/// - [`crate::Iso21496Format::JpegApp2`]: no version prefix (also correct for JXL `jhgm`)
 pub fn serialize_iso21496(metadata: &GainMapMetadata, format: crate::Iso21496Format) -> Vec<u8> {
     match format {
         crate::Iso21496Format::AvifTmap => serialize_iso21496_avif(metadata),
