@@ -74,6 +74,10 @@ pub fn compute_gainmap(
         });
     }
 
+    // Validate pixel data is large enough for declared dimensions
+    hdr.validate_data_bounds()?;
+    sdr.validate_data_bounds()?;
+
     let scale = config.scale_factor.max(1) as u32;
     let gm_width = hdr.width.div_ceil(scale);
     let gm_height = hdr.height.div_ceil(scale);

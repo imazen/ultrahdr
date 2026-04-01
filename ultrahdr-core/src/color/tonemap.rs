@@ -1070,6 +1070,10 @@ impl AdaptiveTonemapper {
             });
         }
 
+        // Validate pixel data is large enough for declared dimensions
+        hdr.validate_data_bounds()?;
+        sdr.validate_data_bounds()?;
+
         match config.mode {
             FitMode::Luminance => Self::fit_luminance(hdr, sdr, config),
             FitMode::PerChannel => Self::fit_per_channel(hdr, sdr, config),
@@ -1091,6 +1095,9 @@ impl AdaptiveTonemapper {
 
     /// Apply the tonemapper to an HDR image.
     pub fn apply(&self, hdr: &RawImage) -> Result<RawImage> {
+        // Validate pixel data is large enough for declared dimensions
+        hdr.validate_data_bounds()?;
+
         let width = hdr.width;
         let height = hdr.height;
 
@@ -1671,8 +1678,11 @@ pub fn tonemap_to_srgb8(
 /// Tonemap an entire HDR image to SDR RGBA8.
 ///
 /// Takes an HDR image in any supported format and produces RGBA8 output.
-pub fn tonemap_image_to_srgb8(img: &RawImage, target_gamut: ColorGamut) -> Vec<u8> {
+pub fn tonemap_image_to_srgb8(img: &RawImage, target_gamut: ColorGamut) -> Result<Vec<u8>> {
     use crate::color::gamut::convert_gamut;
+
+    // Validate pixel data is large enough for declared dimensions
+    img.validate_data_bounds()?;
 
     let config = ToneMapConfig::default();
     let width = img.width as usize;
@@ -1709,7 +1719,7 @@ pub fn tonemap_image_to_srgb8(img: &RawImage, target_gamut: ColorGamut) -> Vec<u
         }
     }
 
-    output
+    Ok(output)
 }
 
 // ============================================================================

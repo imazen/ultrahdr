@@ -280,7 +280,7 @@ impl Encoder {
             } else if let Some(ref sdr_img) = self.sdr_image {
                 (self.encode_base_jpeg(sdr_img)?, sdr_img.gamut)
             } else if let Some(ref hdr) = self.hdr_image {
-                let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorGamut::Bt709);
+                let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorGamut::Bt709)?;
                 let sdr = RawImage {
                     width: hdr.width,
                     height: hdr.height,
@@ -310,7 +310,7 @@ impl Encoder {
         let sdr = if let Some(ref sdr_img) = self.sdr_image {
             sdr_img.clone()
         } else {
-            let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorGamut::Bt709);
+            let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorGamut::Bt709)?;
             RawImage {
                 width: hdr.width,
                 height: hdr.height,

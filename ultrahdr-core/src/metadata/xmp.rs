@@ -171,6 +171,15 @@ fn format_f64_value(values: &[f64; 3], single_channel: bool) -> String {
 /// Returns `(metadata, gainmap_length)` for backward compatibility.
 /// For access to all container items (depth maps, etc.), use [`parse_xmp_full`].
 pub fn parse_xmp(xmp_data: &str) -> Result<(GainMapMetadata, Option<usize>)> {
+    // Enforce maximum XMP length to prevent CPU exhaustion on crafted input
+    if xmp_data.len() > crate::limits::MAX_XMP_LENGTH {
+        return Err(Error::LimitExceeded(alloc::format!(
+            "XMP data length {} exceeds maximum {}",
+            xmp_data.len(),
+            crate::limits::MAX_XMP_LENGTH
+        )));
+    }
+
     // Check for hdrgm:Version
     if !xmp_data.contains("hdrgm:Version") && !xmp_data.contains("hdrgm:GainMapMax") {
         return Err(Error::NotUltraHdr);

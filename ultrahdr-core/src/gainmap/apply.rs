@@ -110,6 +110,9 @@ pub fn apply_gainmap(
     output_format: HdrOutputFormat,
     stop: impl Stop,
 ) -> Result<RawImage> {
+    // Validate pixel data is large enough for declared dimensions
+    sdr.validate_data_bounds()?;
+
     let width = sdr.width;
     let height = sdr.height;
 
