@@ -144,10 +144,119 @@ let new_sdr = tonemapper.apply(&edited_hdr)?;
 
 ## Metadata Formats
 
-Both XMP and ISO 21496-1 metadata are supported for maximum compatibility:
+Gain map metadata tells the decoder how to reconstruct HDR from the SDR base image: per-channel min/max boost, gamma curve, offsets, and HDR headroom. This metadata can be serialized two different ways, and Ultra HDR JPEGs often carry both.
 
-- **XMP**: Adobe hdrgm namespace, embedded in APP1 marker
-- **ISO 21496-1**: Binary format with fractions, typically in APP2
+### XMP vs ISO 21496-1
+
+| | XMP (`hdrgm:` namespace) | ISO 21496-1 binary |
+|---|---|---|
+| **Location** | APP1 marker in gain map JPEG | APP2 marker in gain map JPEG |
+| **Encoding** | XML text with float strings | Big-endian rational fractions |
+| **Precision** | Limited by decimal string formatting | Exact rational representation |
+| **Support** | Universal (all Ultra HDR readers) | Android 15+, iOS 18+, Chromium |
+| **Priority** | Fallback when ISO is absent | Authoritative when present |
+
+Use `GainMapEncodingFormat::Both` (the default) to emit both. Cost is ~60 extra bytes for the ISO binary block.
+
+```rust
+use ultrahdr_core::GainMapEncodingFormat;
+
+// Default: maximum compatibility
+let format = GainMapEncodingFormat::Both;
+
+// XMP-only: legacy compatibility, no ISO binary
+let format = GainMapEncodingFormat::Xmp;
+
+// ISO-only: newer readers, smaller output
+let format = GainMapEncodingFormat::Iso21496;
+```
+
+### ISO 21496-1 Wire Format
+
+The same metadata payload (flags byte + rational fraction pairs) appears in three container formats. The only difference is whether the payload has a leading `version(u8)` byte:
+
+| Container | Header | Size | Used by |
+|-----------|--------|------|---------|
+| JPEG APP2 | `min_ver(u16) + writer_ver(u16) + flags(u8)` | 5 bytes | libultrahdr, this crate |
+| JXL `jhgm` box | Same as JPEG (no version byte) | 5 bytes | libjxl |
+| AVIF `tmap` item | `version(u8)` + JPEG header | 6 bytes | libavif |
+
+JPEG doesn't need the version byte because the APP2 URN namespace (`urn:iso:std:iso:ts:21496:-1`) already identifies the format. AVIF wraps the payload in an ISOBMFF box that needs its own versioning.
+
+Select the wire format variant with `Iso21496Format`:
+
+```rust
+use ultrahdr_core::Iso21496Format;
+
+// JPEG APP2 and JXL jhgm (no version byte prefix)
+let bytes = serialize_iso21496(&metadata, Iso21496Format::JpegApp2);
+
+// AVIF tmap (with version byte prefix)
+let bytes = serialize_iso21496(&metadata, Iso21496Format::AvifTmap);
+```
+
+### Fraction Encoding
+
+Each metadata value (min/max boost, gamma, offsets, headroom) is stored as a rational fraction: `i32` or `u32` numerator over `u32` denominator, big-endian. The serializer uses a continued fraction algorithm (ported from libultrahdr) that finds the simplest exact representation:
+
+| Value | Wire fraction | Bytes |
+|-------|--------------|-------|
+| `0.0` | `0/1` | `00000000 00000001` |
+| `4.0` | `4/1` | `00000004 00000001` |
+| `1/64` (0.015625) | `1/64` | `00000001 00000040` |
+| `5.622376...` | `5895489/1048576` | `0059F541 00100000` |
+
+This matters for browser interop. Chromium prefers ISO over XMP when both are present, and non-canonical fraction encodings (like a fixed 1,000,000 denominator) cause HDR rendering failures. See [jcayzac/ultrajpeg#6](https://github.com/jcayzac/ultrajpeg/issues/6) for the full story.
+
+### JPEG Structure
+
+A canonical Ultra HDR JPEG has this structure:
+
+```
+Primary JPEG (SDR base image):
+  SOI
+  APP1  XMP: Container:Directory pointing to gain map by byte length
+  APP2  ISO 21496-1: version-only block [00 00 00 00]
+  APP2  ICC profile
+  APP2  MPF directory (offsets to secondary image)
+  [entropy-coded image data]
+  EOI
+
+Gain Map JPEG (secondary image, appended after primary EOI):
+  SOI
+  APP1  XMP: hdrgm:* namespace with metadata values        <- if Xmp or Both
+  APP2  ISO 21496-1: full metadata payload (61+ bytes)     <- if Iso21496 or Both
+  APP2  ICC profile (gain map color space)
+  [entropy-coded gain map data]
+  EOI
+```
+
+The primary JPEG's 4-byte version-only ISO APP2 (`min_version=0, writer_version=0`) signals ISO 21496-1 awareness without carrying gain map parameters. The actual metadata lives in the secondary JPEG. Legacy readers ignore both APP2 blocks and see a normal JPEG.
+
+### High-Level API
+
+For JPEG encoding, `create_jpeg_iso_markers` produces both APP2 markers in one call:
+
+```rust
+use ultrahdr_core::metadata::iso21496::create_jpeg_iso_markers;
+
+let markers = create_jpeg_iso_markers(&metadata);
+// markers.primary  -> version-only APP2 for the primary JPEG
+// markers.gain_map -> full metadata APP2 for the gain map JPEG
+```
+
+This is what `encode_ultrahdr` uses internally. You only need the low-level API if you're assembling JPEG segments yourself.
+
+### Cross-Format Comparison
+
+| Format | Metadata location | Serializer | Notes |
+|--------|-------------------|------------|-------|
+| **JPEG** (Ultra HDR) | APP2 in gain map JPEG + XMP | `ultrahdr-core` | Both XMP and ISO supported |
+| **AVIF** (`tmap`) | ISOBMFF `tmap` derived image item | `zencodec` | ISO 21496-1 only (with version byte) |
+| **JXL** (`jhgm`) | `jhgm` codestream box | `zencodec` | ISO 21496-1 only (JPEG wire variant) |
+| **HEIC** (Apple) | Auxiliary image + XMP | `heic` crate | Apple-proprietary, not ISO 21496-1 |
+
+AVIF and JXL always use ISO 21496-1 binary; there's no XMP option. HEIC uses Apple's own gain map mechanism (`urn:com:apple:photo:2020:aux:hdrgainmap`) with a simpler headroom-only metadata model.
 
 ## Transfer Functions
 
