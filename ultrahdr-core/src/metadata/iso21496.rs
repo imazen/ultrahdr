@@ -270,18 +270,68 @@ fn parse_iso21496_jpeg(data: &[u8]) -> Result<GainMapMetadata> {
     read_payload(data, pos, channel_count, use_base_colour_space)
 }
 
+/// The two ISO 21496-1 APP2 markers needed for a canonical Ultra HDR JPEG.
+///
+/// Returned by [`create_jpeg_iso_markers`].
+pub struct JpegIsoMarkers {
+    /// APP2 marker for the **primary** JPEG codestream.
+    ///
+    /// This is a 4-byte version-only block (`min_version=0, writer_version=0`)
+    /// that signals ISO 21496-1 awareness. It does NOT carry gain map parameters.
+    pub primary: Vec<u8>,
+
+    /// APP2 marker for the **gain map** (secondary) JPEG codestream.
+    ///
+    /// This carries the full serialized gain map metadata (headroom, per-channel
+    /// min/max/gamma/offsets) in canonical continued-fraction encoding.
+    pub gain_map: Vec<u8>,
+}
+
+/// Create both ISO 21496-1 APP2 markers for a canonical Ultra HDR JPEG.
+///
+/// A spec-compliant Ultra HDR JPEG needs two ISO APP2 markers:
+/// 1. A version-only block in the **primary** JPEG (signals ISO 21496-1 support)
+/// 2. The full gain map metadata in the **secondary** (gain map) JPEG
+///
+/// This function produces both in one call so callers can't forget either one.
+///
+/// # Example
+///
+/// ```
+/// use ultrahdr_core::{GainMapMetadata, metadata::iso21496::create_jpeg_iso_markers};
+///
+/// let metadata = GainMapMetadata::new();
+/// let markers = create_jpeg_iso_markers(&metadata);
+///
+/// // Insert markers.primary into the primary JPEG after SOI
+/// // Insert markers.gain_map into the gain map JPEG after SOI
+/// ```
+pub fn create_jpeg_iso_markers(metadata: &crate::GainMapMetadata) -> JpegIsoMarkers {
+    let iso_payload = serialize_iso21496_jpeg(metadata);
+    JpegIsoMarkers {
+        primary: create_version_only_iso_app2(),
+        gain_map: create_iso_app2_marker(&iso_payload),
+    }
+}
+
 /// Create the version-only ISO 21496-1 APP2 marker for the primary JPEG.
 ///
 /// Canonical Ultra HDR JPEGs include a 4-byte version-only ISO APP2 block
 /// (`min_version=0, writer_version=0`) in the primary JPEG codestream.
 /// This signals ISO 21496-1 awareness without carrying gain map parameters
 /// (those live in the secondary/gain-map JPEG's APP2).
+///
+/// Prefer [`create_jpeg_iso_markers`] which produces both the primary and
+/// gain map markers in one call.
 pub fn create_version_only_iso_app2() -> Vec<u8> {
     let version_payload: &[u8] = &[0x00, 0x00, 0x00, 0x00]; // min_version=0, writer_version=0
     create_iso_app2_marker(version_payload)
 }
 
-/// Create APP2 marker with ISO 21496-1 data.
+/// Create a raw APP2 marker with ISO 21496-1 namespace and arbitrary payload.
+///
+/// Low-level building block — most callers should use [`create_jpeg_iso_markers`]
+/// instead, which handles both primary and gain map markers correctly.
 pub fn create_iso_app2_marker(iso_data: &[u8]) -> Vec<u8> {
     // ISO 21496-1 uses a specific APP2 marker format
     let namespace = b"urn:iso:std:iso:ts:21496:-1\0";
@@ -1273,5 +1323,39 @@ mod tests {
         assert_eq!(&serialized[pos + 40..pos + 48], &[0, 0, 0, 1, 0, 0, 0, 64]);
         // alt_offset = 1/64
         assert_eq!(&serialized[pos + 48..pos + 56], &[0, 0, 0, 1, 0, 0, 0, 64]);
+    }
+
+    #[test]
+    fn test_create_jpeg_iso_markers() {
+        let metadata = GainMapMetadata {
+            gain_map_min: [0.0; 3],
+            gain_map_max: [2.0; 3],
+            gamma: [1.0; 3],
+            base_offset: [0.0; 3],
+            alternate_offset: [0.0; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 4.0,
+            use_base_color_space: true,
+        };
+
+        let markers = create_jpeg_iso_markers(&metadata);
+        let namespace = b"urn:iso:std:iso:ts:21496:-1\0";
+
+        // Primary marker: APP2 with version-only payload
+        assert_eq!(markers.primary[0], 0xFF);
+        assert_eq!(markers.primary[1], 0xE2);
+        let primary_payload = &markers.primary[4 + namespace.len()..];
+        assert_eq!(primary_payload, &[0x00, 0x00, 0x00, 0x00]);
+
+        // Gain map marker: APP2 with full metadata payload
+        assert_eq!(markers.gain_map[0], 0xFF);
+        assert_eq!(markers.gain_map[1], 0xE2);
+        let gm_payload = &markers.gain_map[4 + namespace.len()..];
+
+        // Should be parseable as JPEG ISO 21496-1
+        let parsed = parse_iso21496_jpeg(gm_payload).unwrap();
+        assert!(parsed.use_base_color_space);
+        assert!((parsed.alternate_hdr_headroom - 4.0).abs() < 0.001);
+        assert!((parsed.gain_map_max[0] - 2.0).abs() < 0.001);
     }
 }
