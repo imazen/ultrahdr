@@ -1,0 +1,188 @@
+name: Gain Map Interop
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  interop:
+    name: Gain Map Interop Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build nasm yasm pkg-config \
+            libclang-dev clang libaom-dev libdav1d-dev \
+            libimage-exiftool-perl python3 jq xxd \
+            libjpeg-turbo8-dev
+
+      - name: Build libultrahdr (JPEG reference)
+        run: |
+          git clone --depth 1 https://github.com/google/libultrahdr.git /tmp/libultrahdr
+          cd /tmp/libultrahdr && mkdir build && cd build
+          cmake -G Ninja \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Release -DUHDR_BUILD_TESTS=OFF ..
+          ninja ultrahdr_app
+          sudo cp ultrahdr_app /usr/local/bin/
+
+      - name: Build libavif 1.2 (AVIF reference)
+        run: |
+          git clone --depth 1 --branch v1.2.1 https://github.com/AOMediaCodec/libavif.git /tmp/libavif
+          cd /tmp/libavif && mkdir build && cd build
+          cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DAVIF_CODEC_AOM=SYSTEM \
+            -DAVIF_CODEC_DAV1D=SYSTEM \
+            -DAVIF_BUILD_APPS=ON \
+            -DAVIF_LIBYUV=OFF ..
+          ninja avifenc avifdec
+          sudo cp avifenc avifdec /usr/local/bin/
+          sudo cp libavif.so* /usr/local/lib/ && sudo ldconfig
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Clone sibling repos
+        run: |
+          git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
+          git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
+
+      - name: Download Ultra HDR sample images
+        run: |
+          mkdir -p /tmp/samples
+          for i in 01 02 03; do
+            curl -fsSL -o "/tmp/samples/pixel_ultrahdr_${i}.jpg" \
+              "https://raw.githubusercontent.com/MishaalRahmanGH/Ultra_HDR_Samples/main/Originals/Ultra_HDR_Samples_Originals_${i}.jpg" || true
+          done
+
+      - name: Run ultrahdr-core tests
+        run: cargo test --release -p ultrahdr-core
+
+      - name: Generate test Ultra HDR JPEG
+        run: |
+          cargo test --release -p ultrahdr-rs --features _test-helpers \
+            --test encode_basic -- write_test_ultrahdr --ignored --nocapture
+          cp /tmp/test_ultrahdr_output.jpg /tmp/samples/rust_encoded.jpg
+
+      - name: Validate with ultrahdr_app (JPEG)
+        run: |
+          echo "=== Validating Rust-encoded JPEG ==="
+          ultrahdr_app -m 1 -P -j /tmp/samples/rust_encoded.jpg
+          echo ""
+          echo "=== Validating Pixel samples ==="
+          for f in /tmp/samples/pixel_*.jpg; do
+            [ -f "$f" ] || continue
+            echo "--- $(basename $f) ---"
+            ultrahdr_app -m 1 -P -j "$f" || true
+          done
+
+      - name: Validate with ExifTool
+        run: |
+          echo "=== Rust-encoded ==="
+          exiftool -XMP-hdrgm:all -MPF:all /tmp/samples/rust_encoded.jpg
+          echo ""
+          echo "=== Check ISO 21496-1 block ==="
+          python3 -c "
+          data = open('/tmp/samples/rust_encoded.jpg', 'rb').read()
+          urn = b'urn:iso:std:iso:ts:21496:-1\x00'
+          idx = data.find(urn)
+          print(f'ISO 21496-1 block: {\"FOUND\" if idx >= 0 else \"NOT FOUND\"} (offset {idx})')
+          "
+
+      - name: Validate AVIF gain map round-trip (libavif C API)
+        run: |
+          # Build and run the C validation test
+          cat > /tmp/test_avif_gainmap.c << 'CEOF'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <math.h>
+          #include <avif/avif.h>
+
+          #define CHECK(c,m) do{if(!(c)){fprintf(stderr,"FAIL: %s\n",m);return 1;}}while(0)
+
+          int main(void) {
+              avifImage *img = avifImageCreate(4, 4, 10, AVIF_PIXEL_FORMAT_YUV444);
+              CHECK(img, "create image");
+              img->colorPrimaries = AVIF_COLOR_PRIMARIES_BT709;
+              img->transferCharacteristics = AVIF_TRANSFER_CHARACTERISTICS_PQ;
+              img->matrixCoefficients = AVIF_MATRIX_COEFFICIENTS_BT601;
+              img->yuvRange = AVIF_RANGE_FULL;
+              avifImageAllocatePlanes(img, AVIF_PLANES_YUV);
+              memset(img->yuvPlanes[0], 128, img->yuvRowBytes[0]*4);
+              memset(img->yuvPlanes[1], 128, img->yuvRowBytes[1]*4);
+              memset(img->yuvPlanes[2], 128, img->yuvRowBytes[2]*4);
+
+              avifGainMap *gm = avifGainMapCreate();
+              CHECK(gm, "create gain map");
+              gm->image = avifImageCreate(4, 4, 8, AVIF_PIXEL_FORMAT_YUV400);
+              gm->image->matrixCoefficients = AVIF_MATRIX_COEFFICIENTS_UNSPECIFIED;
+              gm->image->yuvRange = AVIF_RANGE_FULL;
+              avifImageAllocatePlanes(gm->image, AVIF_PLANES_YUV);
+              memset(gm->image->yuvPlanes[0], 128, gm->image->yuvRowBytes[0]*4);
+
+              // Set metadata using denominator=1000000 (our Rust format)
+              gm->baseHdrHeadroom = (avifUnsignedFraction){0, 1000000};
+              gm->alternateHdrHeadroom = (avifUnsignedFraction){2000000, 1000000};
+              for(int c=0;c<3;c++){
+                  gm->gainMapMin[c] = (avifSignedFraction){0, 1000000};
+                  gm->gainMapMax[c] = (avifSignedFraction){2000000, 1000000};
+                  gm->gainMapGamma[c] = (avifUnsignedFraction){1000000, 1000000};
+                  gm->baseOffset[c] = (avifSignedFraction){15625, 1000000};
+                  gm->alternateOffset[c] = (avifSignedFraction){15625, 1000000};
+              }
+              gm->useBaseColorSpace = AVIF_TRUE;
+              img->gainMap = gm;
+
+              avifEncoder *enc = avifEncoderCreate();
+              enc->speed = AVIF_SPEED_FASTEST;
+              enc->quality = 50;
+              enc->qualityGainMap = 50;
+              avifRWData out = AVIF_DATA_EMPTY;
+              CHECK(avifEncoderAddImage(enc,img,1,AVIF_ADD_IMAGE_FLAG_SINGLE)==AVIF_RESULT_OK,"encode");
+              CHECK(avifEncoderFinish(enc,&out)==AVIF_RESULT_OK,"finish");
+
+              avifDecoder *dec = avifDecoderCreate();
+              CHECK(avifDecoderSetIOMemory(dec,out.data,out.size)==AVIF_RESULT_OK,"set io");
+              CHECK(avifDecoderParse(dec)==AVIF_RESULT_OK,"parse");
+              CHECK(dec->image->gainMap,"decoded gain map");
+
+              avifGainMap *d = dec->image->gainMap;
+              double alt_h = (double)d->alternateHdrHeadroom.n/d->alternateHdrHeadroom.d;
+              double gm_max = (double)d->gainMapMax[0].n/d->gainMapMax[0].d;
+              printf("alt_headroom=%.6f (expect 2.0), gainMapMax=%.6f (expect 2.0)\n",alt_h,gm_max);
+              CHECK(fabs(alt_h-2.0)<0.001,"alt_headroom");
+              CHECK(fabs(gm_max-2.0)<0.001,"gainMapMax");
+              printf("AVIF gain map round-trip: PASS\n");
+
+              avifDecoderDestroy(dec);
+              avifRWDataFree(&out);
+              avifEncoderDestroy(enc);
+              avifImageDestroy(img);
+              return 0;
+          }
+          CEOF
+          cc -o /tmp/test_avif_gainmap /tmp/test_avif_gainmap.c \
+            -I/tmp/libavif/include -L/usr/local/lib -lavif -lm -Wl,-rpath,/usr/local/lib
+          /tmp/test_avif_gainmap
+
+      - name: Run validation script
+        run: |
+          chmod +x validate_gainmap.sh
+          ./validate_gainmap.sh /tmp/samples
