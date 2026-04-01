@@ -24,7 +24,7 @@ jobs:
             build-essential cmake ninja-build nasm yasm pkg-config \
             libclang-dev clang libaom-dev libdav1d-dev \
             libimage-exiftool-perl python3 jq xxd \
-            libjpeg-turbo8-dev
+            libjpeg-turbo8-dev libpng-dev zlib1g-dev
 
       - name: Build libultrahdr (JPEG reference)
         run: |
