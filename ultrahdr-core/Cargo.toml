@@ -36,11 +36,10 @@ zenpixels = { workspace = true, optional = true , version = "0.2.2" , path = "..
 zencodec = { workspace = true, optional = true , path = "../../zencodec" }
 
 [dev-dependencies]
-# Property testing
-proptest = "1.10"
 
-# Native-only benchmarking
+# Native-only: proptest uses rusty-fork/wait-timeout (no wasm32 support)
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+proptest = "1.10"
 criterion = "0.8"
 
 [[bench]]
