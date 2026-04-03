@@ -2,11 +2,13 @@
 //!
 //! Provides [`apply_gain_row_scalar`] (always available) and
 //! `apply_gain_row_simd` (requires `simd` feature) which dispatches
-//! to the best available SIMD implementation at runtime:
+//! to the best available SIMD implementation at runtime via
+//! `#[magetypes]` generics and `incant!`:
 //!
 //! - **AVX2+FMA** on x86_64: 8 pixels per iteration
-//! - **NEON** on aarch64: 4 pixels per iteration
-//! - **Scalar** everywhere else
+//! - **NEON** on aarch64: 8 pixels per iteration (generic f32x8)
+//! - **WASM SIMD128**: 8 pixels per iteration (generic f32x8)
+//! - **Scalar** everywhere else: 8 pixels per iteration (scalar f32x8)
 //!
 //! All functions operate on pre-linearized `[f32; 3]` RGB pixels with a
 //! precomputed LUT mapping gain map bytes to linear gain multipliers.
@@ -44,115 +46,51 @@ pub fn apply_gain_row_scalar(
 // SIMD dispatch (requires `simd` feature)
 // ============================================================================
 
-/// SIMD-accelerated gain map application with runtime dispatch.
+#[cfg(feature = "simd")]
+use archmage::prelude::*;
+#[cfg(feature = "simd")]
+use magetypes::simd::generic::f32x8 as GenericF32x8;
+
+/// Generic SIMD gain map application, dispatched via `#[magetypes]`.
 ///
-/// Applies a single-channel gain LUT to each pixel using the best available
-/// SIMD instruction set. Falls back to scalar when no SIMD is available.
-///
-/// On x86_64 with AVX2+FMA, processes 8 pixels per iteration (~3-4x faster
-/// than scalar for large rows).
-///
-/// # Panics
-///
-/// Panics if `sdr`, `gainmap`, and `output` have different lengths.
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-pub fn apply_gain_row_simd(
+/// Processes 8 pixels per iteration using `GenericF32x8<Token>`, which maps
+/// to native AVX2, NEON, WASM SIMD128, or scalar depending on the token.
+/// Remainder pixels are handled with a scalar tail loop.
+#[cfg(feature = "simd")]
+#[magetypes(v3, neon, wasm128, scalar)]
+fn apply_gain_inner(
+    token: Token,
     sdr: &[[f32; 3]],
     gainmap: &[u8],
     lut: &[f32; 256],
     output: &mut [[f32; 3]],
 ) {
-    use archmage::SimdToken;
-
-    if let Some(token) = archmage::X64V3Token::try_new() {
-        apply_gain_avx2(token, sdr, gainmap, lut, output);
-    } else {
-        apply_gain_row_scalar(sdr, gainmap, lut, output);
-    }
-}
-
-/// SIMD-accelerated gain map application with runtime dispatch.
-///
-/// On aarch64 with NEON, processes 4 pixels per iteration (~2-3x faster
-/// than scalar for large rows).
-///
-/// # Panics
-///
-/// Panics if `sdr`, `gainmap`, and `output` have different lengths.
-#[cfg(all(feature = "simd", target_arch = "aarch64"))]
-pub fn apply_gain_row_simd(
-    sdr: &[[f32; 3]],
-    gainmap: &[u8],
-    lut: &[f32; 256],
-    output: &mut [[f32; 3]],
-) {
-    use archmage::SimdToken;
-
-    if let Some(token) = archmage::NeonToken::try_new() {
-        apply_gain_neon(token, sdr, gainmap, lut, output);
-    } else {
-        apply_gain_row_scalar(sdr, gainmap, lut, output);
-    }
-}
-
-/// SIMD-accelerated gain map application with runtime dispatch.
-///
-/// On architectures without SIMD support, falls back to scalar.
-///
-/// # Panics
-///
-/// Panics if `sdr`, `gainmap`, and `output` have different lengths.
-#[cfg(all(
-    feature = "simd",
-    not(any(target_arch = "x86_64", target_arch = "aarch64"))
-))]
-pub fn apply_gain_row_simd(
-    sdr: &[[f32; 3]],
-    gainmap: &[u8],
-    lut: &[f32; 256],
-    output: &mut [[f32; 3]],
-) {
-    apply_gain_row_scalar(sdr, gainmap, lut, output);
-}
-
-// ============================================================================
-// AVX2+FMA implementation (x86_64, requires `simd` feature)
-// ============================================================================
-
-#[cfg(all(feature = "simd", target_arch = "x86_64"))]
-#[archmage::arcane]
-fn apply_gain_avx2(
-    token: archmage::X64V3Token,
-    sdr: &[[f32; 3]],
-    gainmap: &[u8],
-    lut: &[f32; 256],
-    output: &mut [[f32; 3]],
-) {
-    use magetypes::simd::v3::f32x8;
+    #[allow(non_camel_case_types)]
+    type f32x8 = GenericF32x8<Token>;
+    const LANES: usize = 8;
 
     assert_eq!(sdr.len(), output.len());
     assert_eq!(sdr.len(), gainmap.len());
 
-    // Process 8 pixels at a time
-    let chunks = sdr.len() / 8;
+    let chunks = sdr.len() / LANES;
 
     for chunk_idx in 0..chunks {
-        let base = chunk_idx * 8;
+        let base = chunk_idx * LANES;
 
         // Gather gains from LUT (8 scalar lookups -> SIMD vector)
-        let gains: [f32; 8] = core::array::from_fn(|i| lut[gainmap[base + i] as usize]);
+        let gains: [f32; LANES] = core::array::from_fn(|i| lut[gainmap[base + i] as usize]);
         let g = f32x8::from_array(token, gains);
 
         // Load R channel (strided gather - every 3rd element starting at [0])
-        let r: [f32; 8] = core::array::from_fn(|i| sdr[base + i][0]);
+        let r: [f32; LANES] = core::array::from_fn(|i| sdr[base + i][0]);
         let r_v = f32x8::from_array(token, r);
 
         // Load G channel
-        let g_ch: [f32; 8] = core::array::from_fn(|i| sdr[base + i][1]);
+        let g_ch: [f32; LANES] = core::array::from_fn(|i| sdr[base + i][1]);
         let g_v = f32x8::from_array(token, g_ch);
 
         // Load B channel
-        let b: [f32; 8] = core::array::from_fn(|i| sdr[base + i][2]);
+        let b: [f32; LANES] = core::array::from_fn(|i| sdr[base + i][2]);
         let b_v = f32x8::from_array(token, b);
 
         // Apply gain: output = sdr * gain
@@ -164,83 +102,44 @@ fn apply_gain_avx2(
         let r_arr = r_out.to_array();
         let g_arr = g_out.to_array();
         let b_arr = b_out.to_array();
-        for i in 0..8 {
+        for i in 0..LANES {
             output[base + i] = [r_arr[i], g_arr[i], b_arr[i]];
         }
     }
 
     // Handle remainder pixels with scalar
-    let remainder_start = chunks * 8;
+    let remainder_start = chunks * LANES;
     for i in remainder_start..sdr.len() {
-        let g = lut[gainmap[i] as usize];
-        output[i][0] = sdr[i][0] * g;
-        output[i][1] = sdr[i][1] * g;
-        output[i][2] = sdr[i][2] * g;
+        let g_val = lut[gainmap[i] as usize];
+        output[i][0] = sdr[i][0] * g_val;
+        output[i][1] = sdr[i][1] * g_val;
+        output[i][2] = sdr[i][2] * g_val;
     }
 }
 
-// ============================================================================
-// NEON implementation (aarch64, requires `simd` feature)
-// ============================================================================
-
-#[cfg(all(feature = "simd", target_arch = "aarch64"))]
-#[archmage::arcane]
-fn apply_gain_neon(
-    token: archmage::NeonToken,
+/// SIMD-accelerated gain map application with runtime dispatch.
+///
+/// Applies a single-channel gain LUT to each pixel using the best available
+/// SIMD instruction set. Falls back to scalar when no SIMD is available.
+///
+/// On x86_64 with AVX2+FMA, processes 8 pixels per iteration (~3-4x faster
+/// than scalar for large rows). On aarch64 and WASM, processes 8 pixels per
+/// iteration using the generic f32x8 type.
+///
+/// # Panics
+///
+/// Panics if `sdr`, `gainmap`, and `output` have different lengths.
+#[cfg(feature = "simd")]
+pub fn apply_gain_row_simd(
     sdr: &[[f32; 3]],
     gainmap: &[u8],
     lut: &[f32; 256],
     output: &mut [[f32; 3]],
 ) {
-    use magetypes::simd::f32x4;
-
-    assert_eq!(sdr.len(), output.len());
-    assert_eq!(sdr.len(), gainmap.len());
-
-    // Process 4 pixels at a time
-    let chunks = sdr.len() / 4;
-
-    for chunk_idx in 0..chunks {
-        let base = chunk_idx * 4;
-
-        // Gather gains from LUT (4 scalar lookups -> SIMD vector)
-        let gains: [f32; 4] = core::array::from_fn(|i| lut[gainmap[base + i] as usize]);
-        let g = f32x4::from_array(token, gains);
-
-        // Load R channel (strided gather - every 3rd element starting at [0])
-        let r: [f32; 4] = core::array::from_fn(|i| sdr[base + i][0]);
-        let r_v = f32x4::from_array(token, r);
-
-        // Load G channel
-        let g_ch: [f32; 4] = core::array::from_fn(|i| sdr[base + i][1]);
-        let g_v = f32x4::from_array(token, g_ch);
-
-        // Load B channel
-        let b: [f32; 4] = core::array::from_fn(|i| sdr[base + i][2]);
-        let b_v = f32x4::from_array(token, b);
-
-        // Apply gain: output = sdr * gain
-        let r_out = r_v * g;
-        let g_out = g_v * g;
-        let b_out = b_v * g;
-
-        // Store back (strided scatter)
-        let r_arr = r_out.to_array();
-        let g_arr = g_out.to_array();
-        let b_arr = b_out.to_array();
-        for i in 0..4 {
-            output[base + i] = [r_arr[i], g_arr[i], b_arr[i]];
-        }
-    }
-
-    // Handle remainder pixels with scalar
-    let remainder_start = chunks * 4;
-    for i in remainder_start..sdr.len() {
-        let g = lut[gainmap[i] as usize];
-        output[i][0] = sdr[i][0] * g;
-        output[i][1] = sdr[i][1] * g;
-        output[i][2] = sdr[i][2] * g;
-    }
+    incant!(
+        apply_gain_inner(sdr, gainmap, lut, output),
+        [v3, neon, wasm128, scalar]
+    );
 }
 
 // ============================================================================
