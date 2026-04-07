@@ -62,11 +62,12 @@ pub fn extract_icc_profile(data: &[u8]) -> Option<Vec<u8>> {
                     let _total_chunks = marker_data[ICC_IDENTIFIER.len() + 1];
 
                     let data_start = ICC_IDENTIFIER.len() + 2;
-                    let data_end = length - 2;
+                    let data_end = length.saturating_sub(2);
 
-                    if data_start < data_end {
-                        let chunk_data = marker_data[data_start..data_end].to_vec();
-                        chunks.push((chunk_num, chunk_data));
+                    if data_start < data_end
+                        && let Some(chunk_data) = marker_data.get(data_start..data_end)
+                    {
+                        chunks.push((chunk_num, chunk_data.to_vec()));
                     }
                 }
             }

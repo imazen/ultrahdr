@@ -55,14 +55,16 @@ impl<'a> Decoder<'a> {
     ///
     /// Use this to decode the base image with your own JPEG codec.
     pub fn primary_jpeg(&self) -> Option<&[u8]> {
-        self.primary_jpeg.map(|(start, end)| &self.data[start..end])
+        self.primary_jpeg
+            .and_then(|(start, end)| self.data.get(start..end))
     }
 
     /// Get the raw gain map JPEG data.
     ///
     /// Use this to decode the gain map with your own JPEG codec.
     pub fn gainmap_jpeg(&self) -> Option<&[u8]> {
-        self.gainmap_jpeg.map(|(start, end)| &self.data[start..end])
+        self.gainmap_jpeg
+            .and_then(|(start, end)| self.data.get(start..end))
     }
 
     /// Decode the SDR base image.
@@ -72,11 +74,9 @@ impl<'a> Decoder<'a> {
     /// decode with your own codec.
     #[cfg(feature = "_test-helpers")]
     pub fn decode_sdr(&self) -> Result<RawImage> {
-        let (start, end) = self
-            .primary_jpeg
+        let primary_data = self
+            .primary_jpeg()
             .ok_or_else(|| Error::DecodeError("No primary image found".into()))?;
-
-        let primary_data = &self.data[start..end];
         decode_jpeg_to_rgb(primary_data)
     }
 
@@ -100,11 +100,9 @@ impl<'a> Decoder<'a> {
     /// decode with your own codec.
     #[cfg(feature = "_test-helpers")]
     pub fn decode_gainmap(&self) -> Result<GainMap> {
-        let (start, end) = self
-            .gainmap_jpeg
+        let gainmap_data = self
+            .gainmap_jpeg()
             .ok_or_else(|| Error::DecodeError("No gain map found".into()))?;
-
-        let gainmap_data = &self.data[start..end];
         let decoded = decode_jpeg_to_grayscale(gainmap_data)?;
 
         Ok(GainMap {
@@ -239,9 +237,10 @@ impl<'a> Decoder<'a> {
                 self.gainmap_jpeg = Some(boundaries[1]);
 
                 // Also try to find metadata in the gain map JPEG
-                if self.metadata.is_none() {
-                    let (gm_start, gm_end) = boundaries[1];
-                    let gm_data = &self.data[gm_start..gm_end];
+                if self.metadata.is_none()
+                    && let (gm_start, gm_end) = boundaries[1]
+                    && let Some(gm_data) = self.data.get(gm_start..gm_end)
+                {
                     let gm_segments = container::scan_segments(gm_data);
                     if let Some(gm_xmp) = find_xmp_in_segments(&gm_segments)
                         && gm_xmp.contains("hdrgm:")
