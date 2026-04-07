@@ -169,7 +169,7 @@ pub fn parse_mpf_entries(data: &[u8]) -> Result<Vec<MpfEntry>> {
     while pos + 4 < data.len() {
         if data[pos] == 0xFF && data[pos + 1] == 0xE2 {
             let length = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
-            if pos + 4 + length <= data.len() {
+            if length >= 2 && pos + 2 + length <= data.len() {
                 let marker_data = &data[pos + 4..pos + 2 + length];
                 if marker_data.starts_with(MPF_IDENTIFIER) {
                     let tiff_header_pos = pos + 4 + MPF_IDENTIFIER.len();
@@ -193,7 +193,7 @@ pub fn parse_mpf(data: &[u8]) -> Result<Vec<(usize, usize)>> {
     while pos + 4 < data.len() {
         if data[pos] == 0xFF && data[pos + 1] == 0xE2 {
             let length = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
-            if pos + 4 + length <= data.len() {
+            if length >= 2 && pos + 2 + length <= data.len() {
                 let marker_data = &data[pos + 4..pos + 2 + length];
                 if marker_data.starts_with(MPF_IDENTIFIER) {
                     // TIFF header starts after marker (2) + length (2) + "MPF\0" (4)
