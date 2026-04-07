@@ -13,7 +13,7 @@ libfuzzer-sys = "0.4"
 [dependencies.ultrahdr-core]
 path = "../ultrahdr-core"
 default-features = false
-features = ["std"]
+features = ["std", "transfer"]
 
 [dependencies.ultrahdr-rs]
 path = "../ultrahdr-rs"
@@ -49,4 +49,14 @@ doc = false
 [[bin]]
 name = "parse_jpeg_segments"
 path = "fuzz_targets/parse_jpeg_segments.rs"
+doc = false
+
+[[bin]]
+name = "apply_gainmap"
+path = "fuzz_targets/apply_gainmap.rs"
+doc = false
+
+[[bin]]
+name = "tonemap"
+path = "fuzz_targets/tonemap.rs"
 doc = false
