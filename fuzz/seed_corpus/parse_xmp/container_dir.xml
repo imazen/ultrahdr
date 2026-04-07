@@ -1,0 +1,25 @@
+<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+        xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"
+        xmlns:Container="http://ns.google.com/photos/1.0/container/"
+        xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+        hdrgm:Version="1.0">
+      <Container:Directory>
+        <rdf:Seq>
+          <rdf:li rdf:parseType="Resource">
+            <Item:Semantic>Primary</Item:Semantic>
+            <Item:Mime>image/jpeg</Item:Mime>
+          </rdf:li>
+          <rdf:li rdf:parseType="Resource">
+            <Item:Semantic>GainMap</Item:Semantic>
+            <Item:Mime>image/jpeg</Item:Mime>
+            <Item:Length>1234</Item:Length>
+          </rdf:li>
+        </rdf:Seq>
+      </Container:Directory>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>

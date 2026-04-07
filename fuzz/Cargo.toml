@@ -1,0 +1,52 @@
+[package]
+name = "ultrahdr-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.ultrahdr-core]
+path = "../ultrahdr-core"
+default-features = false
+features = ["std"]
+
+[dependencies.ultrahdr-rs]
+path = "../ultrahdr-rs"
+
+# Prevent this from interfering with workspace resolution
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = true
+opt-level = 3
+
+[[bin]]
+name = "decode"
+path = "fuzz_targets/decode.rs"
+doc = false
+
+[[bin]]
+name = "parse_xmp"
+path = "fuzz_targets/parse_xmp.rs"
+doc = false
+
+[[bin]]
+name = "parse_iso21496"
+path = "fuzz_targets/parse_iso21496.rs"
+doc = false
+
+[[bin]]
+name = "parse_mpf"
+path = "fuzz_targets/parse_mpf.rs"
+doc = false
+
+[[bin]]
+name = "parse_jpeg_segments"
+path = "fuzz_targets/parse_jpeg_segments.rs"
+doc = false

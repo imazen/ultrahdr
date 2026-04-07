@@ -1,0 +1,68 @@
+# Ultra HDR / JPEG format dictionary
+# JPEG markers
+"\xFF\xD8"
+"\xFF\xD9"
+"\xFF\xE0"
+"\xFF\xE1"
+"\xFF\xE2"
+"\xFF\xDA"
+"\xFF\xDB"
+"\xFF\xC0"
+"\xFF\xC2"
+"\xFF\xC4"
+"\xFF\xDD"
+"\xFF\xFE"
+# XMP namespace prefix (APP1)
+"http://ns.adobe.com/xap/1.0/\x00"
+# HDR gain map XMP namespace
+"http://ns.adobe.com/hdr-gain-map/1.0/"
+"hdrgm:"
+"hdrgm:Version"
+"hdrgm:GainMapMin"
+"hdrgm:GainMapMax"
+"hdrgm:Gamma"
+"hdrgm:OffsetSDR"
+"hdrgm:OffsetHDR"
+"hdrgm:HDRCapacityMin"
+"hdrgm:HDRCapacityMax"
+"hdrgm:BaseRenditionIsHDR"
+# GContainer namespace
+"http://ns.google.com/photos/1.0/container/"
+"http://ns.google.com/photos/1.0/container/item/"
+"Container:Directory"
+"Container:Item"
+"Item:Semantic"
+"Item:Mime"
+"Item:Length"
+"GainMap"
+"Primary"
+# XMP/RDF structure
+"<x:xmpmeta"
+"<rdf:RDF"
+"<rdf:Description"
+"<rdf:Seq>"
+"<rdf:li>"
+"rdf:about"
+"xmlns:hdrgm"
+"xmlns:Container"
+"xmlns:Item"
+"<?xpacket"
+# MPF markers
+"MPF\x00"
+"0100"
+# TIFF header (big-endian and little-endian)
+"MM\x00\x2A"
+"II\x2A\x00"
+# ICC profile marker
+"ICC_PROFILE\x00"
+# JFIF marker
+"JFIF\x00"
+# EXIF marker
+"Exif\x00\x00"
+# ISO 21496-1 common values
+"\x00\x00\x00"
+"\x00\x00\x01"
+"\x80"
+"\x40"
+"\x08"
+"\x04"

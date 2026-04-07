@@ -4,17 +4,21 @@ Cargo.lock
 *.png
 *.ppm
 
-# Exception: test fixtures
+# Exception: test fixtures and fuzz seed corpus
 !test_ultrahdr.jpg
+!fuzz/seed_corpus/**/*.jpg
 
 # === Standard exclusions (do not depend on user ~/.gitignore) ===
 
 # Rust build artifacts
 target/
 
-# Fuzz build artifacts and crashes
+# Fuzz build artifacts, crashes, corpus, and coverage
 fuzz/target/
 fuzz/artifacts/
+fuzz/corpus/
+fuzz/coverage/
+*.profraw
 
 # Profiling
 perf.data
