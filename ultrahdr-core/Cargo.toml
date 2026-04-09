@@ -9,6 +9,20 @@ repository = "https://github.com/imazen/ultrahdr"
 keywords = ["hdr", "gainmap", "ultrahdr", "image", "no_std"]
 categories = ["multimedia::images", "encoding", "no-std"]
 readme = "../README.md"
+exclude = [
+    "CLAUDE.md",
+    "CONTEXT-HANDOFF.md",
+    "FEEDBACK.md",
+    ".claude/",
+    ".superwork/",
+    ".zenbench/",
+    "copter-report/",
+    ".github/",
+    "Cross.toml",
+    "justfile",
+    "Cargo.toml.original.txt",
+    "fuzz/",
+]
 
 [dependencies]
 # Cooperative cancellation
