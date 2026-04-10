@@ -34,7 +34,7 @@ thiserror = "2.0"
 zenjpeg = { version = "0.7", features = ["decoder"] }
 
 # Color management
-moxcms = "*"
+moxcms = "0.8.1"
 
 # Image buffer abstractions
 imgref = "1.12"
