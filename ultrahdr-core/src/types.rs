@@ -588,12 +588,14 @@ impl GainMapMetadata {
 // zencodec interop: From conversions for zenpixels / zencodec
 // ============================================================================
 
-#[cfg(feature = "zencodec")]
-mod zencodec_interop {
+// ============================================================================
+// zenpixels interop: ColorGamut ↔ ColorPrimaries, ColorTransfer ↔ TransferFunction
+// ============================================================================
+
+#[cfg(feature = "zenpixels")]
+mod zenpixels_interop {
     use super::*;
     use zenpixels::{ColorPrimaries, TransferFunction};
-
-    // --- ColorGamut ↔ ColorPrimaries ---
 
     impl From<ColorGamut> for ColorPrimaries {
         fn from(gamut: ColorGamut) -> Self {
@@ -615,8 +617,6 @@ mod zencodec_interop {
             }
         }
     }
-
-    // --- ColorTransfer ↔ TransferFunction ---
 
     impl From<ColorTransfer> for TransferFunction {
         fn from(transfer: ColorTransfer) -> Self {
@@ -640,6 +640,15 @@ mod zencodec_interop {
             }
         }
     }
+}
+
+// ============================================================================
+// zencodec interop: GainMapParams, Iso21496Format
+// ============================================================================
+
+#[cfg(feature = "zencodec")]
+mod zencodec_interop {
+    use super::*;
 
     // --- GainMapMetadata ↔ zencodec::GainMapParams ---
     //
@@ -1084,8 +1093,8 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "zencodec"))]
-mod zencodec_tests {
+#[cfg(all(test, feature = "zenpixels"))]
+mod zenpixels_tests {
     use super::*;
     use zenpixels::{ColorPrimaries, TransferFunction};
 
@@ -1162,6 +1171,11 @@ mod zencodec_tests {
             ColorTransfer::Srgb
         );
     }
+}
+
+#[cfg(all(test, feature = "zencodec"))]
+mod zencodec_tests {
+    use super::*;
 
     #[test]
     fn gainmap_params_to_metadata_roundtrip() {

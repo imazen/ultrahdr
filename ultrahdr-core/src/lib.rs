@@ -54,6 +54,10 @@ pub mod gainmap;
 pub mod metadata;
 mod types;
 
+/// PixelBuffer adapters and tone mapping helpers for zenpixels interop.
+#[cfg(feature = "zenpixels")]
+pub mod zenpixels_adapter;
+
 // Re-export core types
 pub use types::{
     ColorGamut, ColorTransfer, Error, Fraction, GainMap, GainMapEncodingFormat, GainMapMetadata,

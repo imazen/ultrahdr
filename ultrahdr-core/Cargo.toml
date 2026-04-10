@@ -70,6 +70,7 @@ default = ["std", "transfer"]
 std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb?/std"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
 transfer = ["dep:linear-srgb"]  # Transfer functions (sRGB, PQ, HLG) via linear-srgb.
-zencodec = ["dep:zenpixels", "dep:zencodec"]  # From conversions for zen* ecosystem types.
+zenpixels = ["dep:zenpixels", "transfer"]  # PixelBuffer adapters + tone mapping helpers.
+zencodec = ["zenpixels", "dep:zencodec"]  # GainMapParams conversions + zenpixels.
 # Future: alloc-only support
 # alloc = ["enough/alloc"]
