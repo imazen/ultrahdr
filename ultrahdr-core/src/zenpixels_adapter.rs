@@ -39,7 +39,7 @@ use alloc::vec::Vec;
 use zenpixels::{Cicp, ColorPrimaries, PixelBuffer, PixelDescriptor, PixelFormat, PixelSlice};
 
 use crate::color::gamut::{Matrix3x3, gamut_conversion_matrix};
-use crate::color::tonemap::{ToneMapConfig, ToneMapCurve, tonemap_to_sdr as tonemap_pixel};
+use crate::color::tonemap::{ToneMapConfig, tonemap_to_sdr as tonemap_pixel};
 use crate::color::transfer::{hlg_eotf, pq_eotf, srgb_eotf, srgb_oetf};
 use crate::types::{ColorGamut, ColorTransfer, Error, RawImage, Result};
 
@@ -48,13 +48,17 @@ use crate::types::{ColorGamut, ColorTransfer, Error, RawImage, Result};
 // ============================================================================
 
 /// Configuration for HDR → SDR tone mapping.
+///
+/// The tone mapping algorithm is filmic (Narkowicz) for PQ and BT.2390
+/// for HLG, matching the `tonemap_pq_to_sdr` / `tonemap_hlg_to_sdr`
+/// reference implementations. Curve selection via [`ToneMapCurve`](crate::color::tonemap::ToneMapCurve)
+/// is available through the lower-level `tonemap_rgb_curve()` API for
+/// callers who need a specific algorithm.
 #[derive(Clone, Debug)]
 pub struct SdrToneMapOptions {
     /// Target color primaries. `None` = smart default:
     /// P3 source → P3 SDR, everything else → BT.709 sRGB.
     pub target_primaries: Option<ColorPrimaries>,
-    /// Tone mapping curve. Default: [`ToneMapCurve::Narkowicz`] (filmic).
-    pub curve: ToneMapCurve,
     /// SDR display peak luminance in nits. Default: 203 (reference white).
     pub target_peak_nits: f32,
     /// HDR content peak luminance in nits. `None` = infer from transfer
@@ -66,7 +70,6 @@ impl Default for SdrToneMapOptions {
     fn default() -> Self {
         Self {
             target_primaries: None,
-            curve: ToneMapCurve::Narkowicz,
             target_peak_nits: 203.0,
             hdr_peak_nits: None,
         }
@@ -686,10 +689,10 @@ mod tests {
     }
 
     #[test]
-    fn tonemap_to_sdr_custom_curve() {
+    fn tonemap_to_sdr_custom_peak_nits() {
         let buf = make_rgba8(2, 2, [127, 127, 127, 255]);
         let opts = SdrToneMapOptions {
-            curve: ToneMapCurve::Reinhard,
+            target_peak_nits: 100.0, // lower target peak
             ..default_opts()
         };
         let (result, _) = tonemap_to_sdr(&buf, &Cicp::BT2100_PQ, &opts)
