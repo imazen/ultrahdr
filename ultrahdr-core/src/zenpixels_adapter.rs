@@ -3,15 +3,31 @@
 //! Three layers, from low to high:
 //!
 //! 1. **[`raw_image_from_buffer`] / [`raw_image_from_slice`]** — convert
-//!    zenpixels types to [`RawImage`] for use with any ultrahdr-core API.
+//!    zenpixels types to [`RawImage`] for use with any ultrahdr-core API
+//!    (gain map apply/compute). Copies pixel data into an owned `Vec<u8>`.
 //!
 //! 2. **[`SdrToneMapper`]** — stateful row processor. Create once, call
 //!    [`tonemap_row_rgba8`](SdrToneMapper::tonemap_row_rgba8) or
-//!    [`tonemap_row_linear`](SdrToneMapper::tonemap_row_linear) per row.
-//!    For streaming pipelines (zenpipe).
+//!    [`tonemap_row_f32_to_linear`](SdrToneMapper::tonemap_row_f32_to_linear)
+//!    per row. No intermediate allocation — reads directly from `PixelSlice`
+//!    rows. For streaming pipelines (zenpipe).
 //!
-//! 3. **[`tonemap_to_sdr`]** — one-call convenience. Takes a `PixelBuffer`
-//!    or `PixelSlice`, returns a new RGBA8 `PixelBuffer`. For decode→encode.
+//! 3. **[`tonemap_to_sdr`]** / **[`tonemap_slice_to_sdr`]** — one-call
+//!    convenience. Takes a `PixelBuffer` or `PixelSlice`, returns a new
+//!    RGBA8 `PixelBuffer`. For decode→encode.
+//!
+//! # Alpha handling
+//!
+//! Alpha is passed through untouched by all tone mapping operations.
+//! The tone curve is applied to RGB channels only — alpha is independent
+//! of luminance.
+//!
+//! For RGB input (no alpha), output alpha is set to 255 (opaque).
+//!
+//! **Premultiplied alpha**: Not handled. If the source has premultiplied
+//! alpha, unpremultiply before tone mapping and repremultiply after.
+//! Tone mapping premultiplied RGB values will change the alpha
+//! relationship and produce wrong compositing results.
 //!
 //! # Feature gate
 //!
