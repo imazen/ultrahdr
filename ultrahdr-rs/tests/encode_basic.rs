@@ -326,7 +326,7 @@ fn write_test_ultrahdr() {
     let decoder = Decoder::new(&encoded).unwrap();
     assert!(decoder.is_ultrahdr());
     let meta = decoder.metadata().unwrap();
-    eprintln!("gain_map_max: {:?}", meta.gain_map_max);
+    eprintln!("channels[0].max: {}", meta.channels[0].max);
     eprintln!("alternate_hdr_headroom: {}", meta.alternate_hdr_headroom);
 }
 

@@ -1150,12 +1150,12 @@ impl AdaptiveTonemapper {
 
                 // Invert: SDR = (HDR + alternate_offset) / gain - base_offset
                 let sdr_linear = [
-                    (hdr_linear[0] + metadata.alternate_offset[0] as f32) / gain[0]
-                        - metadata.base_offset[0] as f32,
-                    (hdr_linear[1] + metadata.alternate_offset[1] as f32) / gain[1]
-                        - metadata.base_offset[1] as f32,
-                    (hdr_linear[2] + metadata.alternate_offset[2] as f32) / gain[2]
-                        - metadata.base_offset[2] as f32,
+                    (hdr_linear[0] + metadata.channels[0].alternate_offset as f32) / gain[0]
+                        - metadata.channels[0].base_offset as f32,
+                    (hdr_linear[1] + metadata.channels[1].alternate_offset as f32) / gain[1]
+                        - metadata.channels[1].base_offset as f32,
+                    (hdr_linear[2] + metadata.channels[2].alternate_offset as f32) / gain[2]
+                        - metadata.channels[2].base_offset as f32,
                 ];
 
                 // Clamp and apply sRGB OETF
@@ -1876,7 +1876,7 @@ fn sample_gainmap_at(
 
 /// Decode gain value from normalized [0,1] to linear multiplier.
 fn decode_gain_value(normalized: f32, metadata: &GainMapMetadata, channel: usize) -> f32 {
-    let gamma = metadata.gamma[channel] as f32;
+    let gamma = metadata.channels[channel].gamma as f32;
     let linear = if gamma != 1.0 && gamma > 0.0 {
         normalized.powf(1.0 / gamma)
     } else {
@@ -1885,8 +1885,8 @@ fn decode_gain_value(normalized: f32, metadata: &GainMapMetadata, channel: usize
 
     // Convert log2 domain to natural log for exp() math
     let ln2 = core::f64::consts::LN_2;
-    let log_min = (metadata.gain_map_min[channel] * ln2) as f32;
-    let log_max = (metadata.gain_map_max[channel] * ln2) as f32;
+    let log_min = (metadata.channels[channel].min * ln2) as f32;
+    let log_max = (metadata.channels[channel].max * ln2) as f32;
     let log_gain = log_min + linear * (log_max - log_min);
 
     log_gain.exp()

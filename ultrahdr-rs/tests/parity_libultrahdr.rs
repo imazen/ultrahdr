@@ -233,9 +233,7 @@ fn test_gainmap_metadata_access() {
     match decoder.gainmap_metadata() {
         Ok(Some(meta)) => {
             eprintln!("Gain map metadata:");
-            eprintln!("  gain_map_max: {:?}", meta.gain_map_max);
-            eprintln!("  gain_map_min: {:?}", meta.gain_map_min);
-            eprintln!("  gamma: {:?}", meta.gamma);
+            eprintln!("  channels: {:?}", meta.channels);
         }
         Ok(None) => {
             eprintln!("No metadata");

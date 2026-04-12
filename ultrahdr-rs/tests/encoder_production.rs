@@ -57,12 +57,14 @@ fn stub_jpeg() -> Vec<u8> {
 }
 
 fn test_metadata() -> GainMapMetadata {
-    let mut m = GainMapMetadata::new();
-    m.gain_map_max = [2.0; 3];
-    m.gain_map_min = [0.0; 3];
-    m.gamma = [1.0; 3];
-    m.base_offset = [1.0 / 64.0; 3];
-    m.alternate_offset = [1.0 / 64.0; 3];
+    let mut m = GainMapMetadata::default();
+    for ch in &mut m.channels {
+        ch.max = 2.0;
+        ch.min = 0.0;
+        ch.gamma = 1.0;
+        ch.base_offset = 1.0 / 64.0;
+        ch.alternate_offset = 1.0 / 64.0;
+    }
     m.base_hdr_headroom = 0.0;
     m.alternate_hdr_headroom = 2.0;
     m.use_base_color_space = true;
@@ -162,12 +164,14 @@ fn test_encode_ultrahdr_has_icc() {
 fn test_encode_ultrahdr_metadata_preserved() {
     let base = stub_jpeg();
     let gainmap = stub_jpeg();
-    let mut metadata = GainMapMetadata::new();
-    metadata.gain_map_max = [3.0; 3];
-    metadata.gain_map_min = [0.0; 3];
-    metadata.gamma = [1.0; 3];
-    metadata.base_offset = [1.0 / 64.0; 3];
-    metadata.alternate_offset = [1.0 / 64.0; 3];
+    let mut metadata = GainMapMetadata::default();
+    for ch in &mut metadata.channels {
+        ch.max = 3.0;
+        ch.min = 0.0;
+        ch.gamma = 1.0;
+        ch.base_offset = 1.0 / 64.0;
+        ch.alternate_offset = 1.0 / 64.0;
+    }
     metadata.base_hdr_headroom = 0.0;
     metadata.alternate_hdr_headroom = 3.0;
     metadata.use_base_color_space = true;
@@ -178,9 +182,9 @@ fn test_encode_ultrahdr_metadata_preserved() {
 
     // gain_map_max roundtrips through XMP (log2 domain)
     assert!(
-        (parsed.gain_map_max[0] - 3.0).abs() < 0.1,
+        (parsed.channels[0].max - 3.0).abs() < 0.1,
         "gain_map_max should roundtrip: got {}",
-        parsed.gain_map_max[0]
+        parsed.channels[0].max
     );
     assert!(
         (parsed.alternate_hdr_headroom - 3.0).abs() < 0.1,

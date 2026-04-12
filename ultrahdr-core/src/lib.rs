@@ -54,11 +54,16 @@ pub mod gainmap;
 pub mod metadata;
 mod types;
 
-// Re-export core types
+// Re-export core types (local)
 pub use types::{
-    ColorGamut, ColorTransfer, Error, Fraction, GainMap, GainMapEncodingFormat, GainMapMetadata,
-    Iso21496Format, PixelFormat, RawImage, Result, UnsignedFraction, luminance,
+    ColorGamut, ColorTransfer, Error, GainMap, GainMapEncodingFormat, PixelFormat, RawImage,
+    Result, luminance, validate_gainmap_metadata,
 };
+
+// Re-export from zencodec (canonical gain map metadata types)
+pub use types::{Fraction, GainMapChannel, GainMapMetadata, Iso21496Format, UnsignedFraction};
+pub use zencodec::GainMapParams;
+pub use zencodec::gainmap::{parse_iso21496_fmt, serialize_iso21496_fmt};
 
 // Re-export enough for convenience
 pub use enough::{Stop, StopReason, Unstoppable};

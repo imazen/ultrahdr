@@ -51,19 +51,19 @@ fn test_xmp_roundtrip_metadata_values() {
 
     // Check the primary channel (channel 0) has reasonable values
     assert!(
-        metadata.gain_map_max[0] >= 0.0,
+        metadata.channels[0].max >= 0.0,
         "Max boost should be >= 1.0, got {}",
-        metadata.gain_map_max[0]
+        metadata.channels[0].max
     );
     assert!(
-        metadata.gain_map_min[0] >= -1.0,
+        metadata.channels[0].min >= -1.0,
         "Min boost should be >= 0.5, got {}",
-        metadata.gain_map_min[0]
+        metadata.channels[0].min
     );
     assert!(
-        metadata.gamma[0] > 0.0,
+        metadata.channels[0].gamma > 0.0,
         "Gamma should be positive, got {}",
-        metadata.gamma[0]
+        metadata.channels[0].gamma
     );
     assert!(
         metadata.alternate_hdr_headroom >= 0.0,
@@ -110,9 +110,9 @@ fn test_xmp_log2_encoding() {
 
     // max_content_boost should be around 8.0 or clamped to content
     assert!(
-        metadata.gain_map_max[0] > 0.0,
+        metadata.channels[0].max > 0.0,
         "Max content boost should be > 1.0, got {}",
-        metadata.gain_map_max[0]
+        metadata.channels[0].max
     );
 }
 
@@ -153,32 +153,32 @@ fn test_xmp_container_directory() {
 /// Test ISO metadata serialization round-trip.
 #[test]
 fn test_iso21496_roundtrip() {
-    use ultrahdr_rs::metadata::iso21496::{deserialize_iso21496, serialize_iso21496};
+    use ultrahdr_rs::metadata::iso_jpeg::{parse_iso21496, serialize_iso21496};
 
     let original = create_test_metadata(4.0);
 
-    let serialized = serialize_iso21496(&original);
-    let parsed = deserialize_iso21496(&serialized).unwrap();
+    let serialized = serialize_iso21496(&original, ultrahdr_rs::Iso21496Format::AvifTmap);
+    let parsed = parse_iso21496(&serialized, ultrahdr_rs::Iso21496Format::AvifTmap).unwrap();
 
     // Check values match (with tolerance for fraction conversion)
     assert!(
-        (parsed.gain_map_max[0] - original.gain_map_max[0]).abs() < 0.01,
+        (parsed.channels[0].max - original.channels[0].max).abs() < 0.01,
         "Max boost mismatch: {} vs {}",
-        parsed.gain_map_max[0],
-        original.gain_map_max[0]
+        parsed.channels[0].max,
+        original.channels[0].max
     );
     assert!(
-        (parsed.gain_map_min[0] - original.gain_map_min[0]).abs() < 0.01,
+        (parsed.channels[0].min - original.channels[0].min).abs() < 0.01,
         "Min boost mismatch: {} vs {}",
-        parsed.gain_map_min[0],
-        original.gain_map_min[0]
+        parsed.channels[0].min,
+        original.channels[0].min
     );
     assert!(
-        (parsed.gamma[0] - original.gamma[0]).abs() < 0.01,
+        (parsed.channels[0].gamma - original.channels[0].gamma).abs() < 0.01,
         "Gamma mismatch"
     );
     assert!(
-        (parsed.base_offset[0] - original.base_offset[0]).abs() < 0.001,
+        (parsed.channels[0].base_offset - original.channels[0].base_offset).abs() < 0.001,
         "Offset SDR mismatch"
     );
     assert!(
@@ -194,32 +194,34 @@ fn test_iso21496_roundtrip() {
 /// Test ISO metadata version byte.
 #[test]
 fn test_iso21496_version() {
-    use ultrahdr_rs::metadata::iso21496::{ISO_VERSION, serialize_iso21496};
+    use ultrahdr_rs::metadata::iso_jpeg::serialize_iso21496;
 
     let metadata = create_test_metadata(2.0);
-    let serialized = serialize_iso21496(&metadata);
+    let serialized = serialize_iso21496(&metadata, ultrahdr_rs::Iso21496Format::AvifTmap);
 
-    // First byte should be version
-    assert_eq!(serialized[0], ISO_VERSION);
+    // First byte should be version 0 (AVIF tmap format includes version prefix)
+    assert_eq!(serialized[0], 0);
 }
 
 /// Test ISO metadata flags byte.
 #[test]
 fn test_iso21496_flags() {
-    use ultrahdr_rs::metadata::iso21496::serialize_iso21496;
+    use ultrahdr_rs::metadata::iso_jpeg::serialize_iso21496;
 
     // Single-channel, use base color space
-    let mut metadata = GainMapMetadata::new();
-    metadata.gain_map_max = [2.0; 3];
-    metadata.gain_map_min = [0.0; 3];
-    metadata.gamma = [1.0; 3];
-    metadata.base_offset = [0.015625; 3];
-    metadata.alternate_offset = [0.015625; 3];
+    let mut metadata = GainMapMetadata::default();
+    for ch in &mut metadata.channels {
+        ch.max = 2.0;
+        ch.min = 0.0;
+        ch.gamma = 1.0;
+        ch.base_offset = 0.015625;
+        ch.alternate_offset = 0.015625;
+    }
     metadata.base_hdr_headroom = 0.0;
     metadata.alternate_hdr_headroom = 2.0;
     metadata.use_base_color_space = true;
 
-    let serialized = serialize_iso21496(&metadata);
+    let serialized = serialize_iso21496(&metadata, ultrahdr_rs::Iso21496Format::AvifTmap);
 
     // ISO 21496-1 wire format: version(1) + minimum_version(2) + writer_version(2) + flags(1)
     // Flags byte is at offset 5
@@ -241,45 +243,53 @@ fn test_iso21496_flags() {
 /// Test ISO metadata handles extreme values.
 #[test]
 fn test_iso21496_extreme_values() {
-    use ultrahdr_rs::metadata::iso21496::{deserialize_iso21496, serialize_iso21496};
+    use ultrahdr_rs::metadata::iso_jpeg::{parse_iso21496, serialize_iso21496};
 
-    let mut metadata = GainMapMetadata::new();
-    metadata.gain_map_max = [6.644; 3]; // log2(100) — very high boost
-    metadata.gain_map_min = [-3.322; 3]; // log2(0.1) — very low
-    metadata.gamma = [2.2; 3];
-    metadata.base_offset = [0.001; 3];
-    metadata.alternate_offset = [0.001; 3];
+    let mut metadata = GainMapMetadata::default();
+    for ch in &mut metadata.channels {
+        ch.max = 6.644; // log2(100) — very high boost
+        ch.min = -3.322; // log2(0.1) — very low
+        ch.gamma = 2.2;
+        ch.base_offset = 0.001;
+        ch.alternate_offset = 0.001;
+    }
     metadata.base_hdr_headroom = 0.5;
     metadata.alternate_hdr_headroom = 6.644; // log2(100)
     metadata.use_base_color_space = false;
 
-    let serialized = serialize_iso21496(&metadata);
-    let parsed = deserialize_iso21496(&serialized).unwrap();
+    let serialized = serialize_iso21496(&metadata, ultrahdr_rs::Iso21496Format::AvifTmap);
+    let parsed = parse_iso21496(&serialized, ultrahdr_rs::Iso21496Format::AvifTmap).unwrap();
 
     // Values should round-trip reasonably (log2 domain)
     assert!(
-        (parsed.gain_map_max[0] - 6.644).abs() < 0.01,
+        (parsed.channels[0].max - 6.644).abs() < 0.01,
         "Extreme max boost should preserve: got {}",
-        parsed.gain_map_max[0]
+        parsed.channels[0].max
     );
-    assert!((parsed.gamma[0] - 2.2).abs() < 0.1, "Gamma should preserve");
+    assert!(
+        (parsed.channels[0].gamma - 2.2).abs() < 0.1,
+        "Gamma should preserve"
+    );
 }
 
 /// Test ISO metadata rejects invalid data.
 #[test]
 fn test_iso21496_rejects_invalid() {
-    use ultrahdr_rs::metadata::iso21496::deserialize_iso21496;
+    use ultrahdr_rs::metadata::iso_jpeg::parse_iso21496;
 
     // Empty data
-    let result = deserialize_iso21496(&[]);
+    let result = parse_iso21496(&[], ultrahdr_rs::Iso21496Format::AvifTmap);
     assert!(result.is_err());
 
     // Too short
-    let result = deserialize_iso21496(&[0]);
+    let result = parse_iso21496(&[0], ultrahdr_rs::Iso21496Format::AvifTmap);
     assert!(result.is_err());
 
     // Invalid version
-    let result = deserialize_iso21496(&[99, 0, 0, 0, 0, 0, 0, 0]);
+    let result = parse_iso21496(
+        &[99, 0, 0, 0, 0, 0, 0, 0],
+        ultrahdr_rs::Iso21496Format::AvifTmap,
+    );
     assert!(result.is_err());
 }
 
@@ -419,10 +429,7 @@ fn test_metadata_consistency() {
     let metadata = decoder.metadata().unwrap();
 
     // Log metadata for debugging
-    eprintln!(
-        "gain_map_min: {:?}, gain_map_max: {:?}",
-        metadata.gain_map_min, metadata.gain_map_max
-    );
+    eprintln!("channels: {:?}", metadata.channels);
     eprintln!(
         "hdr_capacity: min={}, max={}",
         metadata.base_hdr_headroom, metadata.alternate_hdr_headroom
@@ -432,22 +439,22 @@ fn test_metadata_consistency() {
     // Note: XMP parsing may set default values that don't perfectly match encoded values
     // The key constraint is that the values are sensible
     assert!(
-        metadata.gain_map_max[0] >= 0.0,
+        metadata.channels[0].max >= 0.0,
         "max_content_boost should be >= 1.0, got {}",
-        metadata.gain_map_max[0]
+        metadata.channels[0].max
     );
     assert!(
         metadata.alternate_hdr_headroom >= 0.0,
         "hdr_capacity_max should be >= 1.0, got {}",
         metadata.alternate_hdr_headroom
     );
-    assert!(metadata.gamma[0] > 0.0, "gamma should be positive");
+    assert!(metadata.channels[0].gamma > 0.0, "gamma should be positive");
     assert!(
-        metadata.base_offset[0] >= 0.0,
+        metadata.channels[0].base_offset >= 0.0,
         "offset_sdr should be non-negative"
     );
     assert!(
-        metadata.alternate_offset[0] >= 0.0,
+        metadata.channels[0].alternate_offset >= 0.0,
         "offset_hdr should be non-negative"
     );
 }
@@ -469,13 +476,13 @@ fn test_metadata_offsets_nonzero() {
     // Offsets should be non-zero to prevent division by zero during reconstruction
     // The Ultra HDR spec recommends 1/64 = 0.015625
     assert!(
-        metadata.base_offset[0] > 0.0,
+        metadata.channels[0].base_offset > 0.0,
         "offset_sdr should be > 0, got {}",
-        metadata.base_offset[0]
+        metadata.channels[0].base_offset
     );
     assert!(
-        metadata.alternate_offset[0] > 0.0,
+        metadata.channels[0].alternate_offset > 0.0,
         "offset_hdr should be > 0, got {}",
-        metadata.alternate_offset[0]
+        metadata.channels[0].alternate_offset
     );
 }

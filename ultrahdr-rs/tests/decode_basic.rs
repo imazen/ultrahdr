@@ -25,9 +25,9 @@ fn test_extracts_metadata() {
 
     let meta = metadata.unwrap();
     assert!(
-        meta.gain_map_max[0] >= 1.0,
+        meta.channels[0].max >= 1.0,
         "Max boost should be >= 1.0, got {}",
-        meta.gain_map_max[0]
+        meta.channels[0].max
     );
     assert!(
         meta.alternate_hdr_headroom >= 1.0,
@@ -186,19 +186,23 @@ fn test_metadata_value_ranges() {
     // Check all channels
     for i in 0..3 {
         assert!(
-            metadata.gain_map_max[i] >= metadata.gain_map_min[i],
+            metadata.channels[i].max >= metadata.channels[i].min,
             "max_content_boost[{}] should be >= min_content_boost[{}]",
             i,
             i
         );
-        assert!(metadata.gamma[i] > 0.0, "gamma[{}] should be positive", i);
         assert!(
-            metadata.base_offset[i] >= 0.0,
+            metadata.channels[i].gamma > 0.0,
+            "gamma[{}] should be positive",
+            i
+        );
+        assert!(
+            metadata.channels[i].base_offset >= 0.0,
             "offset_sdr[{}] should be non-negative",
             i
         );
         assert!(
-            metadata.alternate_offset[i] >= 0.0,
+            metadata.channels[i].alternate_offset >= 0.0,
             "offset_hdr[{}] should be non-negative",
             i
         );

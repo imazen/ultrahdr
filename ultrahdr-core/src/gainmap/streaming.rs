@@ -762,18 +762,17 @@ impl RowEncoder {
         let actual_min = self.actual_min_boost.max(self.config.min_boost);
         let actual_max = self.actual_max_boost.min(self.config.max_boost);
 
-        let metadata = GainMapMetadata {
-            gain_map_max: [(actual_max as f64).log2(); 3],
-            gain_map_min: [(actual_min as f64).log2(); 3],
-            gamma: [self.config.gamma as f64; 3],
-            base_offset: [self.config.base_offset as f64; 3],
-            alternate_offset: [self.config.alternate_offset as f64; 3],
-            base_hdr_headroom: (self.config.base_hdr_headroom as f64).log2(),
-            alternate_hdr_headroom: (self.config.alternate_hdr_headroom.max(actual_max) as f64)
-                .log2(),
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = crate::types::metadata_from_arrays(
+            [(actual_min as f64).log2(); 3],
+            [(actual_max as f64).log2(); 3],
+            [self.config.gamma as f64; 3],
+            [self.config.base_offset as f64; 3],
+            [self.config.alternate_offset as f64; 3],
+            (self.config.base_hdr_headroom as f64).log2(),
+            (self.config.alternate_hdr_headroom.max(actual_max) as f64).log2(),
+            true,
+            false,
+        );
 
         Ok((gainmap, metadata))
     }
@@ -1146,17 +1145,17 @@ impl StreamEncoder {
             self.config.min_boost
         };
 
-        let metadata = GainMapMetadata {
-            gain_map_max: [(actual_max as f64).log2(); 3],
-            gain_map_min: [(actual_min as f64).log2(); 3],
-            gamma: [self.config.gamma as f64; 3],
-            base_offset: [self.config.base_offset as f64; 3],
-            alternate_offset: [self.config.alternate_offset as f64; 3],
-            base_hdr_headroom: 0.0, // log2(1.0) = 0
-            alternate_hdr_headroom: (actual_max as f64).log2(),
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = crate::types::metadata_from_arrays(
+            [(actual_min as f64).log2(); 3],
+            [(actual_max as f64).log2(); 3],
+            [self.config.gamma as f64; 3],
+            [self.config.base_offset as f64; 3],
+            [self.config.alternate_offset as f64; 3],
+            0.0, // log2(1.0) = 0
+            (actual_max as f64).log2(),
+            true,
+            false,
+        );
 
         Ok((gainmap, metadata))
     }
@@ -1211,7 +1210,7 @@ fn bilinear(v00: f32, v10: f32, v01: f32, v11: f32, fx: f32, fy: f32) -> f32 {
 }
 
 fn decode_gain(normalized: f32, metadata: &GainMapMetadata, channel: usize, weight: f32) -> f32 {
-    let gamma = metadata.gamma[channel] as f32;
+    let gamma = metadata.channels[channel].gamma as f32;
     let linear = if gamma != 1.0 && gamma > 0.0 {
         normalized.powf(1.0 / gamma)
     } else {
@@ -1220,8 +1219,8 @@ fn decode_gain(normalized: f32, metadata: &GainMapMetadata, channel: usize, weig
 
     // Convert log2 domain to natural log for exp() math
     let ln2 = core::f64::consts::LN_2;
-    let log_min = (metadata.gain_map_min[channel] * ln2) as f32;
-    let log_max = (metadata.gain_map_max[channel] * ln2) as f32;
+    let log_min = (metadata.channels[channel].min * ln2) as f32;
+    let log_max = (metadata.channels[channel].max * ln2) as f32;
     let log_gain = log_min + linear * (log_max - log_min);
 
     (log_gain * weight).exp()
@@ -1229,12 +1228,12 @@ fn decode_gain(normalized: f32, metadata: &GainMapMetadata, channel: usize, weig
 
 fn apply_gain(sdr_linear: [f32; 3], gain: [f32; 3], metadata: &GainMapMetadata) -> [f32; 3] {
     [
-        (sdr_linear[0] + metadata.base_offset[0] as f32) * gain[0]
-            - metadata.alternate_offset[0] as f32,
-        (sdr_linear[1] + metadata.base_offset[1] as f32) * gain[1]
-            - metadata.alternate_offset[1] as f32,
-        (sdr_linear[2] + metadata.base_offset[2] as f32) * gain[2]
-            - metadata.alternate_offset[2] as f32,
+        (sdr_linear[0] + metadata.channels[0].base_offset as f32) * gain[0]
+            - metadata.channels[0].alternate_offset as f32,
+        (sdr_linear[1] + metadata.channels[1].base_offset as f32) * gain[1]
+            - metadata.channels[1].alternate_offset as f32,
+        (sdr_linear[2] + metadata.channels[2].base_offset as f32) * gain[2]
+            - metadata.channels[2].alternate_offset as f32,
     ]
 }
 
@@ -1263,17 +1262,17 @@ mod tests {
             *v = 128;
         }
 
-        let metadata = GainMapMetadata {
-            gain_map_min: [0.0; 3], // log2(1.0)
-            gain_map_max: [2.0; 3], // log2(4.0)
-            gamma: [1.0; 3],
-            base_offset: [0.015625; 3],
-            alternate_offset: [0.015625; 3],
-            base_hdr_headroom: 0.0,      // log2(1.0)
-            alternate_hdr_headroom: 2.0, // log2(4.0)
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = crate::types::metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [0.015625; 3],
+            [0.015625; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
 
         let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
 
@@ -1307,7 +1306,7 @@ mod tests {
         let (gainmap, metadata) = encoder.finish().unwrap();
         assert_eq!(gainmap.width, 2);
         assert_eq!(gainmap.height, 2);
-        assert!(metadata.gain_map_max[0] >= 1.0);
+        assert!(metadata.channels[0].max >= 1.0);
     }
 
     #[test]
@@ -1337,17 +1336,17 @@ mod tests {
     /// Helper: standard metadata used across tests.
     fn test_metadata() -> GainMapMetadata {
         // log2(1.0)=0.0, log2(4.0)=2.0
-        GainMapMetadata {
-            gain_map_min: [0.0; 3], // log2(1.0)
-            gain_map_max: [2.0; 3], // log2(4.0)
-            gamma: [1.0; 3],
-            base_offset: [0.015625; 3],
-            alternate_offset: [0.015625; 3],
-            base_hdr_headroom: 0.0,      // log2(1.0)
-            alternate_hdr_headroom: 2.0, // log2(4.0)
-            use_base_color_space: true,
-            backward_direction: false,
-        }
+        crate::types::metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [0.015625; 3],
+            [0.015625; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        )
     }
 
     /// Helper: 2x2 gainmap filled with a constant byte value.
@@ -1510,7 +1509,7 @@ mod tests {
         let (gainmap, metadata) = encoder.finish().unwrap();
         assert_eq!(gainmap.width, 2);
         assert_eq!(gainmap.height, 2);
-        assert!(metadata.gain_map_max[0] >= 1.0);
+        assert!(metadata.channels[0].max >= 1.0);
         // The batch call should have produced the same number of gm rows
         // as the total gm height (2), since all input was provided at once.
         assert_eq!(gm_rows.len(), 2);

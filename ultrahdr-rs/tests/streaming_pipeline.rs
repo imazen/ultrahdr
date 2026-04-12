@@ -233,11 +233,11 @@ fn test_streaming_pipeline_memory_usage() {
 
     // Verify metadata
     assert!(
-        metadata.gain_map_max[0] <= 6.0,
+        metadata.channels[0].max <= 6.0,
         "Max boost should be within configured range"
     );
     assert!(
-        metadata.gain_map_min[0] >= 1.0,
+        metadata.channels[0].min >= 1.0,
         "Min boost should be at least 1.0"
     );
 
@@ -253,8 +253,8 @@ fn test_streaming_pipeline_memory_usage() {
          - Min content boost: {:.2}",
         sdr_jpeg.len(),
         gm_jpeg.len(),
-        metadata.gain_map_max[0],
-        metadata.gain_map_min[0]
+        metadata.channels[0].max,
+        metadata.channels[0].min
     );
 }
 
@@ -321,8 +321,8 @@ fn test_streaming_vs_batch_equivalence() {
     assert_eq!(stream_gm.channels, 1, "Channels mismatch");
 
     // Streaming should produce valid metadata
-    assert!(stream_meta.gain_map_min[0] >= 1.0);
-    assert!(stream_meta.gain_map_max[0] > 1.0);
+    assert!(stream_meta.channels[0].min >= 1.0);
+    assert!(stream_meta.channels[0].max > 1.0);
 
     // Streaming should produce non-trivial gain maps (not all zeros)
     let stream_non_zero = stream_gm.data.iter().filter(|&&v| v > 0).count();
@@ -344,7 +344,7 @@ fn test_streaming_vs_batch_equivalence() {
          - Min boost: {:.4}",
         stream_non_zero,
         stream_gm.data.len(),
-        stream_meta.gain_map_max[0],
-        stream_meta.gain_map_min[0]
+        stream_meta.channels[0].max,
+        stream_meta.channels[0].min
     );
 }

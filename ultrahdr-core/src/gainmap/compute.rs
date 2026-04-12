@@ -118,17 +118,17 @@ pub fn compute_gainmap(
     actual_max_boost = actual_max_boost.min(config.max_boost);
 
     // Build metadata (convert linear boost values to log2 domain)
-    let metadata = GainMapMetadata {
-        gain_map_max: [(actual_max_boost as f64).log2(); 3],
-        gain_map_min: [(actual_min_boost as f64).log2(); 3],
-        gamma: [config.gamma as f64; 3],
-        base_offset: [config.base_offset as f64; 3],
-        alternate_offset: [config.alternate_offset as f64; 3],
-        base_hdr_headroom: (config.base_hdr_headroom as f64).log2(),
-        alternate_hdr_headroom: (config.alternate_hdr_headroom.max(actual_max_boost) as f64).log2(),
-        use_base_color_space: true,
-        backward_direction: false,
-    };
+    let metadata = crate::types::metadata_from_arrays(
+        [(actual_min_boost as f64).log2(); 3],
+        [(actual_max_boost as f64).log2(); 3],
+        [config.gamma as f64; 3],
+        [config.base_offset as f64; 3],
+        [config.alternate_offset as f64; 3],
+        (config.base_hdr_headroom as f64).log2(),
+        (config.alternate_hdr_headroom.max(actual_max_boost) as f64).log2(),
+        true,
+        false,
+    );
 
     Ok((gainmap, metadata))
 }
@@ -518,7 +518,7 @@ mod tests {
         assert_eq!(gainmap.channels, 1);
 
         // Check metadata is populated
-        assert!(metadata.gain_map_max[0] >= 1.0);
+        assert!(metadata.channels[0].max >= 1.0);
     }
 
     // ========================================================================

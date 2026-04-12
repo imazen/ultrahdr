@@ -81,12 +81,23 @@ pub fn generate_primary_xmp_with_items(items: &[ContainerItem]) -> String {
 /// The `Container:Directory` goes in the primary JPEG via [`generate_primary_xmp`].
 pub fn generate_gainmap_xmp(metadata: &GainMapMetadata) -> String {
     let is_single_channel = metadata.is_single_channel();
+    let ch = &metadata.channels;
 
-    let gain_map_min = format_f64_value(&metadata.gain_map_min, is_single_channel);
-    let gain_map_max = format_f64_value(&metadata.gain_map_max, is_single_channel);
-    let gamma = format_f64_value(&metadata.gamma, is_single_channel);
-    let offset_sdr = format_f64_value(&metadata.base_offset, is_single_channel);
-    let offset_hdr = format_f64_value(&metadata.alternate_offset, is_single_channel);
+    let gain_map_min = format_f64_value(&[ch[0].min, ch[1].min, ch[2].min], is_single_channel);
+    let gain_map_max = format_f64_value(&[ch[0].max, ch[1].max, ch[2].max], is_single_channel);
+    let gamma = format_f64_value(&[ch[0].gamma, ch[1].gamma, ch[2].gamma], is_single_channel);
+    let offset_sdr = format_f64_value(
+        &[ch[0].base_offset, ch[1].base_offset, ch[2].base_offset],
+        is_single_channel,
+    );
+    let offset_hdr = format_f64_value(
+        &[
+            ch[0].alternate_offset,
+            ch[1].alternate_offset,
+            ch[2].alternate_offset,
+        ],
+        is_single_channel,
+    );
 
     let hdr_capacity_min = metadata.base_hdr_headroom;
     let hdr_capacity_max = metadata.alternate_hdr_headroom;
@@ -118,13 +129,24 @@ pub fn generate_gainmap_xmp(metadata: &GainMapMetadata) -> String {
 /// pair — for example, a depth map or confidence map alongside the gain map.
 pub fn generate_xmp_with_items(metadata: &GainMapMetadata, items: &[ContainerItem]) -> String {
     let is_single_channel = metadata.is_single_channel();
+    let ch = &metadata.channels;
 
     // GainMapMin/Max are already in log2 domain — write directly
-    let gain_map_min = format_f64_value(&metadata.gain_map_min, is_single_channel);
-    let gain_map_max = format_f64_value(&metadata.gain_map_max, is_single_channel);
-    let gamma = format_f64_value(&metadata.gamma, is_single_channel);
-    let offset_sdr = format_f64_value(&metadata.base_offset, is_single_channel);
-    let offset_hdr = format_f64_value(&metadata.alternate_offset, is_single_channel);
+    let gain_map_min = format_f64_value(&[ch[0].min, ch[1].min, ch[2].min], is_single_channel);
+    let gain_map_max = format_f64_value(&[ch[0].max, ch[1].max, ch[2].max], is_single_channel);
+    let gamma = format_f64_value(&[ch[0].gamma, ch[1].gamma, ch[2].gamma], is_single_channel);
+    let offset_sdr = format_f64_value(
+        &[ch[0].base_offset, ch[1].base_offset, ch[2].base_offset],
+        is_single_channel,
+    );
+    let offset_hdr = format_f64_value(
+        &[
+            ch[0].alternate_offset,
+            ch[1].alternate_offset,
+            ch[2].alternate_offset,
+        ],
+        is_single_channel,
+    );
 
     // Headroom values are already in log2 domain
     let hdr_capacity_min = metadata.base_hdr_headroom;
@@ -185,32 +207,47 @@ pub fn parse_xmp(xmp_data: &str) -> Result<(GainMapMetadata, Option<usize>)> {
         return Err(Error::NotUltraHdr);
     }
 
-    let mut metadata = GainMapMetadata::new();
+    let mut metadata = GainMapMetadata::default();
     let mut gainmap_length = None;
 
     // Parse hdrgm:GainMapMin — already log2 on wire, matches our domain
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:GainMapMin") {
-        metadata.gain_map_min = parse_xmp_values_f64(&val);
+        let vals = parse_xmp_values_f64(&val);
+        for (i, v) in vals.iter().enumerate() {
+            metadata.channels[i].min = *v;
+        }
     }
 
     // Parse hdrgm:GainMapMax — already log2 on wire
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:GainMapMax") {
-        metadata.gain_map_max = parse_xmp_values_f64(&val);
+        let vals = parse_xmp_values_f64(&val);
+        for (i, v) in vals.iter().enumerate() {
+            metadata.channels[i].max = *v;
+        }
     }
 
     // Parse hdrgm:Gamma — linear domain
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:Gamma") {
-        metadata.gamma = parse_xmp_values_f64(&val);
+        let vals = parse_xmp_values_f64(&val);
+        for (i, v) in vals.iter().enumerate() {
+            metadata.channels[i].gamma = *v;
+        }
     }
 
     // Parse hdrgm:OffsetSDR — linear domain
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:OffsetSDR") {
-        metadata.base_offset = parse_xmp_values_f64(&val);
+        let vals = parse_xmp_values_f64(&val);
+        for (i, v) in vals.iter().enumerate() {
+            metadata.channels[i].base_offset = *v;
+        }
     }
 
     // Parse hdrgm:OffsetHDR — linear domain
     if let Some(val) = extract_attribute(xmp_data, "hdrgm:OffsetHDR") {
-        metadata.alternate_offset = parse_xmp_values_f64(&val);
+        let vals = parse_xmp_values_f64(&val);
+        for (i, v) in vals.iter().enumerate() {
+            metadata.channels[i].alternate_offset = *v;
+        }
     }
 
     // Parse hdrgm:HDRCapacityMin — already log2 on wire
@@ -343,8 +380,8 @@ pub fn build_gainmap_metadata_markers(
 
     if include_iso {
         let iso_data =
-            super::iso21496::serialize_iso21496(metadata, crate::Iso21496Format::JpegApp2);
-        markers.push(super::iso21496::create_iso_app2_marker(&iso_data));
+            super::iso_jpeg::serialize_iso21496(metadata, crate::Iso21496Format::JpegApp2);
+        markers.push(super::iso_jpeg::create_iso_app2_marker(&iso_data));
     }
 
     markers
@@ -353,20 +390,21 @@ pub fn build_gainmap_metadata_markers(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::metadata_from_arrays;
 
     #[test]
     fn test_generate_xmp() {
-        let metadata = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [0.015625; 3],
-            alternate_offset: [0.015625; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [0.015625; 3],
+            [0.015625; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
 
         let xmp = generate_xmp(&metadata, 10000);
 
@@ -378,17 +416,17 @@ mod tests {
 
     #[test]
     fn test_parse_xmp_roundtrip() {
-        let original = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [0.015625; 3],
-            alternate_offset: [0.015625; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let original = metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [0.015625; 3],
+            [0.015625; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
 
         let xmp = generate_xmp(&original, 5000);
         let (parsed, length) = parse_xmp(&xmp).unwrap();
@@ -396,7 +434,7 @@ mod tests {
         assert_eq!(length, Some(5000));
 
         // Check values match (log2 domain roundtrip)
-        assert!((parsed.gain_map_max[0] - 2.0).abs() < 0.01);
+        assert!((parsed.channels[0].max - 2.0).abs() < 0.01);
         assert!((parsed.alternate_hdr_headroom - 2.0).abs() < 0.01);
     }
 
@@ -433,35 +471,35 @@ mod tests {
     #[test]
     fn test_parse_xmp_multi_channel() {
         // Generate XMP with different per-channel values
-        let metadata = GainMapMetadata {
-            gain_map_min: [1.0, 2.0, 3.0],
-            gain_map_max: [4.0, 5.0, 6.0],
-            gamma: [1.0, 1.2, 1.5],
-            base_offset: [0.015625; 3],
-            alternate_offset: [0.015625; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.585,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = metadata_from_arrays(
+            [1.0, 2.0, 3.0],
+            [4.0, 5.0, 6.0],
+            [1.0, 1.2, 1.5],
+            [0.015625; 3],
+            [0.015625; 3],
+            0.0,
+            2.585,
+            true,
+            false,
+        );
 
         let xmp = generate_xmp(&metadata, 5000);
         let (parsed, _) = parse_xmp(&xmp).unwrap();
 
-        // Verify channels differ for min_content_boost
+        // Verify channels differ for min
         assert!(
-            (parsed.gain_map_min[0] - parsed.gain_map_min[1]).abs() > 0.01,
+            (parsed.channels[0].min - parsed.channels[1].min).abs() > 0.01,
             "channels 0 and 1 should differ"
         );
         assert!(
-            (parsed.gain_map_min[1] - parsed.gain_map_min[2]).abs() > 0.01,
+            (parsed.channels[1].min - parsed.channels[2].min).abs() > 0.01,
             "channels 1 and 2 should differ"
         );
 
         // Verify approximate values (log2 roundtrip)
-        assert!((parsed.gain_map_min[0] - 1.0).abs() < 0.01);
-        assert!((parsed.gain_map_min[1] - 2.0).abs() < 0.01);
-        assert!((parsed.gain_map_min[2] - 3.0).abs() < 0.01);
+        assert!((parsed.channels[0].min - 1.0).abs() < 0.01);
+        assert!((parsed.channels[1].min - 2.0).abs() < 0.01);
+        assert!((parsed.channels[2].min - 3.0).abs() < 0.01);
     }
 
     #[test]
@@ -521,17 +559,17 @@ mod tests {
 
     #[test]
     fn test_generate_xmp_contains_required_fields() {
-        let metadata = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [0.015625; 3],
-            alternate_offset: [0.015625; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [0.015625; 3],
+            [0.015625; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
 
         let xmp = generate_xmp(&metadata, 8000);
 

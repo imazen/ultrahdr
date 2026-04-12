@@ -195,28 +195,8 @@ pub enum GainMapEncodingFormat {
 
 /// Wire format variant for ISO 21496-1 gain map metadata serialization.
 ///
-/// The GainMapMetadata payload (flags + fractions) is identical in all contexts.
-/// The difference is whether the payload is prefixed with a `version(u8)` byte:
-///
-/// | Context | Envelope | Use this variant |
-/// |---------|----------|-----------------|
-/// | JPEG APP2 | `min_ver(u16) + writer_ver(u16) + payload` | [`Iso21496Format::JpegApp2`] |
-/// | JXL `jhgm` | `min_ver(u16) + writer_ver(u16) + payload` | [`Iso21496Format::JpegApp2`] |
-/// | AVIF `tmap` | `version(u8) + min_ver(u16) + writer_ver(u16) + payload` | [`Iso21496Format::AvifTmap`] |
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Iso21496Format {
-    /// JPEG APP2 and JXL `jhgm` format: no version byte prefix.
-    ///
-    /// The payload starts with `minimum_version(u16)`. Used by libultrahdr
-    /// for JPEG and by libjxl for the `gain_map_metadata` field in `jhgm` boxes.
-    JpegApp2,
-    /// AVIF `tmap` item format: includes `version(u8)` prefix.
-    ///
-    /// The `ToneMapImage` box wraps `GainMapMetadata` with a version byte.
-    /// Used by libavif for the `tmap` derived image item payload.
-    AvifTmap,
-}
+/// Re-exported from [`zencodec::gainmap::Iso21496Format`].
+pub use zencodec::Iso21496Format;
 
 /// A raw (uncompressed) image.
 #[derive(Debug, Clone)]
@@ -440,156 +420,51 @@ impl GainMap {
 
 /// ISO 21496-1 gain map metadata.
 ///
-/// All gains and headroom values are stored in **log2 domain** to match the
-/// ISO 21496-1 wire format and avoid lossy domain conversions. Gamma and
-/// offsets are in **linear domain**.
+/// This is the canonical [`zencodec::GainMapParams`] type. All gains and headroom
+/// values are stored in **log2 domain** to match the ISO 21496-1 wire format.
 ///
-/// # Domain conventions
+/// # Field access (migrated from flat arrays to per-channel structs)
 ///
-/// | Field | Domain | Example |
-/// |-------|--------|---------|
-/// | `gain_map_min[i]` | log2 | −1.0 means ½× brightness |
-/// | `gain_map_max[i]` | log2 | 2.0 means 4× brightness |
-/// | `gamma[i]` | linear | 1.0 = linear gain map encoding |
-/// | `base_offset[i]` | linear | 1/64 default |
-/// | `alternate_offset[i]` | linear | 1/64 default |
-/// | `base_hdr_headroom` | log2 | 0.0 = SDR (1:1) |
-/// | `alternate_hdr_headroom` | log2 | 1.3 ≈ 2.46× peak brightness |
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct GainMapMetadata {
-    /// Log2 of maximum gain per channel. 0.0 = no boost, 2.0 = 4× brightness.
-    pub gain_map_max: [f64; 3],
+/// | Old API | New API |
+/// |---------|---------|
+/// | `metadata.gain_map_min[i]` | `metadata.channels[i].min` |
+/// | `metadata.gain_map_max[i]` | `metadata.channels[i].max` |
+/// | `metadata.gamma[i]` | `metadata.channels[i].gamma` |
+/// | `metadata.base_offset[i]` | `metadata.channels[i].base_offset` |
+/// | `metadata.alternate_offset[i]` | `metadata.channels[i].alternate_offset` |
+/// | `metadata.base_hdr_headroom` | `metadata.base_hdr_headroom` |
+/// | `metadata.alternate_hdr_headroom` | `metadata.alternate_hdr_headroom` |
+/// | `metadata.use_base_color_space` | `metadata.use_base_color_space` |
+/// | `metadata.backward_direction` | `metadata.backward_direction` |
+pub type GainMapMetadata = zencodec::GainMapParams;
 
-    /// Log2 of minimum gain per channel. Can be negative (darkening).
-    pub gain_map_min: [f64; 3],
+/// Per-channel gain map parameters.
+///
+/// Re-exported from [`zencodec::GainMapChannel`].
+pub use zencodec::GainMapChannel;
 
-    /// Gamma applied to the gain map encoding. Linear domain, must be > 0.
-    pub gamma: [f64; 3],
-
-    /// Offset added to base (SDR) values before gain application. Linear domain.
-    pub base_offset: [f64; 3],
-
-    /// Offset added to alternate (HDR) values before gain application. Linear domain.
-    pub alternate_offset: [f64; 3],
-
-    /// Log2 of base image HDR headroom. 0.0 = SDR (peak luminance ratio 1:1).
-    pub base_hdr_headroom: f64,
-
-    /// Log2 of alternate image HDR headroom.
-    pub alternate_hdr_headroom: f64,
-
-    /// Whether the gain map uses the base image color space.
-    pub use_base_color_space: bool,
-
-    /// Backward direction: when true, base is HDR and alternate is SDR.
-    /// Default false = base is SDR, alternate is HDR.
-    pub backward_direction: bool,
-}
-
-impl Default for GainMapMetadata {
-    fn default() -> Self {
-        Self {
-            gain_map_max: [0.0; 3], // log2(1.0) = 0
-            gain_map_min: [0.0; 3], // log2(1.0) = 0
-            gamma: [1.0; 3],
-            base_offset: [1.0 / 64.0; 3],
-            alternate_offset: [1.0 / 64.0; 3],
-            base_hdr_headroom: 0.0, // log2(1.0) = 0 = SDR
-            alternate_hdr_headroom: 0.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        }
+/// Validate gain map metadata with ultrahdr-core's stricter checks.
+///
+/// Delegates to [`GainMapParams::validate()`] and additionally rejects
+/// negative `alternate_hdr_headroom` (log2 domain), which the base
+/// zencodec validation does not enforce.
+pub fn validate_gainmap_metadata(metadata: &GainMapMetadata) -> Result<()> {
+    metadata
+        .validate()
+        .map_err(|e| Error::InvalidMetadata(alloc::string::ToString::to_string(&e)))?;
+    if metadata.alternate_hdr_headroom < 0.0 {
+        return Err(Error::InvalidMetadata(
+            "alternate_hdr_headroom must be >= 0.0 (log2 domain)".into(),
+        ));
     }
-}
-
-impl GainMapMetadata {
-    /// Create metadata with default values per ISO 21496-1.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Whether all three channels have identical parameters.
-    pub fn is_single_channel(&self) -> bool {
-        self.gain_map_max[0] == self.gain_map_max[1]
-            && self.gain_map_max[1] == self.gain_map_max[2]
-            && self.gain_map_min[0] == self.gain_map_min[1]
-            && self.gain_map_min[1] == self.gain_map_min[2]
-            && self.gamma[0] == self.gamma[1]
-            && self.gamma[1] == self.gamma[2]
-            && self.base_offset[0] == self.base_offset[1]
-            && self.base_offset[1] == self.base_offset[2]
-            && self.alternate_offset[0] == self.alternate_offset[1]
-            && self.alternate_offset[1] == self.alternate_offset[2]
-    }
-
-    /// Validate metadata values are within reasonable bounds.
-    pub fn validate(&self) -> Result<()> {
-        for i in 0..3 {
-            if !self.gain_map_max[i].is_finite() {
-                return Err(Error::InvalidMetadata(format!(
-                    "gain_map_max[{}] must be finite",
-                    i
-                )));
-            }
-            if !self.gain_map_min[i].is_finite() {
-                return Err(Error::InvalidMetadata(format!(
-                    "gain_map_min[{}] must be finite",
-                    i
-                )));
-            }
-            if !self.gamma[i].is_finite() || self.gamma[i] <= 0.0 {
-                return Err(Error::InvalidMetadata(format!(
-                    "gamma[{}] must be positive finite",
-                    i
-                )));
-            }
-            if !self.base_offset[i].is_finite() {
-                return Err(Error::InvalidMetadata(format!(
-                    "base_offset[{}] must be finite",
-                    i
-                )));
-            }
-            if !self.alternate_offset[i].is_finite() {
-                return Err(Error::InvalidMetadata(format!(
-                    "alternate_offset[{}] must be finite",
-                    i
-                )));
-            }
-            if self.gain_map_min[i] > self.gain_map_max[i] {
-                return Err(Error::InvalidMetadata(format!(
-                    "gain_map_min[{}] ({}) > gain_map_max[{}] ({})",
-                    i, self.gain_map_min[i], i, self.gain_map_max[i]
-                )));
-            }
-        }
-
-        if !self.base_hdr_headroom.is_finite() {
-            return Err(Error::InvalidMetadata(
-                "base_hdr_headroom must be finite".into(),
-            ));
-        }
-        if !self.alternate_hdr_headroom.is_finite() {
-            return Err(Error::InvalidMetadata(
-                "alternate_hdr_headroom must be finite".into(),
-            ));
-        }
-        if self.alternate_hdr_headroom < 0.0 {
-            return Err(Error::InvalidMetadata(
-                "alternate_hdr_headroom must be >= 0.0 (log2 domain)".into(),
-            ));
-        }
-
-        Ok(())
-    }
+    Ok(())
 }
 
 // ============================================================================
-// zencodec interop: From conversions for zenpixels / zencodec
+// zenpixels interop: From conversions for ColorGamut/ColorTransfer
 // ============================================================================
 
-#[cfg(feature = "zencodec")]
-mod zencodec_interop {
+mod zenpixels_interop {
     use super::*;
     use zenpixels::{ColorPrimaries, TransferFunction};
 
@@ -640,245 +515,50 @@ mod zencodec_interop {
             }
         }
     }
-
-    // --- GainMapMetadata ↔ zencodec::GainMapParams ---
-    //
-    // Both types now use log2 domain and f64 precision, so conversions are
-    // trivial field copies with no domain transforms.
-
-    impl From<&zencodec::GainMapParams> for GainMapMetadata {
-        fn from(p: &zencodec::GainMapParams) -> Self {
-            let mut meta = Self::new();
-            for i in 0..3 {
-                meta.gain_map_min[i] = p.channels[i].min;
-                meta.gain_map_max[i] = p.channels[i].max;
-                meta.gamma[i] = p.channels[i].gamma;
-                meta.base_offset[i] = p.channels[i].base_offset;
-                meta.alternate_offset[i] = p.channels[i].alternate_offset;
-            }
-            meta.base_hdr_headroom = p.base_hdr_headroom;
-            meta.alternate_hdr_headroom = p.alternate_hdr_headroom;
-            meta.use_base_color_space = p.use_base_color_space;
-            meta.backward_direction = p.backward_direction;
-            meta
-        }
-    }
-
-    impl From<&GainMapMetadata> for zencodec::GainMapParams {
-        fn from(m: &GainMapMetadata) -> Self {
-            let mut channels = [zencodec::GainMapChannel::default(); 3];
-            for (i, ch) in channels.iter_mut().enumerate() {
-                ch.min = m.gain_map_min[i];
-                ch.max = m.gain_map_max[i];
-                ch.gamma = m.gamma[i];
-                ch.base_offset = m.base_offset[i];
-                ch.alternate_offset = m.alternate_offset[i];
-            }
-            let mut params = Self::default();
-            params.channels = channels;
-            params.base_hdr_headroom = m.base_hdr_headroom;
-            params.alternate_hdr_headroom = m.alternate_hdr_headroom;
-            params.use_base_color_space = m.use_base_color_space;
-            params.backward_direction = m.backward_direction;
-            params
-        }
-    }
-
-    impl From<Iso21496Format> for zencodec::Iso21496Format {
-        fn from(f: Iso21496Format) -> Self {
-            match f {
-                Iso21496Format::AvifTmap => zencodec::Iso21496Format::AvifTmap,
-                Iso21496Format::JpegApp2 => zencodec::Iso21496Format::JpegApp2,
-            }
-        }
-    }
-
-    impl From<zencodec::Iso21496Format> for Iso21496Format {
-        fn from(f: zencodec::Iso21496Format) -> Self {
-            match f {
-                zencodec::Iso21496Format::AvifTmap => Iso21496Format::AvifTmap,
-                zencodec::Iso21496Format::JpegApp2 => Iso21496Format::JpegApp2,
-                // Forward-compat: unknown future variants default to AVIF tmap
-                _ => Iso21496Format::AvifTmap,
-            }
-        }
-    }
 }
 
-/// Convert a float to an unsigned fraction using continued fractions.
+/// Signed fraction for ISO 21496-1 metadata encoding.
 ///
-/// Ported from libultrahdr's `floatToUnsignedFractionImpl`. Finds the best
-/// rational approximation with `numerator <= max_numerator` and
-/// `denominator <= u32::MAX`.
+/// Re-exported from [`zencodec::gainmap::Fraction`]. Use `from_f64_cf()` for
+/// continued-fraction encoding and `to_f64()` for conversion to float.
+pub type Fraction = zencodec::gainmap::Fraction;
+
+/// Unsigned fraction for ISO 21496-1 metadata encoding.
 ///
-/// Returns `false` for NaN, negative, or out-of-range values.
-fn float_to_unsigned_fraction(
-    v: f32,
-    max_numerator: u32,
-    numerator: &mut u32,
-    denominator: &mut u32,
-) -> bool {
-    let v = v as f64;
-    if v.is_nan() || v < 0.0 || v > max_numerator as f64 {
-        return false;
-    }
+/// Re-exported from [`zencodec::gainmap::UFraction`]. Use `from_f64_cf()` for
+/// continued-fraction encoding and `to_f64()` for conversion to float.
+pub type UnsignedFraction = zencodec::gainmap::UFraction;
 
-    let max_d: u64 = if v <= 1.0 {
-        u32::MAX as u64
-    } else {
-        (max_numerator as f64 / v).floor() as u64
-    };
-
-    *denominator = 1;
-    let mut previous_d: u32 = 0;
-    let mut current_v = v - v.floor();
-
-    // Continued fraction convergence loop. The golden ratio is the worst
-    // case and converges in 39 iterations.
-    const MAX_ITER: usize = 39;
-
-    for _ in 0..MAX_ITER {
-        let num_double = (*denominator as f64) * v;
-        if num_double > max_numerator as f64 {
-            return false;
-        }
-        *numerator = num_double.round() as u32;
-        if (num_double - (*numerator as f64)).abs() == 0.0 {
-            return true;
-        }
-        current_v = 1.0 / current_v;
-        let new_d = previous_d as f64 + current_v.floor() * (*denominator as f64);
-        if new_d > max_d as f64 {
-            return true;
-        }
-        previous_d = *denominator;
-        if new_d > u32::MAX as f64 {
-            return false;
-        }
-        *denominator = new_d as u32;
-        current_v -= current_v.floor();
-    }
-
-    *numerator = ((*denominator as f64) * v).round() as u32;
-    true
-}
-
-/// A fraction for ISO 21496-1 metadata encoding.
+/// Construct a [`GainMapMetadata`] from per-channel arrays.
 ///
-/// ISO 21496-1 uses fractional representation for gain map metadata
-/// to preserve precision without floating-point ambiguity.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Fraction {
-    /// The numerator of the fraction.
-    pub numerator: i32,
-    /// The denominator of the fraction (must be non-zero for valid fractions).
-    pub denominator: u32,
-}
-
-impl Fraction {
-    /// Create a new fraction with the given numerator and denominator.
-    pub fn new(numerator: i32, denominator: u32) -> Self {
-        Self {
-            numerator,
-            denominator,
-        }
+/// This is the migration bridge for code that previously constructed `GainMapMetadata`
+/// with flat `[f64; 3]` array fields. Now that `GainMapMetadata` is `GainMapParams`
+/// (which uses `channels: [GainMapChannel; 3]`), this helper does the mapping.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn metadata_from_arrays(
+    min: [f64; 3],
+    max: [f64; 3],
+    gamma: [f64; 3],
+    base_offset: [f64; 3],
+    alt_offset: [f64; 3],
+    base_hdr_headroom: f64,
+    alt_hdr_headroom: f64,
+    use_base_cs: bool,
+    backward: bool,
+) -> GainMapMetadata {
+    let mut m = GainMapMetadata::default();
+    for i in 0..3 {
+        m.channels[i].min = min[i];
+        m.channels[i].max = max[i];
+        m.channels[i].gamma = gamma[i];
+        m.channels[i].base_offset = base_offset[i];
+        m.channels[i].alternate_offset = alt_offset[i];
     }
-
-    /// Convert a floating-point value to a fraction using continued fractions.
-    ///
-    /// Finds the best rational approximation, matching the algorithm used by
-    /// libultrahdr and canonical ISO 21496-1 encoders. Produces compact
-    /// fractions (e.g. `1/64` instead of `15625/1000000`).
-    pub fn from_f32(value: f32) -> Self {
-        let mut numerator = 0u32;
-        let mut denominator = 1u32;
-        if !float_to_unsigned_fraction(
-            value.abs(),
-            i32::MAX as u32,
-            &mut numerator,
-            &mut denominator,
-        ) {
-            // Fallback for NaN/infinity/out-of-range
-            return Self {
-                numerator: 0,
-                denominator: 1,
-            };
-        }
-        let signed_num = if value < 0.0 {
-            -(numerator as i32)
-        } else {
-            numerator as i32
-        };
-        Self {
-            numerator: signed_num,
-            denominator,
-        }
-    }
-
-    /// Convert the fraction to a floating-point value.
-    ///
-    /// Returns 0.0 if the denominator is zero.
-    pub fn to_f32(self) -> f32 {
-        if self.denominator == 0 {
-            0.0
-        } else {
-            self.numerator as f32 / self.denominator as f32
-        }
-    }
-}
-
-/// An unsigned fraction for ISO 21496-1 metadata encoding.
-///
-/// Used for fields that are always non-negative (gamma, HDR headroom).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct UnsignedFraction {
-    /// The numerator of the fraction.
-    pub numerator: u32,
-    /// The denominator of the fraction (must be non-zero for valid fractions).
-    pub denominator: u32,
-}
-
-impl UnsignedFraction {
-    /// Create a new unsigned fraction with the given numerator and denominator.
-    pub fn new(numerator: u32, denominator: u32) -> Self {
-        Self {
-            numerator,
-            denominator,
-        }
-    }
-
-    /// Convert a non-negative floating-point value to an unsigned fraction using
-    /// continued fractions.
-    ///
-    /// Finds the best rational approximation, matching the algorithm used by
-    /// libultrahdr and canonical ISO 21496-1 encoders. Negative values are
-    /// clamped to zero.
-    pub fn from_f32(value: f32) -> Self {
-        let value = value.max(0.0);
-        let mut numerator = 0u32;
-        let mut denominator = 1u32;
-        if !float_to_unsigned_fraction(value, u32::MAX, &mut numerator, &mut denominator) {
-            return Self {
-                numerator: 0,
-                denominator: 1,
-            };
-        }
-        Self {
-            numerator,
-            denominator,
-        }
-    }
-
-    /// Convert the fraction to a floating-point value.
-    ///
-    /// Returns 0.0 if the denominator is zero.
-    pub fn to_f32(self) -> f32 {
-        if self.denominator == 0 {
-            0.0
-        } else {
-            self.numerator as f32 / self.denominator as f32
-        }
-    }
+    m.base_hdr_headroom = base_hdr_headroom;
+    m.alternate_hdr_headroom = alt_hdr_headroom;
+    m.use_base_color_space = use_base_cs;
+    m.backward_direction = backward;
+    m
 }
 
 /// Reference display luminance values (in nits).
@@ -899,6 +579,34 @@ pub mod luminance {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zenpixels::{ColorPrimaries, TransferFunction};
+
+    /// Helper to construct GainMapMetadata (GainMapParams) from per-channel arrays.
+    fn make_metadata(
+        min: [f64; 3],
+        max: [f64; 3],
+        gamma: [f64; 3],
+        base_offset: [f64; 3],
+        alt_offset: [f64; 3],
+        base_hdr_headroom: f64,
+        alt_hdr_headroom: f64,
+        use_base_cs: bool,
+        backward: bool,
+    ) -> GainMapMetadata {
+        let mut m = GainMapMetadata::default();
+        for i in 0..3 {
+            m.channels[i].min = min[i];
+            m.channels[i].max = max[i];
+            m.channels[i].gamma = gamma[i];
+            m.channels[i].base_offset = base_offset[i];
+            m.channels[i].alternate_offset = alt_offset[i];
+        }
+        m.base_hdr_headroom = base_hdr_headroom;
+        m.alternate_hdr_headroom = alt_hdr_headroom;
+        m.use_base_color_space = use_base_cs;
+        m.backward_direction = backward;
+        m
+    }
 
     #[test]
     fn test_error_from_stop_reason() {
@@ -908,27 +616,22 @@ mod tests {
 
     #[test]
     fn test_raw_image_dimension_limits() {
-        // Valid dimensions
         assert!(RawImage::new(1920, 1080, PixelFormat::Rgba8).is_ok());
-
-        // Zero dimensions
         assert!(RawImage::new(0, 100, PixelFormat::Rgba8).is_err());
         assert!(RawImage::new(100, 0, PixelFormat::Rgba8).is_err());
-
-        // Exceeds max dimension
         assert!(RawImage::new(100000, 100, PixelFormat::Rgba8).is_err());
     }
 
     #[test]
     fn test_gain_map_metadata_validation() {
-        let mut metadata = GainMapMetadata::new();
+        let mut metadata = GainMapMetadata::default();
         assert!(metadata.validate().is_ok());
 
-        metadata.gamma[0] = f64::NAN;
+        metadata.channels[0].gamma = f64::NAN;
         assert!(metadata.validate().is_err());
 
-        metadata.gamma[0] = 1.0;
-        metadata.gain_map_max[1] = -1.0; // min(0.0) > max(-1.0)
+        metadata.channels[0].gamma = 1.0;
+        metadata.channels[1].max = -1.0; // min(0.0) > max(-1.0)
         assert!(metadata.validate().is_err());
     }
 
@@ -936,127 +639,118 @@ mod tests {
     // Metadata validation tests (C++ libultrahdr parity)
     // ========================================================================
 
-    /// min_content_boost > max_content_boost should be rejected.
     #[test]
     fn test_validate_rejects_min_gt_max_boost() {
-        let metadata = GainMapMetadata {
-            gain_map_min: [5.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [1.0 / 64.0; 3],
-            alternate_offset: [1.0 / 64.0; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 5.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = make_metadata(
+            [5.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [1.0 / 64.0; 3],
+            [1.0 / 64.0; 3],
+            0.0,
+            5.0,
+            true,
+            false,
+        );
         let err = metadata.validate().unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("gain_map_min"),
-            "Error should mention gain_map_min: {}",
-            msg
+            msg.contains("min") || msg.contains("max"),
+            "Error should mention min/max: {msg}"
         );
     }
 
-    /// gamma < 0 should be rejected (also covers gamma = 0).
     #[test]
     fn test_validate_rejects_negative_gamma() {
-        let metadata = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [-1.0, 1.0, 1.0],
-            base_offset: [1.0 / 64.0; 3],
-            alternate_offset: [1.0 / 64.0; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = make_metadata(
+            [0.0; 3],
+            [2.0; 3],
+            [-1.0, 1.0, 1.0],
+            [1.0 / 64.0; 3],
+            [1.0 / 64.0; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
         let err = metadata.validate().unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("gamma"), "Error should mention gamma: {}", msg);
+        assert!(msg.contains("gamma"), "Error should mention gamma: {msg}");
 
         // Zero gamma
-        let metadata_zero = GainMapMetadata {
-            gamma: [0.0, 1.0, 1.0],
-            ..metadata.clone()
-        };
+        let mut metadata_zero = metadata.clone();
+        metadata_zero.channels[0].gamma = 0.0;
         assert!(metadata_zero.validate().is_err());
     }
 
-    /// Negative alternate_hdr_headroom (log2 domain) should be rejected.
+    /// Negative alternate_hdr_headroom (log2 domain) should be rejected by
+    /// our stricter validate_gainmap_metadata.
     #[test]
     fn test_validate_rejects_negative_headroom() {
-        let metadata = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [1.0 / 64.0; 3],
-            alternate_offset: [1.0 / 64.0; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: -0.5, // Invalid: negative in log2 domain
-            use_base_color_space: true,
-            backward_direction: false,
-        };
-        let err = metadata.validate().unwrap_err();
+        let metadata = make_metadata(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [1.0 / 64.0; 3],
+            [1.0 / 64.0; 3],
+            0.0,
+            -0.5,
+            true,
+            false,
+        );
+        let err = validate_gainmap_metadata(&metadata).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("alternate_hdr_headroom"),
-            "Error should mention alternate_hdr_headroom: {}",
-            msg
+            "Error should mention alternate_hdr_headroom: {msg}",
         );
     }
 
-    /// Per-channel validation: only one channel invalid should still fail.
     #[test]
     fn test_validate_per_channel_independent() {
-        // Channel 2 has min > max, others are fine
-        let metadata = GainMapMetadata {
-            gain_map_min: [1.0, 1.0, 5.0],
-            gain_map_max: [4.0, 4.0, 2.0],
-            gamma: [1.0; 3],
-            base_offset: [1.0 / 64.0; 3],
-            alternate_offset: [1.0 / 64.0; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = make_metadata(
+            [1.0, 1.0, 5.0],
+            [4.0, 4.0, 2.0],
+            [1.0; 3],
+            [1.0 / 64.0; 3],
+            [1.0 / 64.0; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
         assert!(metadata.validate().is_err());
     }
 
-    /// NaN and infinity should be rejected in all numeric fields.
     #[test]
     fn test_validate_rejects_nan_infinity() {
-        let base = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [1.0 / 64.0; 3],
-            alternate_offset: [1.0 / 64.0; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let base = make_metadata(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [1.0 / 64.0; 3],
+            [1.0 / 64.0; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
         assert!(base.validate().is_ok());
 
-        // NaN in each field
         let mut m = base.clone();
-        m.gain_map_max[0] = f64::NAN;
+        m.channels[0].max = f64::NAN;
         assert!(m.validate().is_err());
 
         let mut m = base.clone();
-        m.gain_map_min[1] = f64::NAN;
+        m.channels[1].min = f64::NAN;
         assert!(m.validate().is_err());
 
         let mut m = base.clone();
-        m.base_offset[2] = f64::NAN;
+        m.channels[2].base_offset = f64::NAN;
         assert!(m.validate().is_err());
 
         let mut m = base.clone();
-        m.alternate_offset[0] = f64::INFINITY;
+        m.channels[0].alternate_offset = f64::INFINITY;
         assert!(m.validate().is_err());
 
         let mut m = base.clone();
@@ -1072,8 +766,8 @@ mod tests {
     fn test_fraction_roundtrip() {
         let values = [0.0, 1.0, -1.0, 0.5, 3.5, -2.5];
         for &v in &values {
-            let f = Fraction::from_f32(v);
-            let roundtrip = f.to_f32();
+            let f = Fraction::from_f64_cf(v);
+            let roundtrip = f.to_f64();
             assert!(
                 (roundtrip - v).abs() < 0.000001,
                 "roundtrip failed for {}: got {}",
@@ -1082,12 +776,10 @@ mod tests {
             );
         }
     }
-}
 
-#[cfg(all(test, feature = "zencodec"))]
-mod zencodec_tests {
-    use super::*;
-    use zenpixels::{ColorPrimaries, TransferFunction};
+    // ========================================================================
+    // zenpixels interop tests (always available, no feature gate)
+    // ========================================================================
 
     #[test]
     fn test_color_gamut_to_primaries() {
@@ -1113,7 +805,6 @@ mod zencodec_tests {
             ColorGamut::DisplayP3
         );
         assert_eq!(ColorGamut::from(ColorPrimaries::Bt2020), ColorGamut::Bt2020);
-        // Unknown falls back to Bt709
         assert_eq!(ColorGamut::from(ColorPrimaries::Unknown), ColorGamut::Bt709);
     }
 
@@ -1152,7 +843,6 @@ mod zencodec_tests {
             ColorTransfer::from(TransferFunction::Hlg),
             ColorTransfer::Hlg
         );
-        // Unknown/Bt709 fall back to Srgb
         assert_eq!(
             ColorTransfer::from(TransferFunction::Unknown),
             ColorTransfer::Srgb
@@ -1164,290 +854,69 @@ mod zencodec_tests {
     }
 
     #[test]
-    fn gainmap_params_to_metadata_roundtrip() {
-        // Both GainMapParams and GainMapMetadata use log2 domain — conversion is
-        // a trivial field copy with no domain transform.
-        let mut params = zencodec::GainMapParams::default();
-        params.channels = [zencodec::GainMapChannel {
-            min: 0.0, // log2 domain
-            max: 2.0, // log2 domain
-            gamma: 1.0,
-            base_offset: 1.0 / 64.0,
-            alternate_offset: 1.0 / 64.0,
-        }; 3];
-        params.base_hdr_headroom = 0.0; // log2 domain
-        params.alternate_hdr_headroom = 2.0; // log2 domain
-        params.use_base_color_space = true;
-
-        let meta = GainMapMetadata::from(&params);
-        assert!((meta.gain_map_min[0] - 0.0).abs() < 1e-5); // log2 copied as-is
-        assert!((meta.gain_map_max[0] - 2.0).abs() < 1e-5); // log2 copied as-is
-        assert!((meta.gamma[0] - 1.0).abs() < 1e-5);
-        assert!((meta.base_offset[0] - 1.0 / 64.0).abs() < 1e-5);
-        assert!((meta.base_hdr_headroom - 0.0).abs() < 1e-5); // log2 copied as-is
-        assert!((meta.alternate_hdr_headroom - 2.0).abs() < 1e-5); // log2 copied as-is
-        assert!(meta.use_base_color_space);
-
-        // Round-trip back to GainMapParams — must be stable
-        let back = zencodec::GainMapParams::from(&meta);
-        assert!((back.channels[0].min - 0.0).abs() < 1e-4);
-        assert!((back.channels[0].max - 2.0).abs() < 1e-4);
-        assert!((back.base_hdr_headroom - 0.0).abs() < 1e-4);
-        assert!((back.alternate_hdr_headroom - 2.0).abs() < 1e-4);
-    }
-
-    #[test]
-    fn gainmap_metadata_to_params() {
-        let meta = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [1.0 / 64.0; 3],
-            alternate_offset: [1.0 / 64.0; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
-
-        let params = zencodec::GainMapParams::from(&meta);
-        assert!((params.channels[0].min - 0.0).abs() < 1e-5); // log2(1) = 0
-        assert!((params.channels[0].max - 2.0).abs() < 1e-5); // log2(4) = 2
-        assert!((params.base_hdr_headroom - 0.0).abs() < 1e-5); // log2(1) = 0
-        assert!((params.alternate_hdr_headroom - 2.0).abs() < 1e-5); // log2(4) = 2
-    }
-
-    /// AVIF parity: headroom from fraction 13/10 = 1.3 (log2) must stay 1.3 in
-    /// GainMapMetadata — both types use log2 domain, no exp2 transform applies.
-    #[test]
-    fn avif_headroom_log2_preserved() {
-        // Simulate what the AVIF parser produces: log2 value 1.3 (from 13/10)
-        let mut params = zencodec::GainMapParams::default();
-        params.alternate_hdr_headroom = 1.3; // log2 domain
-
-        let meta = GainMapMetadata::from(&params);
-        // GainMapMetadata also uses log2 domain — value is copied as-is
-        assert!(
-            (meta.alternate_hdr_headroom - 1.3).abs() < 0.01,
-            "alternate_hdr_headroom should remain 1.3 (log2), got {}",
-            meta.alternate_hdr_headroom,
-        );
-    }
-
-    #[test]
-    fn gainmap_params_multichannel() {
-        // GainMapMetadata stores values in log2 domain (e.g. 2.0 = log2(4) = 4× boost).
-        // Conversion to GainMapParams is a trivial copy — both use log2 domain.
-        let meta = GainMapMetadata {
-            gain_map_min: [1.0, 0.5, 2.0], // log2 domain
-            gain_map_max: [2.0, 3.0, 4.0], // log2 domain: 4×, 8×, 16× boosts
-            gamma: [1.0, 0.8, 1.2],
-            base_offset: [0.01, 0.02, 0.03],
-            alternate_offset: [0.04, 0.05, 0.06],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 3.32, // log2 domain
-            use_base_color_space: false,
-            backward_direction: false,
-        };
-
-        let params = zencodec::GainMapParams::from(&meta);
-        assert!(!params.is_single_channel());
-        assert!(!params.use_base_color_space);
-
-        // Trivial copy — log2 values pass through unchanged
-        assert!((params.channels[0].max - 2.0).abs() < 1e-4);
-        assert!((params.channels[1].max - 3.0).abs() < 1e-4);
-        assert!((params.channels[2].max - 4.0).abs() < 1e-4);
-        assert!((params.channels[0].min - 1.0).abs() < 1e-4);
-        assert!((params.channels[1].min - 0.5).abs() < 1e-4);
-        assert!((params.channels[2].min - 2.0).abs() < 1e-4);
+    fn test_iso21496_format_identity() {
+        // Iso21496Format is now a re-export — no conversion needed
+        assert_eq!(Iso21496Format::AvifTmap, zencodec::Iso21496Format::AvifTmap);
+        assert_eq!(Iso21496Format::JpegApp2, zencodec::Iso21496Format::JpegApp2);
     }
 
     // =========================================================================
-    // Parity tests: zencodec conversions must agree with XMP/ISO21496 paths
+    // XMP roundtrip parity test
     // =========================================================================
 
-    /// Create a reference metadata with distinct per-channel values so any
-    /// channel-swapping or scalar-vs-vector bugs are caught.
     fn reference_metadata() -> GainMapMetadata {
-        GainMapMetadata {
-            gain_map_min: [0.5, 0.25, 1.0],
-            gain_map_max: [4.0, 8.0, 2.0],
-            gamma: [1.0, 0.75, 1.5],
-            base_offset: [1.0 / 64.0, 1.0 / 32.0, 1.0 / 128.0],
-            alternate_offset: [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0],
-            base_hdr_headroom: 1.0,
-            alternate_hdr_headroom: 8.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        }
+        make_metadata(
+            [0.5, 0.25, 1.0],
+            [4.0, 8.0, 2.0],
+            [1.0, 0.75, 1.5],
+            [1.0 / 64.0, 1.0 / 32.0, 1.0 / 128.0],
+            [1.0 / 64.0; 3],
+            1.0,
+            8.0,
+            true,
+            false,
+        )
     }
 
-    /// GainMapMetadata → GainMapParams → GainMapMetadata must produce the same
-    /// values as GainMapMetadata → XMP string → GainMapMetadata.
     #[test]
-    fn zencodec_and_xmp_paths_agree_on_metadata() {
+    fn xmp_roundtrip_preserves_metadata() {
         use crate::metadata::xmp::{generate_gainmap_xmp, parse_xmp};
 
         let original = reference_metadata();
-
-        // Path A: via zencodec type conversions
-        let params = zencodec::GainMapParams::from(&original);
-        let via_zencodec = GainMapMetadata::from(&params);
-
-        // Path B: via XMP serialization + parsing
         let xmp_str = generate_gainmap_xmp(&original);
-        let (via_xmp, _) = parse_xmp(&xmp_str).expect("XMP parse failed");
+        let (parsed, _) = parse_xmp(&xmp_str).expect("XMP parse failed");
 
-        // Both paths must agree on every field
         for ch in 0..3 {
+            assert!((original.channels[ch].min - parsed.channels[ch].min).abs() < 1e-4);
+            assert!((original.channels[ch].max - parsed.channels[ch].max).abs() < 1e-4);
+            assert!((original.channels[ch].gamma - parsed.channels[ch].gamma).abs() < 1e-4);
             assert!(
-                (via_zencodec.gain_map_min[ch] - via_xmp.gain_map_min[ch]).abs() < 1e-4,
-                "gain_map_min[{ch}]: zencodec={}, xmp={}",
-                via_zencodec.gain_map_min[ch],
-                via_xmp.gain_map_min[ch]
+                (original.channels[ch].base_offset - parsed.channels[ch].base_offset).abs() < 1e-6
             );
             assert!(
-                (via_zencodec.gain_map_max[ch] - via_xmp.gain_map_max[ch]).abs() < 1e-4,
-                "gain_map_max[{ch}]: zencodec={}, xmp={}",
-                via_zencodec.gain_map_max[ch],
-                via_xmp.gain_map_max[ch]
-            );
-            assert!(
-                (via_zencodec.gamma[ch] - via_xmp.gamma[ch]).abs() < 1e-4,
-                "gamma[{ch}]: zencodec={}, xmp={}",
-                via_zencodec.gamma[ch],
-                via_xmp.gamma[ch]
-            );
-            assert!(
-                (via_zencodec.base_offset[ch] - via_xmp.base_offset[ch]).abs() < 1e-6,
-                "base_offset[{ch}]: zencodec={}, xmp={}",
-                via_zencodec.base_offset[ch],
-                via_xmp.base_offset[ch]
-            );
-            assert!(
-                (via_zencodec.alternate_offset[ch] - via_xmp.alternate_offset[ch]).abs() < 1e-6,
-                "alternate_offset[{ch}]: zencodec={}, xmp={}",
-                via_zencodec.alternate_offset[ch],
-                via_xmp.alternate_offset[ch]
+                (original.channels[ch].alternate_offset - parsed.channels[ch].alternate_offset)
+                    .abs()
+                    < 1e-6
             );
         }
-        assert!(
-            (via_zencodec.base_hdr_headroom - via_xmp.base_hdr_headroom).abs() < 1e-4,
-            "base_hdr_headroom: zencodec={}, xmp={}",
-            via_zencodec.base_hdr_headroom,
-            via_xmp.base_hdr_headroom
-        );
-        assert!(
-            (via_zencodec.alternate_hdr_headroom - via_xmp.alternate_hdr_headroom).abs() < 1e-4,
-            "alternate_hdr_headroom: zencodec={}, xmp={}",
-            via_zencodec.alternate_hdr_headroom,
-            via_xmp.alternate_hdr_headroom
-        );
-        assert_eq!(
-            via_zencodec.use_base_color_space,
-            via_xmp.use_base_color_space
-        );
+        assert!((original.base_hdr_headroom - parsed.base_hdr_headroom).abs() < 1e-4);
+        assert!((original.alternate_hdr_headroom - parsed.alternate_hdr_headroom).abs() < 1e-4);
+        assert_eq!(original.use_base_color_space, parsed.use_base_color_space);
     }
 
-    /// GainMapParams → GainMapMetadata → XMP → GainMapMetadata → GainMapParams
-    /// must be a stable roundtrip.
     #[test]
-    fn zencodec_params_roundtrip_through_xmp() {
-        use crate::metadata::xmp::{generate_gainmap_xmp, parse_xmp};
-
-        let original = reference_metadata();
-        let original_params = zencodec::GainMapParams::from(&original);
-
-        // Forward: params → metadata → XMP → metadata → params
-        let meta = GainMapMetadata::from(&original_params);
-        let xmp_str = generate_gainmap_xmp(&meta);
-        let (parsed_meta, _) = parse_xmp(&xmp_str).expect("XMP parse failed");
-        let roundtripped_params = zencodec::GainMapParams::from(&parsed_meta);
-
-        // The roundtripped params must match within XMP's serialization precision
-        for ch in 0..3 {
-            assert!(
-                (roundtripped_params.channels[ch].min - original_params.channels[ch].min).abs()
-                    < 1e-4,
-                "channel[{ch}].min: original={}, roundtripped={}",
-                original_params.channels[ch].min,
-                roundtripped_params.channels[ch].min
-            );
-            assert!(
-                (roundtripped_params.channels[ch].max - original_params.channels[ch].max).abs()
-                    < 1e-4,
-                "channel[{ch}].max: original={}, roundtripped={}",
-                original_params.channels[ch].max,
-                roundtripped_params.channels[ch].max
-            );
-            assert!(
-                (roundtripped_params.channels[ch].gamma - original_params.channels[ch].gamma).abs()
-                    < 1e-4,
-                "channel[{ch}].gamma: original={}, roundtripped={}",
-                original_params.channels[ch].gamma,
-                roundtripped_params.channels[ch].gamma
-            );
-        }
-        assert!(
-            (roundtripped_params.alternate_hdr_headroom - original_params.alternate_hdr_headroom)
-                .abs()
-                < 1e-4,
-            "alternate_hdr_headroom: original={}, roundtripped={}",
-            original_params.alternate_hdr_headroom,
-            roundtripped_params.alternate_hdr_headroom
-        );
-    }
-
-    /// GainMapMetadata → ISO21496 bytes → GainMapMetadata must agree with
-    /// GainMapMetadata → GainMapParams → GainMapMetadata.
-    #[test]
-    fn zencodec_and_iso21496_paths_agree() {
-        use crate::Iso21496Format;
-        use crate::metadata::iso21496::{parse_iso21496, serialize_iso21496};
-
+    fn iso21496_roundtrip_preserves_metadata() {
         let original = reference_metadata();
 
-        // Path A: via zencodec
-        let params = zencodec::GainMapParams::from(&original);
-        let via_zencodec = GainMapMetadata::from(&params);
-
-        // Path B: via ISO21496 AVIF serialization + parsing
-        let iso_bytes = serialize_iso21496(&original, Iso21496Format::AvifTmap);
-        let via_iso =
-            parse_iso21496(&iso_bytes, Iso21496Format::AvifTmap).expect("ISO21496 parse failed");
+        // AVIF tmap variant
+        let bytes = zencodec::gainmap::serialize_iso21496_fmt(&original, Iso21496Format::AvifTmap);
+        let parsed = zencodec::gainmap::parse_iso21496_fmt(&bytes, Iso21496Format::AvifTmap)
+            .expect("ISO parse failed");
 
         for ch in 0..3 {
-            assert!(
-                (via_zencodec.gain_map_max[ch] - via_iso.gain_map_max[ch]).abs() < 1e-3,
-                "gain_map_max[{ch}]: zencodec={}, iso21496={}",
-                via_zencodec.gain_map_max[ch],
-                via_iso.gain_map_max[ch]
-            );
-            assert!(
-                (via_zencodec.gamma[ch] - via_iso.gamma[ch]).abs() < 1e-4,
-                "gamma[{ch}]: zencodec={}, iso21496={}",
-                via_zencodec.gamma[ch],
-                via_iso.gamma[ch]
-            );
+            assert!((original.channels[ch].max - parsed.channels[ch].max).abs() < 1e-3);
+            assert!((original.channels[ch].gamma - parsed.channels[ch].gamma).abs() < 1e-4);
         }
-        assert!(
-            (via_zencodec.alternate_hdr_headroom - via_iso.alternate_hdr_headroom).abs() < 1e-3,
-            "alternate_hdr_headroom: zencodec={}, iso21496={}",
-            via_zencodec.alternate_hdr_headroom,
-            via_iso.alternate_hdr_headroom
-        );
-    }
-
-    /// Iso21496Format enum conversion must be lossless in both directions.
-    #[test]
-    fn iso21496_format_conversion_roundtrip() {
-        use crate::Iso21496Format;
-
-        let avif: zencodec::Iso21496Format = Iso21496Format::AvifTmap.into();
-        let jpeg: zencodec::Iso21496Format = Iso21496Format::JpegApp2.into();
-
-        assert_eq!(Iso21496Format::from(avif), Iso21496Format::AvifTmap);
-        assert_eq!(Iso21496Format::from(jpeg), Iso21496Format::JpegApp2);
+        assert!((original.alternate_hdr_headroom - parsed.alternate_hdr_headroom).abs() < 1e-3);
     }
 }

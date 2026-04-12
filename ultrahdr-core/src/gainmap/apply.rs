@@ -27,11 +27,11 @@ impl GainMapLut {
         let mut table = Box::new([0.0f32; 256 * 3]);
 
         for channel in 0..3 {
-            let gamma = metadata.gamma[channel] as f32;
+            let gamma = metadata.channels[channel].gamma as f32;
             // Convert log2 domain to natural log for exp() math
             let ln2 = core::f64::consts::LN_2;
-            let log_min = (metadata.gain_map_min[channel] * ln2) as f32;
-            let log_max = (metadata.gain_map_max[channel] * ln2) as f32;
+            let log_min = (metadata.channels[channel].min * ln2) as f32;
+            let log_max = (metadata.channels[channel].max * ln2) as f32;
             let log_range = log_max - log_min;
 
             for i in 0..256 {
@@ -315,12 +315,12 @@ fn sample_gainmap_lut(
 /// Apply gain to SDR pixel to get HDR.
 fn apply_gain(sdr_linear: [f32; 3], gain: [f32; 3], metadata: &GainMapMetadata) -> [f32; 3] {
     [
-        (sdr_linear[0] + metadata.base_offset[0] as f32) * gain[0]
-            - metadata.alternate_offset[0] as f32,
-        (sdr_linear[1] + metadata.base_offset[1] as f32) * gain[1]
-            - metadata.alternate_offset[1] as f32,
-        (sdr_linear[2] + metadata.base_offset[2] as f32) * gain[2]
-            - metadata.alternate_offset[2] as f32,
+        (sdr_linear[0] + metadata.channels[0].base_offset as f32) * gain[0]
+            - metadata.channels[0].alternate_offset as f32,
+        (sdr_linear[1] + metadata.channels[1].base_offset as f32) * gain[1]
+            - metadata.channels[1].alternate_offset as f32,
+        (sdr_linear[2] + metadata.channels[2].base_offset as f32) * gain[2]
+            - metadata.channels[2].alternate_offset as f32,
     ]
 }
 
@@ -408,11 +408,9 @@ mod tests {
 
     #[test]
     fn test_calculate_weight() {
-        let metadata = GainMapMetadata {
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            ..Default::default()
-        };
+        let mut metadata = GainMapMetadata::default();
+        metadata.base_hdr_headroom = 0.0;
+        metadata.alternate_hdr_headroom = 2.0;
 
         // No boost
         let w = calculate_weight(1.0, &metadata);
@@ -429,12 +427,10 @@ mod tests {
 
     #[test]
     fn test_gain_map_lut() {
-        let metadata = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            ..Default::default()
-        };
+        let mut metadata = GainMapMetadata::default();
+        for ch in &mut metadata.channels {
+            ch.max = 2.0;
+        }
 
         let lut = GainMapLut::new(&metadata, 1.0);
 
@@ -470,17 +466,17 @@ mod tests {
             *v = 200; // High gain
         }
 
-        let metadata = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [0.015625; 3],
-            alternate_offset: [0.015625; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = crate::types::metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [0.015625; 3],
+            [0.015625; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
 
         let result = apply_gainmap(
             &sdr,
@@ -516,17 +512,17 @@ mod tests {
     /// with weight from 0.0 to 1.0 in steps of 0.25.
     #[test]
     fn test_gain_application_weight_levels() {
-        let metadata = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [1.0 / 64.0; 3],
-            alternate_offset: [1.0 / 64.0; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = crate::types::metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [1.0 / 64.0; 3],
+            [1.0 / 64.0; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
 
         let sdr_val = 1.0_f32; // White pixel (linear)
         let offset = 1.0_f32 / 64.0;
@@ -581,17 +577,17 @@ mod tests {
     /// because the offset dominates: hdr = (0 + 1/64) * gain - 1/64
     #[test]
     fn test_gain_application_black_pixel() {
-        let metadata = GainMapMetadata {
-            gain_map_min: [0.0; 3],
-            gain_map_max: [2.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [1.0 / 64.0; 3],
-            alternate_offset: [1.0 / 64.0; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 2.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = crate::types::metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [1.0 / 64.0; 3],
+            [1.0 / 64.0; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
 
         let offset = 1.0_f32 / 64.0;
 
@@ -625,17 +621,17 @@ mod tests {
     /// Verify gain LUT covers the full [min_boost, max_boost] range.
     #[test]
     fn test_gain_lut_range_coverage() {
-        let metadata = GainMapMetadata {
-            gain_map_min: [-1.0; 3],
-            gain_map_max: [3.0; 3],
-            gamma: [1.0; 3],
-            base_offset: [1.0 / 64.0; 3],
-            alternate_offset: [1.0 / 64.0; 3],
-            base_hdr_headroom: 0.0,
-            alternate_hdr_headroom: 3.0,
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = crate::types::metadata_from_arrays(
+            [-1.0; 3],
+            [3.0; 3],
+            [1.0; 3],
+            [1.0 / 64.0; 3],
+            [1.0 / 64.0; 3],
+            0.0,
+            3.0,
+            true,
+            false,
+        );
 
         let lut = GainMapLut::new(&metadata, 1.0);
 
@@ -701,17 +697,17 @@ mod tests {
     /// Helper: create standard test metadata.
     fn test_metadata() -> GainMapMetadata {
         // log2(1.0)=0.0, log2(4.0)=2.0
-        GainMapMetadata {
-            gain_map_min: [0.0; 3], // log2(1.0)
-            gain_map_max: [2.0; 3], // log2(4.0)
-            gamma: [1.0; 3],
-            base_offset: [1.0 / 64.0; 3],
-            alternate_offset: [1.0 / 64.0; 3],
-            base_hdr_headroom: 0.0,      // log2(1.0)
-            alternate_hdr_headroom: 2.0, // log2(4.0)
-            use_base_color_space: true,
-            backward_direction: false,
-        }
+        crate::types::metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [1.0 / 64.0; 3],
+            [1.0 / 64.0; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        )
     }
 
     #[test]
@@ -881,7 +877,7 @@ mod tests {
         // At weight=1.0:
         // Byte 0 → normalized=0.0 → gain = 2^gain_map_min = 2^0 = 1.0
         let gain_0 = lut.lookup(0, 0);
-        let expected_min = 2.0f32.powf(metadata.gain_map_min[0] as f32);
+        let expected_min = 2.0f32.powf(metadata.channels[0].min as f32);
         assert!(
             (gain_0 - expected_min).abs() < 0.01,
             "byte 0 should give 2^gain_map_min={}, got {}",
@@ -891,7 +887,7 @@ mod tests {
 
         // Byte 255 → normalized=1.0 → gain = 2^gain_map_max = 2^2 = 4.0
         let gain_255 = lut.lookup(255, 0);
-        let expected_max = 2.0f32.powf(metadata.gain_map_max[0] as f32);
+        let expected_max = 2.0f32.powf(metadata.channels[0].max as f32);
         assert!(
             (gain_255 - expected_max).abs() < 0.1,
             "byte 255 should give 2^gain_map_max={}, got {}",
@@ -978,7 +974,7 @@ mod tests {
         // Create minimal images
         let sdr = RawImage::new(4, 4, PixelFormat::Rgba8).unwrap();
         let gainmap = GainMap::new(2, 2).unwrap();
-        let metadata = GainMapMetadata::new();
+        let metadata = GainMapMetadata::default();
 
         // Should return Stopped error due to cancellation
         let result = apply_gainmap(
