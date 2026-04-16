@@ -10,7 +10,7 @@ use crate::types::{
     ColorGamut, GainMap, GainMapMetadata, PixelFormat, RawImage, RawImageRef, Result,
 };
 use enough::Stop;
-use zentone::experimental::{LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats};
+use crate::gainmap::splitter::{LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats};
 
 /// Configuration for gain map computation.
 ///
@@ -1075,7 +1075,7 @@ mod tests {
     #[test]
     fn test_tonemap_basic() {
         let hdr = make_uniform_rgba32f(8, 8, 0.5);
-        let curve = zentone::Bt2446C::new(1000.0, 100.0);
+        let curve = crate::gainmap::splitter::HableFilmic::new();
         let config = GainMapConfig::default();
         let (sdr, gainmap, metadata) = compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable).unwrap();
 
@@ -1105,7 +1105,7 @@ mod tests {
     #[test]
     fn test_tonemap_bright_hdr() {
         let hdr = make_uniform_rgba32f(8, 8, 5.0);
-        let curve = zentone::Bt2446C::new(1000.0, 100.0);
+        let curve = crate::gainmap::splitter::HableFilmic::new();
         let config = GainMapConfig::default();
         let (sdr, gainmap, _metadata) = compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable).unwrap();
 
@@ -1125,7 +1125,7 @@ mod tests {
     #[test]
     fn test_tonemap_multi_channel_rejected() {
         let hdr = make_uniform_rgba32f(8, 8, 0.5);
-        let curve = zentone::Bt2446C::new(1000.0, 100.0);
+        let curve = crate::gainmap::splitter::HableFilmic::new();
         let mut config = GainMapConfig::default();
         config.multi_channel = true;
         let result = compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable);
@@ -1215,7 +1215,7 @@ mod tests {
             }
         }
 
-        let curve = zentone::Bt2446C::new(1000.0, 100.0);
+        let curve = crate::gainmap::splitter::HableFilmic::new();
         let mut config = GainMapConfig::default();
         config.scale_factor = 1; // Full resolution gain map.
         let (sdr_f32, gainmap, metadata) =
@@ -1267,7 +1267,7 @@ mod tests {
             }
         }
         let hdr = make_uniform_rgba32f(8, 8, 0.5);
-        let curve = zentone::Bt2446C::new(1000.0, 100.0);
+        let curve = crate::gainmap::splitter::HableFilmic::new();
         let result = compute_gainmap_tonemap(hdr.as_ref(), &curve, &GainMapConfig::default(), ImmediateCancel);
         assert!(matches!(result, Err(crate::Error::Stopped(enough::StopReason::Cancelled))));
     }

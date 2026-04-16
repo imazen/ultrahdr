@@ -48,7 +48,13 @@ linear-srgb = { version = "0.6.7", optional = true, features = ["transfer"] }
 # Zen ecosystem types (mandatory — canonical gain map metadata types)
 zenpixels = { workspace = true }
 zencodec = { workspace = true }
-zentone = { path = "../../zentone", default-features = false, features = ["experimental"] }
+
+# Advanced tone mapping curves (optional, default-on via the `zentone` feature).
+# Without this feature ultrahdr-core still provides a built-in Hable filmic
+# splitter, which is enough to reduce HDR to (SDR, luma gain) and apply gain
+# maps. With the feature, callers get BT.2408 / BT.2446 / filmic spline /
+# AdaptiveTonemapper / StreamingTonemapper re-exported from zentone.
+zentone = { path = "../../zentone", default-features = false, features = ["experimental"], optional = true }
 
 # High-quality gain map resampling (optional)
 zenresize = { workspace = true, optional = true }
@@ -70,10 +76,14 @@ harness = false
 required-features = ["simd"]
 
 [features]
-default = ["std", "transfer"]
-std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb?/std"]
+default = ["std", "transfer", "zentone"]
+std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb?/std", "zentone?/std"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
 transfer = ["dep:linear-srgb"]  # Transfer functions (sRGB, PQ, HLG) via linear-srgb.
 resize = ["dep:zenresize"]  # High-quality gain map downsampling via zenresize.
+# Advanced tone mapping curves + streaming tonemapper via the zentone crate.
+# Default-on; disable for a leaner build when only the in-core Hable filmic
+# splitter is needed (decoders integrating ultrahdr-core often want this).
+zentone = ["dep:zentone"]
 # Future: alloc-only support
 # alloc = ["enough/alloc"]

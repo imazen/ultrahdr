@@ -11,15 +11,87 @@
 use crate::types::ColorGamut;
 
 /// 3x3 matrix for color transformations.
-///
-/// Layout-compatible with `zentone::gamut::apply_matrix` inputs.
 pub type Matrix3x3 = [[f32; 3]; 3];
 
 /// Identity matrix.
 pub const MATRIX_IDENTITY: Matrix3x3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
-// Matrix row math (identical signatures), re-exported from zentone.
-pub use zentone::gamut::{apply_matrix, apply_matrix_row, soft_clip as soft_clip_gamut};
+/// Apply a 3×3 matrix to an RGB triple (row-major).
+#[inline]
+pub fn apply_matrix(m: &Matrix3x3, rgb: [f32; 3]) -> [f32; 3] {
+    [
+        m[0][0] * rgb[0] + m[0][1] * rgb[1] + m[0][2] * rgb[2],
+        m[1][0] * rgb[0] + m[1][1] * rgb[1] + m[1][2] * rgb[2],
+        m[2][0] * rgb[0] + m[2][1] * rgb[1] + m[2][2] * rgb[2],
+    ]
+}
+
+/// Apply a 3×3 matrix to a row of interleaved RGB f32 pixels in place.
+/// Channels must be 3 or 4; a 4th channel (alpha) is passed through.
+pub fn apply_matrix_row(m: &Matrix3x3, row: &mut [f32], channels: usize) {
+    debug_assert!(channels == 3 || channels == 4);
+    for chunk in row.chunks_exact_mut(channels) {
+        let rgb = [chunk[0], chunk[1], chunk[2]];
+        let out = apply_matrix(m, rgb);
+        chunk[0] = out[0];
+        chunk[1] = out[1];
+        chunk[2] = out[2];
+    }
+}
+
+/// Hue-preserving soft clip for out-of-gamut highlights.
+///
+/// Negatives clamp to 0 (handles BT.2020 → BT.709 on saturated colors).
+/// For positive over-range, sorts channels by magnitude, clamps the max
+/// to 1.0, and linearly interpolates the mid channel to preserve the
+/// ratio `(mid - min) / (max - min)` — this keeps hue constant while
+/// pulling over-range values back into `[0, 1]`.
+#[inline]
+pub fn soft_clip_gamut(rgb: [f32; 3]) -> [f32; 3] {
+    let [mut r, mut g, mut b] = rgb;
+
+    r = r.max(0.0);
+    g = g.max(0.0);
+    b = b.max(0.0);
+
+    if r <= 1.0 && g <= 1.0 && b <= 1.0 {
+        return [r, g, b];
+    }
+
+    if r >= g {
+        if g > b {
+            clip_sorted(&mut r, &mut g, &mut b);
+        } else if b > r {
+            clip_sorted(&mut b, &mut r, &mut g);
+        } else if b > g {
+            clip_sorted(&mut r, &mut b, &mut g);
+        } else {
+            r = r.min(1.0);
+            g = g.min(1.0);
+        }
+    } else if r >= b {
+        clip_sorted(&mut g, &mut r, &mut b);
+    } else if b > g {
+        clip_sorted(&mut b, &mut g, &mut r);
+    } else {
+        clip_sorted(&mut g, &mut b, &mut r);
+    }
+
+    [r, g, b]
+}
+
+#[inline(always)]
+fn clip_sorted(hi: &mut f32, mid: &mut f32, lo: &mut f32) {
+    let new_hi = hi.min(1.0);
+    let new_lo = lo.min(1.0);
+    if *hi != *lo {
+        *mid = new_lo + (new_hi - new_lo) * (*mid - *lo) / (*hi - *lo);
+    } else {
+        *mid = new_hi;
+    }
+    *hi = new_hi;
+    *lo = new_lo;
+}
 
 // ============================================================================
 // RGB to XYZ matrices (D65 illuminant)

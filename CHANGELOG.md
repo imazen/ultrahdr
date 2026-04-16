@@ -15,6 +15,31 @@ own section below.
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release.
      Batch them here instead of shipping piecemeal. -->
+- `zentone` is now an optional default-on feature rather than a hard
+  dependency. With `--no-default-features`, `color::tonemap` and the
+  `StreamingTonemapper` re-exports disappear; decoders that only need to
+  apply/compute gain maps can depend on ultrahdr-core without pulling in
+  zentone. (Breaking only for callers building with custom feature sets
+  that already compiled against zentone-free configurations.)
+
+#### Added
+- In-core luma gain map splitter: `LumaToneMap` trait, `LumaFn` closure
+  adapter, `SplitConfig`, `SplitStats`, `LumaGainMapSplitter`, and a
+  built-in `HableFilmic` (Uncharted 2) tone curve. Makes it possible to
+  reduce HDR to (SDR, luma gain) and roundtrip back without depending on
+  zentone. Re-exported at the crate root as `ultrahdr_core::HableFilmic`,
+  `LumaToneMap`, `LumaGainMapSplitter`, `SplitConfig`, `SplitStats`.
+- `impl LumaToneMap` for zentone's BT.2408 / BT.2446 A/B/C /
+  `CompiledFilmicSpline` when the `zentone` feature is enabled, so
+  callers can pass those curves directly to `LumaGainMapSplitter`.
+
+#### Changed
+- `zentone` moved from hard dep to optional default-on feature. With
+  zentone off, `color::tonemap` is unavailable; `color::gamut` now owns
+  `apply_matrix` / `apply_matrix_row` / `soft_clip_gamut` directly rather
+  than re-exporting them.
+- `compute_gainmap_tonemap` now dispatches through the in-core
+  `LumaGainMapSplitter` rather than zentone's.
 
 ### [0.4.1] - 2026-04-10
 

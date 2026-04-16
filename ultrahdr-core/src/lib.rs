@@ -72,6 +72,7 @@ pub use enough::{Stop, StopReason, Unstoppable};
 pub use gainmap::{
     apply::HdrOutputFormat,
     compute::{compute_gainmap_tonemap, GainMapConfig},
+    splitter::{HableFilmic, LumaFn, LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats},
 };
 
 // Re-export container types

@@ -60,26 +60,31 @@ impl Default for ToneMapConfig {
 
 
 // ============================================================================
-// BT.2408 PQ-domain Tonemapper — re-exported from zentone
+// zentone re-exports (feature-gated)
 // ============================================================================
+//
+// When the `zentone` feature is enabled (default), ultrahdr-core re-exports
+// the full suite of tone-mapping primitives from the `zentone` crate:
+// BT.2408 PQ-domain tonemapper, standard curves (Reinhard variants, Hable,
+// ACES, AgX, BT.2390, filmic Narkowicz), and the filmic spline compiler.
+//
+// When the feature is disabled, callers compute gain maps via the in-core
+// [`crate::gainmap::splitter::HableFilmic`] curve (or any custom
+// [`crate::LumaToneMap`] implementation) and none of these symbols exist.
 
-/// Re-exported from [`zentone`].
+/// Re-exported from [`zentone`]. BT.2408 PQ-domain tonemapper.
+#[cfg(feature = "zentone")]
 pub use zentone::{Bt2408Tonemapper, EetfSpace};
 
-// ============================================================================
-// Standard curves — re-exported from zentone::curves
-// ============================================================================
-
+/// Standard tone curves re-exported from [`zentone::curves`].
+#[cfg(feature = "zentone")]
 pub use zentone::curves::{
     aces_ap1, agx_tonemap, bt2390_tonemap, bt2390_tonemap_ext, filmic_narkowicz, hable_filmic,
     reinhard_extended, reinhard_jodie, reinhard_simple,
 };
 
-// ============================================================================
-// Filmic spline — re-exported from zentone
-// ============================================================================
-
-/// Re-exported from [`zentone`].
+/// Re-exported from [`zentone`]. Filmic spline tonemapper.
+#[cfg(feature = "zentone")]
 pub use zentone::{CompiledFilmicSpline, FilmicSplineConfig};
 
 // ============================================================================
@@ -234,10 +239,11 @@ impl ProfileToneCurve {
 }
 
 // ============================================================================
-// Unified Tone Map Curve — re-exported from zentone
+// Unified Tone Map Curve — re-exported from zentone (feature-gated)
 // ============================================================================
 
-/// Re-exported from [`zentone`].
+/// Re-exported from [`zentone`]. Unified tone curve enum + dispatch trait.
+#[cfg(feature = "zentone")]
 pub use zentone::{AgxLook, ToneMap, ToneMapCurve};
 
 // ============================================================================
