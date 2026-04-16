@@ -115,13 +115,16 @@ jobs:
           "
 
       - name: Validate metadata values from libultrahdr probe
+        env:
+          PROBE_OUTPUT: ${{ '' }}  # set below in the step
         run: |
           echo "=== Checking libultrahdr parses sane metadata values ==="
-          probe=$(ultrahdr_app -m 1 -P -j /tmp/samples/rust_encoded.jpg 2>&1)
+          PROBE_OUTPUT=$(ultrahdr_app -m 1 -P -j /tmp/samples/rust_encoded.jpg 2>&1)
+          export PROBE_OUTPUT
           python3 << 'PYEOF'
-          import sys, re
+          import os, sys, re
 
-          probe = """$probe"""
+          probe = os.environ.get('PROBE_OUTPUT', '')
 
           def extract(key):
               m = re.search(rf'{key}\s+([\d.eE+\-]+|inf|-inf|nan)', probe)

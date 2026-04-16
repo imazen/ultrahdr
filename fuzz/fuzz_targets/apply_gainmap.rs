@@ -21,13 +21,18 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
 
-    // Metadata fields from fuzzer data — use Default then mutate
-    let mut metadata = ultrahdr_core::GainMapMetadata::new();
-    metadata.gain_map_max = [(data[12] as f64 - 128.0) / 32.0; 3];
-    metadata.gain_map_min = [(data[13] as f64 - 128.0) / 32.0; 3];
-    metadata.gamma = [(data[14] as f64) / 128.0 + 0.01; 3]; // > 0
-    metadata.base_offset = [(data[15] as f64) / 255.0; 3];
-    metadata.alternate_offset = [(data[16] as f64) / 255.0; 3];
+    // Metadata fields from fuzzer data. GainMapParams uses log2 domain and
+    // per-channel structs; values chosen to exercise positive, negative, and
+    // near-zero gains via the 128-centered byte-to-float map.
+    let ch = ultrahdr_core::GainMapChannel {
+        max: (data[12] as f64 - 128.0) / 32.0,
+        min: (data[13] as f64 - 128.0) / 32.0,
+        gamma: (data[14] as f64) / 128.0 + 0.01, // > 0
+        base_offset: (data[15] as f64) / 255.0,
+        alternate_offset: (data[16] as f64) / 255.0,
+    };
+    let mut metadata = ultrahdr_core::GainMapMetadata::default();
+    metadata.channels = [ch; 3];
     metadata.base_hdr_headroom = (data[17] as f64 - 128.0) / 32.0;
     metadata.alternate_hdr_headroom = (data[18] as f64 - 128.0) / 32.0;
     let channels = if data[19] & 1 == 0 { 1u8 } else { 3u8 };
