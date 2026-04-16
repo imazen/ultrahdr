@@ -62,6 +62,7 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/etemesi254/zune-image.git ../zune-image
           git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
+          git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
       - name: Strip workspace for standalone core tests
         run: |

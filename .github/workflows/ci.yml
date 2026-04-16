@@ -30,8 +30,10 @@ jobs:
         shell: bash
         run: |
           sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
-          # Strip path overrides for optional zen deps so CI uses published crates
-          sed -i.bak2 -e 's/, path = "[^"]*"//g' ultrahdr-core/Cargo.toml
+
+      - name: Clone sibling zentone (required by ultrahdr-core default features)
+        shell: bash
+        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -50,8 +52,11 @@ jobs:
       - name: Test with simd feature
         run: cargo test -p ultrahdr-core --all-targets --features simd
 
-      - name: Test with zencodec feature
-        run: cargo test -p ultrahdr-core --all-targets --features zencodec
+      - name: Build without zentone (leaner decoder-path config)
+        run: cargo build -p ultrahdr-core --no-default-features --features "std,transfer"
+
+      - name: Test without zentone (leaner decoder-path config)
+        run: cargo test -p ultrahdr-core --no-default-features --features "std,transfer"
 
       - name: Check ultrahdr-core no_std (no default features)
         run: cargo build --package ultrahdr-core --no-default-features
@@ -59,8 +64,8 @@ jobs:
       - name: Run clippy
         run: cargo clippy -p ultrahdr-core --all-targets -- -D warnings
 
-      - name: Clippy with zencodec feature
-        run: cargo clippy -p ultrahdr-core --all-targets --features zencodec -- -D warnings
+      - name: Clippy without zentone
+        run: cargo clippy -p ultrahdr-core --no-default-features --features "std,transfer" -- -D warnings
 
   fmt:
     name: Format
@@ -70,6 +75,10 @@ jobs:
       - name: Strip workspace members needing sibling repos
         shell: bash
         run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
+
+      - name: Clone sibling zentone (required by ultrahdr-core default features)
+        shell: bash
+        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -88,6 +97,10 @@ jobs:
       - name: Strip workspace members needing sibling repos
         shell: bash
         run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
+
+      - name: Clone sibling zentone (required by ultrahdr-core default features)
+        shell: bash
+        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -129,6 +142,10 @@ jobs:
         shell: bash
         run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
 
+      - name: Clone sibling zentone (required by ultrahdr-core default features)
+        shell: bash
+        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -156,6 +173,10 @@ jobs:
         shell: bash
         run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
 
+      - name: Clone sibling zentone (required by ultrahdr-core default features)
+        shell: bash
+        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -173,6 +194,10 @@ jobs:
       - name: Strip workspace members needing sibling repos
         shell: bash
         run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
+
+      - name: Clone sibling zentone (required by ultrahdr-core default features)
+        shell: bash
+        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -205,6 +230,10 @@ jobs:
       - name: Strip workspace members needing sibling repos
         shell: bash
         run: sed -i.bak -e '/"ultrahdr-rs"/d' -e '/"wasm-bench"/d' -e '/^zenjpeg/d' Cargo.toml && rm -f Cargo.lock
+
+      - name: Clone sibling zentone (required by ultrahdr-core default features)
+        shell: bash
+        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
       - name: Install Rust 1.92
         uses: dtolnay/rust-toolchain@1.92

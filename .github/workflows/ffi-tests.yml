@@ -18,6 +18,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Clone sibling zentone (required by ultrahdr-core default features)
+        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -72,6 +75,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Clone sibling zentone (required by ultrahdr-core default features)
+        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@1.92

@@ -33,6 +33,8 @@ jobs:
           - tonemap
     steps:
       - uses: actions/checkout@v6
+      - name: Clone sibling zentone (required by ultrahdr-core default features)
+        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
@@ -79,6 +81,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Clone sibling zentone (required by ultrahdr-core default features)
+        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
