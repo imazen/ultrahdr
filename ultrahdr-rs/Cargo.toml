@@ -47,11 +47,11 @@ thiserror = { workspace = true }
 enough = { workspace = true }
 
 # Reference implementation comparison (optional, for FFI parity tests).
-# Aliased to avoid name conflict with our crate. Pinned to the imazen fork
-# until https://github.com/Enter-tainer/libultrahdr-rs takes the
-# ExternalProject UPDATE_DISCONNECTED fix — upstream's build fails on
-# incremental CI rebuilds when the cached turbojpeg .git is stripped.
-libultrahdr = { package = "ultrahdr", git = "https://github.com/imazen/libultrahdr-rs.git", rev = "b820575b0029bfe6684c8d14fe66a655016e9c72", optional = true }
+# Pinned to the imazen fork of libultrahdr-rs for build-stability
+# improvements we haven't tried to upstream yet. Imported as
+# `libultrahdr_rs` (hyphen → underscore) to match the fork's repo name
+# and leave a clear audit trail in test code.
+libultrahdr_rs = { package = "ultrahdr", git = "https://github.com/imazen/libultrahdr-rs.git", rev = "b820575b0029bfe6684c8d14fe66a655016e9c72", optional = true }
 
 [dev-dependencies]
 # Testing (WASM-compatible)
@@ -75,7 +75,7 @@ zune-jpeg = "0.5"
 [features]
 default = []
 simd = ["ultrahdr-core/simd"]  # Enable explicit SIMD optimizations
-ffi-tests = ["libultrahdr"]  # Enable FFI parity tests with libultrahdr C++
+ffi-tests = ["libultrahdr_rs", "_test-helpers"]  # FFI parity tests against libultrahdr (C++); pulls in zenjpeg test helpers to exercise our Encoder/Decoder on both sides.
 _test-helpers = ["dep:zenjpeg"]  # Internal: enables test helper methods (underscore prefix = not public API)
 zencodec = ["dep:zencodec", "dep:zenpixels", "dep:zenjpeg"]  # zencodec trait integration
 

@@ -233,7 +233,15 @@ fn test_gainmap_metadata_access() {
     match decoder.gainmap_metadata() {
         Ok(Some(meta)) => {
             eprintln!("Gain map metadata:");
-            eprintln!("  channels: {:?}", meta.channels);
+            eprintln!("  max_content_boost: {:?}", meta.max_content_boost);
+            eprintln!("  min_content_boost: {:?}", meta.min_content_boost);
+            eprintln!("  gamma:             {:?}", meta.gamma);
+            eprintln!("  offset_sdr:        {:?}", meta.offset_sdr);
+            eprintln!("  offset_hdr:        {:?}", meta.offset_hdr);
+            eprintln!(
+                "  hdr_capacity:      [{}, {}]",
+                meta.hdr_capacity_min, meta.hdr_capacity_max
+            );
         }
         Ok(None) => {
             eprintln!("No metadata");
