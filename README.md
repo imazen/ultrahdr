@@ -4,6 +4,12 @@ Pure Rust implementation of [Ultra HDR](https://developer.android.com/media/plat
 
 Ultra HDR is a backward-compatible HDR image format that embeds a gain map in a standard JPEG, allowing HDR-capable displays to reconstruct the full HDR image while remaining viewable as SDR on legacy displays.
 
+## Acknowledgments
+
+Built on the foundation of Google's [Ultra HDR Image Format specification](https://developer.android.com/media/platform/hdr-image-format) and the well-maintained [libultrahdr](https://github.com/google/libultrahdr) reference implementation (BSD-3-Clause). The gain map math, ISO 21496-1 metadata layout, and many algorithm choices follow libultrahdr directly — our Rust port would not exist without that work.
+
+We also build on ISO/IEC 21496-1 (Gain map metadata for image conversion), the standard that formalizes the gain map interchange format.
+
 ## Crates
 
 | Crate | Description |

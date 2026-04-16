@@ -68,3 +68,6 @@ copter-report/
 .external-cache/
 Cargo.toml.original.txt
 *.rs.local
+
+# Agent coordination marker (never committed)
+.workongoing

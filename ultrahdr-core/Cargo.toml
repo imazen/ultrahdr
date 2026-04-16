@@ -46,8 +46,8 @@ thiserror = "2.0"
 linear-srgb = { version = "0.6.7", optional = true, features = ["transfer"] }
 
 # Zen ecosystem interop (optional)
-zenpixels = { workspace = true, optional = true , version = "0.2.2" , path = "../../zenpixels/zenpixels" }
-zencodec = { workspace = true, optional = true , path = "../../zencodec" }
+zenpixels = { workspace = true, optional = true }
+zencodec = { workspace = true, optional = true }
 
 [dev-dependencies]
 
