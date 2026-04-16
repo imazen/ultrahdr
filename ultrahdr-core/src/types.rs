@@ -862,6 +862,7 @@ mod tests {
     use zenpixels::{ColorPrimaries, TransferFunction};
 
     /// Helper to construct GainMapMetadata (GainMapParams) from per-channel arrays.
+    #[allow(clippy::too_many_arguments)]
     fn make_metadata(
         min: [f64; 3],
         max: [f64; 3],

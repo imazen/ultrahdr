@@ -1240,14 +1240,14 @@ fn sample_gainmap_row_ring(
             let g = lut.lookup(byte, 0);
             *gain_out = [g, g, g];
         } else {
-            for c in 0..3 {
+            for (c, dst) in gain_out.iter_mut().enumerate() {
                 let v00 = StreamDecoder::sample_row_rgb(row0, x0, c);
                 let v10 = StreamDecoder::sample_row_rgb(row0, x1, c);
                 let v01 = StreamDecoder::sample_row_rgb(row1, x0, c);
                 let v11 = StreamDecoder::sample_row_rgb(row1, x1, c);
                 let v = bilinear(v00, v10, v01, v11, fx, fy);
                 let byte = (v * 255.0).round().clamp(0.0, 255.0) as u8;
-                gain_out[c] = lut.lookup(byte, c);
+                *dst = lut.lookup(byte, c);
             }
         }
     }

@@ -1084,8 +1084,8 @@ mod tests {
 
         // SDR pixels in [0, 1].
         let px = read_pixel_rgba32f(&sdr, 0, 0);
-        for c in 0..3 {
-            assert!(px[c] >= 0.0 && px[c] <= 1.0, "SDR channel {c} = {}", px[c]);
+        for (c, &v) in px.iter().take(3).enumerate() {
+            assert!((0.0..=1.0).contains(&v), "SDR channel {c} = {v}");
         }
         assert!((px[3] - 1.0).abs() < 1e-6, "alpha should be 1.0");
 
@@ -1105,8 +1105,8 @@ mod tests {
 
         // SDR should be tonemapped down to [0, 1].
         let px = read_pixel_rgba32f(&sdr, 4, 4);
-        for c in 0..3 {
-            assert!(px[c] >= 0.0 && px[c] <= 1.01, "SDR channel {c} = {}", px[c]);
+        for (c, &v) in px.iter().take(3).enumerate() {
+            assert!((0.0..=1.01).contains(&v), "SDR channel {c} = {v}");
         }
 
         // Gain map values should reflect HDR boost.
@@ -1120,8 +1120,10 @@ mod tests {
     fn test_tonemap_multi_channel_rejected() {
         let hdr = make_uniform_rgba32f(8, 8, 0.5);
         let curve = crate::gainmap::splitter::HableFilmic::new();
-        let mut config = GainMapConfig::default();
-        config.multi_channel = true;
+        let config = GainMapConfig {
+            multi_channel: true,
+            ..GainMapConfig::default()
+        };
         let result = compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable);
         assert!(result.is_err());
     }
@@ -1185,8 +1187,8 @@ mod tests {
             for x in 0..src.width {
                 let px = read_pixel_rgba32f(src, x, y);
                 let dst_offset = (y * dst.stride + x * 4) as usize;
-                for c in 0..3 {
-                    let srgb = linear_srgb::tf::linear_to_srgb(px[c].clamp(0.0, 1.0));
+                for (c, &lin) in px.iter().take(3).enumerate() {
+                    let srgb = linear_srgb::tf::linear_to_srgb(lin.clamp(0.0, 1.0));
                     dst.data[dst_offset + c] = (srgb * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
                 }
                 dst.data[dst_offset + 3] = 255;
@@ -1216,8 +1218,10 @@ mod tests {
         }
 
         let curve = crate::gainmap::splitter::HableFilmic::new();
-        let mut config = GainMapConfig::default();
-        config.scale_factor = 1; // Full resolution gain map.
+        let config = GainMapConfig {
+            scale_factor: 1, // Full resolution gain map.
+            ..GainMapConfig::default()
+        };
         let (sdr_f32, gainmap, metadata) =
             compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable).unwrap();
 
