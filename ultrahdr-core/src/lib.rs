@@ -71,7 +71,7 @@ pub use enough::{Stop, StopReason, Unstoppable};
 // Re-export gain map types
 pub use gainmap::{
     apply::HdrOutputFormat,
-    compute::{compute_gainmap_tonemap, GainMapConfig},
+    compute::{GainMapConfig, compute_gainmap_tonemap},
     splitter::{HableFilmic, LumaFn, LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats},
 };
 

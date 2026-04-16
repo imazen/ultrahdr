@@ -12,5 +12,7 @@ pub mod streaming;
 pub use apply::*;
 pub use apply_simd::*;
 pub use compute::*;
-pub use splitter::{HableFilmic, LumaFn, LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats};
+pub use splitter::{
+    HableFilmic, LumaFn, LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats,
+};
 pub use streaming::*;

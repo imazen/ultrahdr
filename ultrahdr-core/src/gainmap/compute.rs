@@ -5,12 +5,12 @@ use alloc::vec;
 use crate::color::gamut::rgb_to_luminance;
 #[cfg(feature = "transfer")]
 use crate::color::transfer::{apply_eotf, pq_eotf, srgb_eotf};
+use crate::gainmap::splitter::{LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats};
 use crate::types::ColorTransfer;
 use crate::types::{
     ColorGamut, GainMap, GainMapMetadata, PixelFormat, RawImage, RawImageRef, Result,
 };
 use enough::Stop;
-use crate::gainmap::splitter::{LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats};
 
 /// Configuration for gain map computation.
 ///
@@ -348,8 +348,7 @@ fn get_linear_rgb(img: &RawImageRef<'_>, x: u32, y: u32) -> [f32; 3] {
             let uv_idx = uv_offset + uv_y * stride * 2 + uv_x * 4;
 
             let u_val = u16::from_le_bytes(img.data[uv_idx..uv_idx + 2].try_into().unwrap());
-            let v_val =
-                u16::from_le_bytes(img.data[uv_idx + 2..uv_idx + 4].try_into().unwrap());
+            let v_val = u16::from_le_bytes(img.data[uv_idx + 2..uv_idx + 4].try_into().unwrap());
 
             let u = (u_val >> 6) as f32 / 1023.0 - 0.5;
             let v = (v_val >> 6) as f32 / 1023.0 - 0.5;
@@ -466,8 +465,8 @@ fn downsample_gain_f32(
     dst_w: u32,
     dst_h: u32,
 ) -> alloc::vec::Vec<f32> {
-    use zenresize::{Filter, ResizeConfig, Resizer};
     use zenpixels::PixelDescriptor;
+    use zenresize::{Filter, ResizeConfig, Resizer};
 
     let cfg = ResizeConfig::builder(src_w, src_h, dst_w, dst_h)
         .filter(Filter::Robidoux)
@@ -499,12 +498,7 @@ fn split_config_from_gainmap(config: &GainMapConfig, gamut: ColorGamut) -> Split
 /// and maps to `[0, 255]`. Mathematically equivalent to the `ln`-domain
 /// normalization in [`compute_and_encode_gain`] — the log base cancels in
 /// the ratio. Compatible with [`super::apply::GainMapLut`] decode.
-pub(super) fn pack_log2_gain_u8(
-    log2_gain: f32,
-    log2_min: f32,
-    log2_range: f32,
-    gamma: f32,
-) -> u8 {
+pub(super) fn pack_log2_gain_u8(log2_gain: f32, log2_min: f32, log2_range: f32, gamma: f32) -> u8 {
     let clamped = log2_gain.clamp(log2_min, log2_min + log2_range);
     let normalized = if log2_range > 0.0 {
         (clamped - log2_min) / log2_range
@@ -664,9 +658,7 @@ pub fn compute_gainmap_tonemap<T: LumaToneMap>(
     #[cfg(feature = "resize")]
     {
         // Downsample full-resolution gain via zenresize, then pack to u8.
-        let ds_gain = downsample_gain_f32(
-            &full_gain, width, height, gm_width, gm_height,
-        );
+        let ds_gain = downsample_gain_f32(&full_gain, width, height, gm_width, gm_height);
         for (i, &g) in ds_gain.iter().enumerate() {
             gainmap.data[i] = pack_log2_gain_u8(g, log2_min, log2_range, config.gamma);
         }
@@ -1077,7 +1069,8 @@ mod tests {
         let hdr = make_uniform_rgba32f(8, 8, 0.5);
         let curve = crate::gainmap::splitter::HableFilmic::new();
         let config = GainMapConfig::default();
-        let (sdr, gainmap, metadata) = compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable).unwrap();
+        let (sdr, gainmap, metadata) =
+            compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable).unwrap();
 
         // SDR has same dimensions.
         assert_eq!(sdr.width, 8);
@@ -1107,7 +1100,8 @@ mod tests {
         let hdr = make_uniform_rgba32f(8, 8, 5.0);
         let curve = crate::gainmap::splitter::HableFilmic::new();
         let config = GainMapConfig::default();
-        let (sdr, gainmap, _metadata) = compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable).unwrap();
+        let (sdr, gainmap, _metadata) =
+            compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable).unwrap();
 
         // SDR should be tonemapped down to [0, 1].
         let px = read_pixel_rgba32f(&sdr, 4, 4);
@@ -1154,7 +1148,10 @@ mod tests {
         let no_gamma = pack_log2_gain_u8(1.0, min, range, 1.0);
         let with_gamma = pack_log2_gain_u8(1.0, min, range, 2.0);
         // gamma=2 → normalized 0.5 → 0.5^2 = 0.25 → 64
-        assert!(with_gamma < no_gamma, "gamma should reduce midpoint: {with_gamma} vs {no_gamma}");
+        assert!(
+            with_gamma < no_gamma,
+            "gamma should reduce midpoint: {with_gamma} vs {no_gamma}"
+        );
         assert_eq!(with_gamma, 64); // 0.25 * 255 = 63.75 → 64
     }
 
@@ -1170,7 +1167,10 @@ mod tests {
         let sc = split_config_from_gainmap(&config, ColorGamut::Bt709);
         assert!((sc.min_log2 - 0.0).abs() < 1e-6, "log2(1.0) = 0");
         assert!((sc.max_log2 - 2.0).abs() < 1e-6, "log2(4.0) = 2");
-        assert_eq!(sc.luma_weights, crate::color::gamut::luma_coefficients(ColorGamut::Bt709));
+        assert_eq!(
+            sc.luma_weights,
+            crate::color::gamut::luma_coefficients(ColorGamut::Bt709)
+        );
         assert_eq!(sc.base_offset, 1.0 / 64.0);
         assert_eq!(sc.alternate_offset, 1.0 / 64.0);
         assert_eq!(sc.pre_desaturate, 0.0);
@@ -1251,7 +1251,9 @@ mod tests {
                     assert!(
                         diff < orig[c] * 0.25 + 0.15,
                         "round-trip drift at ({x},{y}) ch{c}: orig={} recon={} diff={}",
-                        orig[c], recon[c], diff
+                        orig[c],
+                        recon[c],
+                        diff
                     );
                 }
             }
@@ -1268,7 +1270,15 @@ mod tests {
         }
         let hdr = make_uniform_rgba32f(8, 8, 0.5);
         let curve = crate::gainmap::splitter::HableFilmic::new();
-        let result = compute_gainmap_tonemap(hdr.as_ref(), &curve, &GainMapConfig::default(), ImmediateCancel);
-        assert!(matches!(result, Err(crate::Error::Stopped(enough::StopReason::Cancelled))));
+        let result = compute_gainmap_tonemap(
+            hdr.as_ref(),
+            &curve,
+            &GainMapConfig::default(),
+            ImmediateCancel,
+        );
+        assert!(matches!(
+            result,
+            Err(crate::Error::Stopped(enough::StopReason::Cancelled))
+        ));
     }
 }

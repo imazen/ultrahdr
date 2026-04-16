@@ -216,12 +216,7 @@ pub(crate) fn sample_gainmap_row_lut(
 /// Write a row of HDR pixels to the output image in the requested format.
 ///
 /// `hdr_row.len()` must equal `output.width as usize`.
-fn write_hdr_row(
-    output: &mut RawImage,
-    y: u32,
-    hdr_row: &[[f32; 3]],
-    format: HdrOutputFormat,
-) {
+fn write_hdr_row(output: &mut RawImage, y: u32, hdr_row: &[[f32; 3]], format: HdrOutputFormat) {
     debug_assert_eq!(hdr_row.len(), output.width as usize);
     for (x, &hdr) in hdr_row.iter().enumerate() {
         write_output(output, x as u32, y, hdr, format);
@@ -491,11 +486,7 @@ mod tests {
     use super::*;
 
     /// Single-pixel convenience wrapper over `apply_gain_row_presampled` for tests.
-    fn apply_gain_one(
-        metadata: &GainMapMetadata,
-        sdr: [f32; 3],
-        gain: [f32; 3],
-    ) -> [f32; 3] {
+    fn apply_gain_one(metadata: &GainMapMetadata, sdr: [f32; 3], gain: [f32; 3]) -> [f32; 3] {
         let base = [
             metadata.channels[0].base_offset as f32,
             metadata.channels[1].base_offset as f32,

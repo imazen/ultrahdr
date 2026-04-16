@@ -439,9 +439,9 @@ pub(crate) fn validate_dimensions(width: u32, height: u32) -> Result<()> {
 /// Minimum stride in bytes required for one row of the given format at `width`.
 pub(crate) fn min_stride_bytes(width: u32, format: PixelFormat) -> Result<usize> {
     match format.bytes_per_pixel() {
-        Some(bpp) => (width as usize).checked_mul(bpp).ok_or_else(|| {
-            Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp))
-        }),
+        Some(bpp) => (width as usize)
+            .checked_mul(bpp)
+            .ok_or_else(|| Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp))),
         None => Ok(width as usize),
     }
 }
