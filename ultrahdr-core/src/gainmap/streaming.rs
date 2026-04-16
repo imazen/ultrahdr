@@ -87,12 +87,17 @@ use super::compute::GainMapConfig;
 #[derive(Debug)]
 pub struct RowDecoder {
     gainmap: GainMap,
-    metadata: GainMapMetadata,
     width: u32,
     height: u32,
-    weight: f32,
+    lut: super::apply::GainMapLut,
+    base_offset: [f32; 3],
+    alternate_offset: [f32; 3],
     current_row: u32,
     gamut: ColorGamut,
+    // Row-reusable scratch buffers
+    sdr_row: Vec<[f32; 3]>,
+    gains_row: Vec<[f32; 3]>,
+    hdr_row: Vec<[f32; 3]>,
 }
 
 impl RowDecoder {
@@ -113,16 +118,32 @@ impl RowDecoder {
         display_boost: f32,
         gamut: ColorGamut,
     ) -> Result<Self> {
-        let weight = calculate_weight(display_boost, &metadata);
+        let weight = super::apply::calculate_weight(display_boost, &metadata);
+        let lut = super::apply::GainMapLut::new(&metadata, weight);
+        let base_offset = [
+            metadata.channels[0].base_offset as f32,
+            metadata.channels[1].base_offset as f32,
+            metadata.channels[2].base_offset as f32,
+        ];
+        let alternate_offset = [
+            metadata.channels[0].alternate_offset as f32,
+            metadata.channels[1].alternate_offset as f32,
+            metadata.channels[2].alternate_offset as f32,
+        ];
+        let row_pixels = width as usize;
 
         Ok(Self {
             gainmap,
-            metadata,
             width,
             height,
-            weight,
+            lut,
+            base_offset,
+            alternate_offset,
             current_row: 0,
             gamut,
+            sdr_row: vec![[0.0; 3]; row_pixels],
+            gains_row: vec![[0.0; 3]; row_pixels],
+            hdr_row: vec![[0.0; 3]; row_pixels],
         })
     }
 
@@ -159,27 +180,48 @@ impl RowDecoder {
 
         let output_stride = self.width as usize * 4; // RGBA
         let mut output = vec![0.0f32; output_stride * actual_rows as usize];
+        let row_pixels = self.width as usize;
 
         for row_offset in 0..actual_rows {
             let y = self.current_row + row_offset;
             let input_start = row_offset as usize * input_stride;
             let output_start = row_offset as usize * output_stride;
 
-            for x in 0..self.width {
-                let in_idx = input_start + x as usize * 3;
-                let out_idx = output_start + x as usize * 4;
-
-                let sdr = [
+            // Copy linear SDR rgb into [[f32; 3]; width] scratch buffer.
+            for (x, dst) in self.sdr_row.iter_mut().enumerate() {
+                let in_idx = input_start + x * 3;
+                *dst = [
                     sdr_linear[in_idx],
                     sdr_linear[in_idx + 1],
                     sdr_linear[in_idx + 2],
                 ];
-                let gain = self.sample_gainmap(x, y);
-                let hdr = apply_gain(sdr, gain, &self.metadata);
+            }
 
-                output[out_idx] = hdr[0];
-                output[out_idx + 1] = hdr[1];
-                output[out_idx + 2] = hdr[2];
+            // Sample per-channel gains for this row (bilinear + LUT).
+            super::apply::sample_gainmap_row_lut(
+                &self.gainmap,
+                &self.lut,
+                y,
+                self.width,
+                self.height,
+                &mut self.gains_row,
+            );
+
+            // Apply ISO 21496-1 gain formula.
+            super::apply_simd::apply_gain_row_presampled(
+                &self.sdr_row,
+                &self.gains_row,
+                self.base_offset,
+                self.alternate_offset,
+                &mut self.hdr_row,
+            );
+
+            // Scatter into packed RGBA output.
+            for x in 0..row_pixels {
+                let out_idx = output_start + x * 4;
+                output[out_idx] = self.hdr_row[x][0];
+                output[out_idx + 1] = self.hdr_row[x][1];
+                output[out_idx + 2] = self.hdr_row[x][2];
                 output[out_idx + 3] = 1.0;
             }
         }
@@ -218,47 +260,6 @@ impl RowDecoder {
         self.current_row = 0;
     }
 
-    /// Sample gainmap with bilinear interpolation.
-    fn sample_gainmap(&self, x: u32, y: u32) -> [f32; 3] {
-        let gm_x = (x as f32 / self.width as f32) * self.gainmap.width as f32;
-        let gm_y = (y as f32 / self.height as f32) * self.gainmap.height as f32;
-
-        let x0 = (gm_x.floor() as u32).min(self.gainmap.width - 1);
-        let y0 = (gm_y.floor() as u32).min(self.gainmap.height - 1);
-        let x1 = (x0 + 1).min(self.gainmap.width - 1);
-        let y1 = (y0 + 1).min(self.gainmap.height - 1);
-
-        let fx = gm_x - gm_x.floor();
-        let fy = gm_y - gm_y.floor();
-
-        if self.gainmap.channels == 1 {
-            let v00 = self.gainmap.data[(y0 * self.gainmap.width + x0) as usize] as f32 / 255.0;
-            let v10 = self.gainmap.data[(y0 * self.gainmap.width + x1) as usize] as f32 / 255.0;
-            let v01 = self.gainmap.data[(y1 * self.gainmap.width + x0) as usize] as f32 / 255.0;
-            let v11 = self.gainmap.data[(y1 * self.gainmap.width + x1) as usize] as f32 / 255.0;
-
-            let v = bilinear(v00, v10, v01, v11, fx, fy);
-            let gain = decode_gain(v, &self.metadata, 0, self.weight);
-            [gain, gain, gain]
-        } else {
-            let mut gains = [0.0f32; 3];
-            #[allow(clippy::needless_range_loop)]
-            for c in 0..3 {
-                let v00 = self.gainmap.data[(y0 * self.gainmap.width + x0) as usize * 3 + c] as f32
-                    / 255.0;
-                let v10 = self.gainmap.data[(y0 * self.gainmap.width + x1) as usize * 3 + c] as f32
-                    / 255.0;
-                let v01 = self.gainmap.data[(y1 * self.gainmap.width + x0) as usize * 3 + c] as f32
-                    / 255.0;
-                let v11 = self.gainmap.data[(y1 * self.gainmap.width + x1) as usize * 3 + c] as f32
-                    / 255.0;
-
-                let v = bilinear(v00, v10, v01, v11, fx, fy);
-                gains[c] = decode_gain(v, &self.metadata, c, self.weight);
-            }
-            gains
-        }
-    }
 }
 
 // ============================================================================
@@ -280,17 +281,22 @@ impl RowDecoder {
 /// - Gainmap ring buffer: 16 rows × `gm_width × channels` bytes
 #[derive(Debug)]
 pub struct StreamDecoder {
-    metadata: GainMapMetadata,
     sdr_width: u32,
     sdr_height: u32,
     gm_width: u32,
     gm_height: u32,
     gm_channels: u8,
-    weight: f32,
+    lut: super::apply::GainMapLut,
+    base_offset: [f32; 3],
+    alternate_offset: [f32; 3],
     current_sdr_row: u32,
     current_gm_row: u32,
     gamut: ColorGamut,
     gm_buffer: GainMapRingBuffer,
+    // Row-reusable scratch buffers
+    sdr_row: Vec<[f32; 3]>,
+    gains_row: Vec<[f32; 3]>,
+    hdr_row: Vec<[f32; 3]>,
 }
 
 /// Ring buffer for gainmap rows during streaming decode.
@@ -360,21 +366,37 @@ impl StreamDecoder {
         display_boost: f32,
         gamut: ColorGamut,
     ) -> Result<Self> {
-        let weight = calculate_weight(display_boost, &metadata);
+        let weight = super::apply::calculate_weight(display_boost, &metadata);
+        let lut = super::apply::GainMapLut::new(&metadata, weight);
+        let base_offset = [
+            metadata.channels[0].base_offset as f32,
+            metadata.channels[1].base_offset as f32,
+            metadata.channels[2].base_offset as f32,
+        ];
+        let alternate_offset = [
+            metadata.channels[0].alternate_offset as f32,
+            metadata.channels[1].alternate_offset as f32,
+            metadata.channels[2].alternate_offset as f32,
+        ];
         let gm_buffer = GainMapRingBuffer::new(gm_width, gm_channels, 16);
+        let row_pixels = sdr_width as usize;
 
         Ok(Self {
-            metadata,
             sdr_width,
             sdr_height,
             gm_width,
             gm_height,
             gm_channels,
-            weight,
+            lut,
+            base_offset,
+            alternate_offset,
             current_sdr_row: 0,
             current_gm_row: 0,
             gamut,
             gm_buffer,
+            sdr_row: vec![[0.0; 3]; row_pixels],
+            gains_row: vec![[0.0; 3]; row_pixels],
+            hdr_row: vec![[0.0; 3]; row_pixels],
         })
     }
 
@@ -452,74 +474,57 @@ impl StreamDecoder {
 
         let output_stride = self.sdr_width as usize * 4;
         let mut output = vec![0.0f32; output_stride * actual_rows as usize];
+        let row_pixels = self.sdr_width as usize;
 
         for row_offset in 0..actual_rows {
             let y = self.current_sdr_row + row_offset;
             let input_start = row_offset as usize * input_stride;
             let output_start = row_offset as usize * output_stride;
 
-            for x in 0..self.sdr_width {
-                let in_idx = input_start + x as usize * 3;
-                let out_idx = output_start + x as usize * 4;
-
-                let sdr = [
+            // Copy linear SDR rgb into [[f32; 3]; width] scratch.
+            for (x, dst) in self.sdr_row.iter_mut().enumerate() {
+                let in_idx = input_start + x * 3;
+                *dst = [
                     sdr_linear[in_idx],
                     sdr_linear[in_idx + 1],
                     sdr_linear[in_idx + 2],
                 ];
-                let gain = self.sample_gainmap(x, y);
-                let hdr = apply_gain(sdr, gain, &self.metadata);
+            }
 
-                output[out_idx] = hdr[0];
-                output[out_idx + 1] = hdr[1];
-                output[out_idx + 2] = hdr[2];
+            // Sample per-channel gains for this row via ring-buffer bilinear + LUT.
+            sample_gainmap_row_ring(
+                &self.gm_buffer,
+                &self.lut,
+                self.gm_channels,
+                y,
+                self.sdr_width,
+                self.sdr_height,
+                self.gm_width,
+                self.gm_height,
+                &mut self.gains_row,
+            );
+
+            // Apply ISO 21496-1 gain formula using the shared row kernel.
+            super::apply_simd::apply_gain_row_presampled(
+                &self.sdr_row,
+                &self.gains_row,
+                self.base_offset,
+                self.alternate_offset,
+                &mut self.hdr_row,
+            );
+
+            // Scatter into packed RGBA output.
+            for x in 0..row_pixels {
+                let out_idx = output_start + x * 4;
+                output[out_idx] = self.hdr_row[x][0];
+                output[out_idx + 1] = self.hdr_row[x][1];
+                output[out_idx + 2] = self.hdr_row[x][2];
                 output[out_idx + 3] = 1.0;
             }
         }
 
         self.current_sdr_row += actual_rows;
         Ok(output)
-    }
-
-    /// Sample gainmap with bilinear interpolation from ring buffer.
-    fn sample_gainmap(&self, x: u32, y: u32) -> [f32; 3] {
-        let gm_x = (x as f32 / self.sdr_width as f32) * self.gm_width as f32;
-        let gm_y = (y as f32 / self.sdr_height as f32) * self.gm_height as f32;
-
-        let x0 = (gm_x.floor() as u32).min(self.gm_width - 1);
-        let y0 = (gm_y.floor() as u32).min(self.gm_height - 1);
-        let x1 = (x0 + 1).min(self.gm_width - 1);
-        let y1 = (y0 + 1).min(self.gm_height - 1);
-
-        let fx = gm_x - gm_x.floor();
-        let fy = gm_y - gm_y.floor();
-
-        let row0 = self.gm_buffer.get(y0);
-        let row1 = self.gm_buffer.get(y1);
-
-        if self.gm_channels == 1 {
-            let v00 = Self::sample_row_gray(row0, x0);
-            let v10 = Self::sample_row_gray(row0, x1);
-            let v01 = Self::sample_row_gray(row1, x0);
-            let v11 = Self::sample_row_gray(row1, x1);
-
-            let v = bilinear(v00, v10, v01, v11, fx, fy);
-            let gain = decode_gain(v, &self.metadata, 0, self.weight);
-            [gain, gain, gain]
-        } else {
-            let mut gains = [0.0f32; 3];
-            #[allow(clippy::needless_range_loop)]
-            for c in 0..3 {
-                let v00 = Self::sample_row_rgb(row0, x0, c);
-                let v10 = Self::sample_row_rgb(row0, x1, c);
-                let v01 = Self::sample_row_rgb(row1, x0, c);
-                let v11 = Self::sample_row_rgb(row1, x1, c);
-
-                let v = bilinear(v00, v10, v01, v11, fx, fy);
-                gains[c] = decode_gain(v, &self.metadata, c, self.weight);
-            }
-            gains
-        }
     }
 
     #[inline]
@@ -762,18 +767,17 @@ impl RowEncoder {
         let actual_min = self.actual_min_boost.max(self.config.min_boost);
         let actual_max = self.actual_max_boost.min(self.config.max_boost);
 
-        let metadata = GainMapMetadata {
-            gain_map_max: [(actual_max as f64).log2(); 3],
-            gain_map_min: [(actual_min as f64).log2(); 3],
-            gamma: [self.config.gamma as f64; 3],
-            base_offset: [self.config.base_offset as f64; 3],
-            alternate_offset: [self.config.alternate_offset as f64; 3],
-            base_hdr_headroom: (self.config.base_hdr_headroom as f64).log2(),
-            alternate_hdr_headroom: (self.config.alternate_hdr_headroom.max(actual_max) as f64)
-                .log2(),
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = crate::types::metadata_from_arrays(
+            [(actual_min as f64).log2(); 3],
+            [(actual_max as f64).log2(); 3],
+            [self.config.gamma as f64; 3],
+            [self.config.base_offset as f64; 3],
+            [self.config.alternate_offset as f64; 3],
+            (self.config.base_hdr_headroom as f64).log2(),
+            (self.config.alternate_hdr_headroom.max(actual_max) as f64).log2(),
+            true,
+            false,
+        );
 
         Ok((gainmap, metadata))
     }
@@ -802,27 +806,28 @@ impl RowEncoder {
 
             if self.config.multi_channel {
                 for c in 0..3 {
-                    let gain = (hdr_rgb[c] + self.config.alternate_offset)
-                        / (sdr_rgb[c] + self.config.base_offset).max(0.001);
-
-                    self.actual_min_boost = self.actual_min_boost.min(gain);
-                    self.actual_max_boost = self.actual_max_boost.max(gain);
-
-                    let encoded = encode_gain(gain, log_min, log_range, &self.config);
-                    row[gx as usize * 3 + c] = encoded;
+                    row[gx as usize * 3 + c] = super::compute::compute_and_encode_gain(
+                        hdr_rgb[c],
+                        sdr_rgb[c],
+                        &self.config,
+                        log_min,
+                        log_range,
+                        &mut self.actual_min_boost,
+                        &mut self.actual_max_boost,
+                    );
                 }
             } else {
                 let hdr_lum = rgb_to_luminance(hdr_rgb, self.hdr_gamut);
                 let sdr_lum = rgb_to_luminance(sdr_rgb, self.sdr_gamut);
-
-                let gain =
-                    (hdr_lum + self.config.alternate_offset) / (sdr_lum + self.config.base_offset);
-
-                self.actual_min_boost = self.actual_min_boost.min(gain);
-                self.actual_max_boost = self.actual_max_boost.max(gain);
-
-                let encoded = encode_gain(gain, log_min, log_range, &self.config);
-                row[gx as usize] = encoded;
+                row[gx as usize] = super::compute::compute_and_encode_gain(
+                    hdr_lum,
+                    sdr_lum,
+                    &self.config,
+                    log_min,
+                    log_range,
+                    &mut self.actual_min_boost,
+                    &mut self.actual_max_boost,
+                );
             }
         }
 
@@ -1067,25 +1072,28 @@ impl StreamEncoder {
             if self.config.multi_channel {
                 #[allow(clippy::needless_range_loop)]
                 for c in 0..3 {
-                    let hdr_c = hdr_rgb[c] + self.config.alternate_offset;
-                    let sdr_c = sdr_rgb[c] + self.config.base_offset;
-                    let gain = hdr_c / sdr_c.max(1e-6);
-
-                    self.actual_min_boost = self.actual_min_boost.min(gain);
-                    self.actual_max_boost = self.actual_max_boost.max(gain);
-
-                    row[gx as usize * 3 + c] = encode_gain(gain, log_min, log_range, &self.config);
+                    row[gx as usize * 3 + c] = super::compute::compute_and_encode_gain(
+                        hdr_rgb[c],
+                        sdr_rgb[c],
+                        &self.config,
+                        log_min,
+                        log_range,
+                        &mut self.actual_min_boost,
+                        &mut self.actual_max_boost,
+                    );
                 }
             } else {
                 let hdr_lum = rgb_to_luminance(hdr_rgb, self.hdr_gamut);
                 let sdr_lum = rgb_to_luminance(sdr_rgb, self.sdr_gamut);
-                let gain =
-                    (hdr_lum + self.config.alternate_offset) / (sdr_lum + self.config.base_offset);
-
-                self.actual_min_boost = self.actual_min_boost.min(gain);
-                self.actual_max_boost = self.actual_max_boost.max(gain);
-
-                row[gx as usize] = encode_gain(gain, log_min, log_range, &self.config);
+                row[gx as usize] = super::compute::compute_and_encode_gain(
+                    hdr_lum,
+                    sdr_lum,
+                    &self.config,
+                    log_min,
+                    log_range,
+                    &mut self.actual_min_boost,
+                    &mut self.actual_max_boost,
+                );
             }
         }
 
@@ -1146,17 +1154,17 @@ impl StreamEncoder {
             self.config.min_boost
         };
 
-        let metadata = GainMapMetadata {
-            gain_map_max: [(actual_max as f64).log2(); 3],
-            gain_map_min: [(actual_min as f64).log2(); 3],
-            gamma: [self.config.gamma as f64; 3],
-            base_offset: [self.config.base_offset as f64; 3],
-            alternate_offset: [self.config.alternate_offset as f64; 3],
-            base_hdr_headroom: 0.0, // log2(1.0) = 0
-            alternate_hdr_headroom: (actual_max as f64).log2(),
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = crate::types::metadata_from_arrays(
+            [(actual_min as f64).log2(); 3],
+            [(actual_max as f64).log2(); 3],
+            [self.config.gamma as f64; 3],
+            [self.config.base_offset as f64; 3],
+            [self.config.alternate_offset as f64; 3],
+            0.0, // log2(1.0) = 0
+            (actual_max as f64).log2(),
+            true,
+            false,
+        );
 
         Ok((gainmap, metadata))
     }
@@ -1191,65 +1199,67 @@ impl StreamEncoder {
 // Helper Functions
 // ============================================================================
 
-fn calculate_weight(display_boost: f32, metadata: &GainMapMetadata) -> f32 {
-    let log_display = display_boost.max(1.0).log2() as f64;
-    let log_min = metadata.base_hdr_headroom.max(0.0);
-    let log_max = metadata.alternate_hdr_headroom.max(0.0);
+/// Sample one row of per-channel gains from a gain-map ring buffer.
+///
+/// Mirrors `super::apply::sample_gainmap_row_lut` but sources bytes from a
+/// `GainMapRingBuffer` instead of an owned `GainMap`. Bilinear-interpolates
+/// byte values across the two nearest gain-map rows, then looks up each
+/// byte in `GainMapLut` once.
+#[allow(clippy::too_many_arguments)]
+fn sample_gainmap_row_ring(
+    gm_buffer: &GainMapRingBuffer,
+    lut: &super::apply::GainMapLut,
+    gm_channels: u8,
+    y: u32,
+    sdr_width: u32,
+    sdr_height: u32,
+    gm_width: u32,
+    gm_height: u32,
+    out: &mut [[f32; 3]],
+) {
+    debug_assert_eq!(out.len(), sdr_width as usize);
+    let gm_y = (y as f32 / sdr_height as f32) * gm_height as f32;
+    let y0 = (gm_y.floor() as u32).min(gm_height - 1);
+    let y1 = (y0 + 1).min(gm_height - 1);
+    let fy = gm_y - gm_y.floor();
+    let row0 = gm_buffer.get(y0);
+    let row1 = gm_buffer.get(y1);
 
-    if log_max <= log_min {
-        return 1.0;
+    for (x, gain_out) in out.iter_mut().enumerate() {
+        let gm_x = (x as f32 / sdr_width as f32) * gm_width as f32;
+        let x0 = (gm_x.floor() as u32).min(gm_width - 1);
+        let x1 = (x0 + 1).min(gm_width - 1);
+        let fx = gm_x - gm_x.floor();
+
+        if gm_channels == 1 {
+            let v00 = StreamDecoder::sample_row_gray(row0, x0);
+            let v10 = StreamDecoder::sample_row_gray(row0, x1);
+            let v01 = StreamDecoder::sample_row_gray(row1, x0);
+            let v11 = StreamDecoder::sample_row_gray(row1, x1);
+            let v = bilinear(v00, v10, v01, v11, fx, fy);
+            let byte = (v * 255.0).round().clamp(0.0, 255.0) as u8;
+            let g = lut.lookup(byte, 0);
+            *gain_out = [g, g, g];
+        } else {
+            for c in 0..3 {
+                let v00 = StreamDecoder::sample_row_rgb(row0, x0, c);
+                let v10 = StreamDecoder::sample_row_rgb(row0, x1, c);
+                let v01 = StreamDecoder::sample_row_rgb(row1, x0, c);
+                let v11 = StreamDecoder::sample_row_rgb(row1, x1, c);
+                let v = bilinear(v00, v10, v01, v11, fx, fy);
+                let byte = (v * 255.0).round().clamp(0.0, 255.0) as u8;
+                gain_out[c] = lut.lookup(byte, c);
+            }
+        }
     }
-
-    ((log_display - log_min) / (log_max - log_min)).clamp(0.0, 1.0) as f32
 }
 
+/// Bilinear interpolation helper (used by `sample_gainmap_row_ring`).
 #[inline]
 fn bilinear(v00: f32, v10: f32, v01: f32, v11: f32, fx: f32, fy: f32) -> f32 {
     let top = v00 * (1.0 - fx) + v10 * fx;
     let bottom = v01 * (1.0 - fx) + v11 * fx;
     top * (1.0 - fy) + bottom * fy
-}
-
-fn decode_gain(normalized: f32, metadata: &GainMapMetadata, channel: usize, weight: f32) -> f32 {
-    let gamma = metadata.gamma[channel] as f32;
-    let linear = if gamma != 1.0 && gamma > 0.0 {
-        normalized.powf(1.0 / gamma)
-    } else {
-        normalized
-    };
-
-    // Convert log2 domain to natural log for exp() math
-    let ln2 = core::f64::consts::LN_2;
-    let log_min = (metadata.gain_map_min[channel] * ln2) as f32;
-    let log_max = (metadata.gain_map_max[channel] * ln2) as f32;
-    let log_gain = log_min + linear * (log_max - log_min);
-
-    (log_gain * weight).exp()
-}
-
-fn apply_gain(sdr_linear: [f32; 3], gain: [f32; 3], metadata: &GainMapMetadata) -> [f32; 3] {
-    [
-        (sdr_linear[0] + metadata.base_offset[0] as f32) * gain[0]
-            - metadata.alternate_offset[0] as f32,
-        (sdr_linear[1] + metadata.base_offset[1] as f32) * gain[1]
-            - metadata.alternate_offset[1] as f32,
-        (sdr_linear[2] + metadata.base_offset[2] as f32) * gain[2]
-            - metadata.alternate_offset[2] as f32,
-    ]
-}
-
-fn encode_gain(gain: f32, log_min: f32, log_range: f32, config: &GainMapConfig) -> u8 {
-    let gain_clamped = gain.clamp(config.min_boost, config.max_boost);
-    let log_gain = gain_clamped.ln();
-
-    let normalized = if log_range > 0.0 {
-        (log_gain - log_min) / log_range
-    } else {
-        0.5
-    };
-
-    let gamma_corrected = normalized.powf(config.gamma);
-    (gamma_corrected * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
 #[cfg(test)]
@@ -1263,17 +1273,17 @@ mod tests {
             *v = 128;
         }
 
-        let metadata = GainMapMetadata {
-            gain_map_min: [0.0; 3], // log2(1.0)
-            gain_map_max: [2.0; 3], // log2(4.0)
-            gamma: [1.0; 3],
-            base_offset: [0.015625; 3],
-            alternate_offset: [0.015625; 3],
-            base_hdr_headroom: 0.0,      // log2(1.0)
-            alternate_hdr_headroom: 2.0, // log2(4.0)
-            use_base_color_space: true,
-            backward_direction: false,
-        };
+        let metadata = crate::types::metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [0.015625; 3],
+            [0.015625; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
 
         let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
 
@@ -1307,7 +1317,7 @@ mod tests {
         let (gainmap, metadata) = encoder.finish().unwrap();
         assert_eq!(gainmap.width, 2);
         assert_eq!(gainmap.height, 2);
-        assert!(metadata.gain_map_max[0] >= 1.0);
+        assert!(metadata.channels[0].max >= 1.0);
     }
 
     #[test]
@@ -1337,17 +1347,17 @@ mod tests {
     /// Helper: standard metadata used across tests.
     fn test_metadata() -> GainMapMetadata {
         // log2(1.0)=0.0, log2(4.0)=2.0
-        GainMapMetadata {
-            gain_map_min: [0.0; 3], // log2(1.0)
-            gain_map_max: [2.0; 3], // log2(4.0)
-            gamma: [1.0; 3],
-            base_offset: [0.015625; 3],
-            alternate_offset: [0.015625; 3],
-            base_hdr_headroom: 0.0,      // log2(1.0)
-            alternate_hdr_headroom: 2.0, // log2(4.0)
-            use_base_color_space: true,
-            backward_direction: false,
-        }
+        crate::types::metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [0.015625; 3],
+            [0.015625; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        )
     }
 
     /// Helper: 2x2 gainmap filled with a constant byte value.
@@ -1510,7 +1520,7 @@ mod tests {
         let (gainmap, metadata) = encoder.finish().unwrap();
         assert_eq!(gainmap.width, 2);
         assert_eq!(gainmap.height, 2);
-        assert!(metadata.gain_map_max[0] >= 1.0);
+        assert!(metadata.channels[0].max >= 1.0);
         // The batch call should have produced the same number of gm rows
         // as the total gm height (2), since all input was provided at once.
         assert_eq!(gm_rows.len(), 2);

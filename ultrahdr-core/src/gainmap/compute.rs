@@ -1,12 +1,16 @@
 //! Gain map computation from HDR and SDR images.
 
+use alloc::vec;
+
 use crate::color::gamut::rgb_to_luminance;
 #[cfg(feature = "transfer")]
 use crate::color::transfer::{apply_eotf, pq_eotf, srgb_eotf};
-#[cfg(feature = "transfer")]
 use crate::types::ColorTransfer;
-use crate::types::{GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
+use crate::types::{
+    ColorGamut, GainMap, GainMapMetadata, PixelFormat, RawImage, RawImageRef, Result,
+};
 use enough::Stop;
+use zentone::experimental::{LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats};
 
 /// Configuration for gain map computation.
 ///
@@ -118,17 +122,17 @@ pub fn compute_gainmap(
     actual_max_boost = actual_max_boost.min(config.max_boost);
 
     // Build metadata (convert linear boost values to log2 domain)
-    let metadata = GainMapMetadata {
-        gain_map_max: [(actual_max_boost as f64).log2(); 3],
-        gain_map_min: [(actual_min_boost as f64).log2(); 3],
-        gamma: [config.gamma as f64; 3],
-        base_offset: [config.base_offset as f64; 3],
-        alternate_offset: [config.alternate_offset as f64; 3],
-        base_hdr_headroom: (config.base_hdr_headroom as f64).log2(),
-        alternate_hdr_headroom: (config.alternate_hdr_headroom.max(actual_max_boost) as f64).log2(),
-        use_base_color_space: true,
-        backward_direction: false,
-    };
+    let metadata = crate::types::metadata_from_arrays(
+        [(actual_min_boost as f64).log2(); 3],
+        [(actual_max_boost as f64).log2(); 3],
+        [config.gamma as f64; 3],
+        [config.base_offset as f64; 3],
+        [config.alternate_offset as f64; 3],
+        (config.base_hdr_headroom as f64).log2(),
+        (config.alternate_hdr_headroom.max(actual_max_boost) as f64).log2(),
+        true,
+        false,
+    );
 
     Ok((gainmap, metadata))
 }
@@ -147,6 +151,8 @@ fn compute_luminance_gainmap(
     stop: &impl Stop,
 ) -> Result<GainMap> {
     let mut gainmap = GainMap::new(gm_width, gm_height)?;
+    let hdr_ref = hdr.as_ref();
+    let sdr_ref = sdr.as_ref();
 
     let log_min = config.min_boost.ln();
     let log_max = config.max_boost.ln();
@@ -162,40 +168,57 @@ fn compute_luminance_gainmap(
             let y = (gy * scale + scale / 2).min(hdr.height - 1);
 
             // Get linear RGB values
-            let hdr_rgb = get_linear_rgb(hdr, x, y);
-            let sdr_rgb = get_linear_rgb(sdr, x, y);
+            let hdr_rgb = get_linear_rgb(&hdr_ref, x, y);
+            let sdr_rgb = get_linear_rgb(&sdr_ref, x, y);
 
             // Compute luminance
             let hdr_lum = rgb_to_luminance(hdr_rgb, hdr.gamut);
             let sdr_lum = rgb_to_luminance(sdr_rgb, sdr.gamut);
 
-            // Compute gain (with offsets to avoid division by zero)
-            let gain = (hdr_lum + config.alternate_offset) / (sdr_lum + config.base_offset);
-
-            // Track actual range
-            *actual_min_boost = actual_min_boost.min(gain);
-            *actual_max_boost = actual_max_boost.max(gain);
-
-            // Clamp and encode
-            let gain_clamped = gain.clamp(config.min_boost, config.max_boost);
-            let log_gain = gain_clamped.ln();
-
-            // Normalize to `[0, 1]`
-            let normalized = if log_range > 0.0 {
-                (log_gain - log_min) / log_range
-            } else {
-                0.5
-            };
-
-            // Apply gamma and convert to 8-bit
-            let gamma_corrected = normalized.powf(config.gamma);
-            let encoded = (gamma_corrected * 255.0).round().clamp(0.0, 255.0) as u8;
-
+            let encoded = compute_and_encode_gain(
+                hdr_lum,
+                sdr_lum,
+                config,
+                log_min,
+                log_range,
+                actual_min_boost,
+                actual_max_boost,
+            );
             gainmap.data[(gy * gm_width + gx) as usize] = encoded;
         }
     }
 
     Ok(gainmap)
+}
+
+/// Compute the gain for one channel of one cell, track min/max, and quantize
+/// to the 8-bit gain map byte. Used by both the batch `compute_gainmap` and
+/// the streaming `RowEncoder`.
+///
+/// `log_min` and `log_range` are `config.min_boost.ln()` and
+/// `log(max_boost) - log(min_boost)` respectively — pre-computed by the
+/// caller and reused across every cell.
+pub(super) fn compute_and_encode_gain(
+    hdr: f32,
+    sdr: f32,
+    config: &GainMapConfig,
+    log_min: f32,
+    log_range: f32,
+    actual_min_boost: &mut f32,
+    actual_max_boost: &mut f32,
+) -> u8 {
+    let gain = (hdr + config.alternate_offset) / (sdr + config.base_offset).max(0.001);
+    *actual_min_boost = actual_min_boost.min(gain);
+    *actual_max_boost = actual_max_boost.max(gain);
+    let gain_clamped = gain.clamp(config.min_boost, config.max_boost);
+    let log_gain = gain_clamped.ln();
+    let normalized = if log_range > 0.0 {
+        (log_gain - log_min) / log_range
+    } else {
+        0.5
+    };
+    let gamma_corrected = normalized.powf(config.gamma);
+    (gamma_corrected * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
 /// Compute multi-channel (RGB) gain map.
@@ -212,6 +235,8 @@ fn compute_multichannel_gainmap(
     stop: &impl Stop,
 ) -> Result<GainMap> {
     let mut gainmap = GainMap::new_multichannel(gm_width, gm_height)?;
+    let hdr_ref = hdr.as_ref();
+    let sdr_ref = sdr.as_ref();
 
     let log_min = config.min_boost.ln();
     let log_max = config.max_boost.ln();
@@ -225,28 +250,19 @@ fn compute_multichannel_gainmap(
             let x = (gx * scale + scale / 2).min(hdr.width - 1);
             let y = (gy * scale + scale / 2).min(hdr.height - 1);
 
-            let hdr_rgb = get_linear_rgb(hdr, x, y);
-            let sdr_rgb = get_linear_rgb(sdr, x, y);
+            let hdr_rgb = get_linear_rgb(&hdr_ref, x, y);
+            let sdr_rgb = get_linear_rgb(&sdr_ref, x, y);
 
             for c in 0..3 {
-                let gain = (hdr_rgb[c] + config.alternate_offset)
-                    / (sdr_rgb[c] + config.base_offset).max(0.001);
-
-                *actual_min_boost = actual_min_boost.min(gain);
-                *actual_max_boost = actual_max_boost.max(gain);
-
-                let gain_clamped = gain.clamp(config.min_boost, config.max_boost);
-                let log_gain = gain_clamped.ln();
-
-                let normalized = if log_range > 0.0 {
-                    (log_gain - log_min) / log_range
-                } else {
-                    0.5
-                };
-
-                let gamma_corrected = normalized.powf(config.gamma);
-                let encoded = (gamma_corrected * 255.0).round().clamp(0.0, 255.0) as u8;
-
+                let encoded = compute_and_encode_gain(
+                    hdr_rgb[c],
+                    sdr_rgb[c],
+                    config,
+                    log_min,
+                    log_range,
+                    actual_min_boost,
+                    actual_max_boost,
+                );
                 let idx = (gy * gm_width + gx) as usize * 3 + c;
                 gainmap.data[idx] = encoded;
             }
@@ -265,7 +281,7 @@ fn compute_multichannel_gainmap(
 /// (Rgba16F, Rgba32F) are supported. For encoded formats, the caller must
 /// pre-convert to linear using an external CMS.
 #[cfg(feature = "transfer")]
-fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
+fn get_linear_rgb(img: &RawImageRef<'_>, x: u32, y: u32) -> [f32; 3] {
     match img.format {
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
             let bpp = if img.format == PixelFormat::Rgba8 {
@@ -273,7 +289,7 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
             } else {
                 3
             };
-            let idx = (y * img.stride + x * bpp as u32) as usize;
+            let idx = y as usize * img.stride + x as usize * bpp;
             let r = img.data[idx] as f32 / 255.0;
             let g = img.data[idx + 1] as f32 / 255.0;
             let b = img.data[idx + 2] as f32 / 255.0;
@@ -287,7 +303,7 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         }
 
         PixelFormat::Rgba16F => {
-            let idx = (y * img.stride + x * 8) as usize;
+            let idx = y as usize * img.stride + x as usize * 8;
             let r = half_to_f32(&img.data[idx..idx + 2]);
             let g = half_to_f32(&img.data[idx + 2..idx + 4]);
             let b = half_to_f32(&img.data[idx + 4..idx + 6]);
@@ -295,36 +311,16 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         }
 
         PixelFormat::Rgba32F => {
-            let idx = (y * img.stride + x * 16) as usize;
-            let r = f32::from_le_bytes([
-                img.data[idx],
-                img.data[idx + 1],
-                img.data[idx + 2],
-                img.data[idx + 3],
-            ]);
-            let g = f32::from_le_bytes([
-                img.data[idx + 4],
-                img.data[idx + 5],
-                img.data[idx + 6],
-                img.data[idx + 7],
-            ]);
-            let b = f32::from_le_bytes([
-                img.data[idx + 8],
-                img.data[idx + 9],
-                img.data[idx + 10],
-                img.data[idx + 11],
-            ]);
+            let idx = y as usize * img.stride + x as usize * 16;
+            let r = f32::from_le_bytes(img.data[idx..idx + 4].try_into().unwrap());
+            let g = f32::from_le_bytes(img.data[idx + 4..idx + 8].try_into().unwrap());
+            let b = f32::from_le_bytes(img.data[idx + 8..idx + 12].try_into().unwrap());
             [r, g, b]
         }
 
         PixelFormat::Rgba1010102Pq | PixelFormat::Rgba1010102Hlg => {
-            let idx = (y * img.stride + x * 4) as usize;
-            let packed = u32::from_le_bytes([
-                img.data[idx],
-                img.data[idx + 1],
-                img.data[idx + 2],
-                img.data[idx + 3],
-            ]);
+            let idx = y as usize * img.stride + x as usize * 4;
+            let packed = u32::from_le_bytes(img.data[idx..idx + 4].try_into().unwrap());
 
             let r = (packed & 0x3FF) as f32 / 1023.0;
             let g = ((packed >> 10) & 0x3FF) as f32 / 1023.0;
@@ -341,18 +337,19 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         }
 
         PixelFormat::P010 => {
-            let y_idx = (y * img.stride * 2 + x * 2) as usize;
-            let y_val = u16::from_le_bytes([img.data[y_idx], img.data[y_idx + 1]]);
+            let stride = img.stride;
+            let y_idx = y as usize * stride * 2 + x as usize * 2;
+            let y_val = u16::from_le_bytes(img.data[y_idx..y_idx + 2].try_into().unwrap());
             let y_lum = (y_val >> 6) as f32 / 1023.0;
 
-            let uv_offset = (img.height * img.stride * 2) as usize;
-            let uv_y = y / 2;
-            let uv_x = x / 2;
-            let uv_idx =
-                uv_offset + (uv_y as usize * img.stride as usize * 2) + (uv_x as usize * 4);
+            let uv_offset = img.height as usize * stride * 2;
+            let uv_y = y as usize / 2;
+            let uv_x = x as usize / 2;
+            let uv_idx = uv_offset + uv_y * stride * 2 + uv_x * 4;
 
-            let u_val = u16::from_le_bytes([img.data[uv_idx], img.data[uv_idx + 1]]);
-            let v_val = u16::from_le_bytes([img.data[uv_idx + 2], img.data[uv_idx + 3]]);
+            let u_val = u16::from_le_bytes(img.data[uv_idx..uv_idx + 2].try_into().unwrap());
+            let v_val =
+                u16::from_le_bytes(img.data[uv_idx + 2..uv_idx + 4].try_into().unwrap());
 
             let u = (u_val >> 6) as f32 / 1023.0 - 0.5;
             let v = (v_val >> 6) as f32 / 1023.0 - 0.5;
@@ -365,16 +362,17 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         }
 
         PixelFormat::Yuv420 => {
-            let y_idx = (y * img.stride + x) as usize;
+            let stride = img.stride;
+            let y_idx = y as usize * stride + x as usize;
             let y_val = img.data[y_idx] as f32 / 255.0;
 
-            let uv_size = (img.stride / 2) * (img.height / 2);
-            let u_offset = (img.height * img.stride) as usize;
-            let v_offset = u_offset + uv_size as usize;
+            let half_stride = stride / 2;
+            let u_offset = img.height as usize * stride;
+            let v_offset = u_offset + half_stride * (img.height as usize / 2);
 
-            let uv_x = x / 2;
-            let uv_y = y / 2;
-            let uv_idx = (uv_y * img.stride / 2 + uv_x) as usize;
+            let uv_x = x as usize / 2;
+            let uv_y = y as usize / 2;
+            let uv_idx = uv_y * half_stride + uv_x;
 
             let u = img.data[u_offset + uv_idx] as f32 / 255.0 - 0.5;
             let v = img.data[v_offset + uv_idx] as f32 / 255.0 - 0.5;
@@ -387,7 +385,7 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         }
 
         PixelFormat::Gray8 => {
-            let idx = (y * img.stride + x) as usize;
+            let idx = y as usize * img.stride + x as usize;
             let v = img.data[idx] as f32 / 255.0;
             let linear = srgb_eotf(v);
             [linear, linear, linear]
@@ -400,10 +398,10 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
 /// Only supports inherently linear formats (Rgba16F, Rgba32F).
 /// For encoded formats (sRGB, PQ, etc.), use an external CMS to pre-convert.
 #[cfg(not(feature = "transfer"))]
-fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
+fn get_linear_rgb(img: &RawImageRef<'_>, x: u32, y: u32) -> [f32; 3] {
     match img.format {
         PixelFormat::Rgba16F => {
-            let idx = (y * img.stride + x * 8) as usize;
+            let idx = y as usize * img.stride + x as usize * 8;
             let r = half_to_f32(&img.data[idx..idx + 2]);
             let g = half_to_f32(&img.data[idx + 2..idx + 4]);
             let b = half_to_f32(&img.data[idx + 4..idx + 6]);
@@ -411,37 +409,22 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         }
 
         PixelFormat::Rgba32F => {
-            let idx = (y * img.stride + x * 16) as usize;
-            let r = f32::from_le_bytes([
-                img.data[idx],
-                img.data[idx + 1],
-                img.data[idx + 2],
-                img.data[idx + 3],
-            ]);
-            let g = f32::from_le_bytes([
-                img.data[idx + 4],
-                img.data[idx + 5],
-                img.data[idx + 6],
-                img.data[idx + 7],
-            ]);
-            let b = f32::from_le_bytes([
-                img.data[idx + 8],
-                img.data[idx + 9],
-                img.data[idx + 10],
-                img.data[idx + 11],
-            ]);
+            let idx = y as usize * img.stride + x as usize * 16;
+            let r = f32::from_le_bytes(img.data[idx..idx + 4].try_into().unwrap());
+            let g = f32::from_le_bytes(img.data[idx + 4..idx + 8].try_into().unwrap());
+            let b = f32::from_le_bytes(img.data[idx + 8..idx + 12].try_into().unwrap());
             [r, g, b]
         }
 
         // For encoded formats without transfer feature, treat as linear
         // (caller must pre-convert using external CMS)
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
-            let bpp = if img.format == PixelFormat::Rgba8 {
+            let bpp: usize = if img.format == PixelFormat::Rgba8 {
                 4
             } else {
                 3
             };
-            let idx = (y * img.stride + x * bpp as u32) as usize;
+            let idx = y as usize * img.stride + x as usize * bpp;
             let r = img.data[idx] as f32 / 255.0;
             let g = img.data[idx + 1] as f32 / 255.0;
             let b = img.data[idx + 2] as f32 / 255.0;
@@ -450,7 +433,7 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
         }
 
         PixelFormat::Gray8 => {
-            let idx = (y * img.stride + x) as usize;
+            let idx = y as usize * img.stride + x as usize;
             let v = img.data[idx] as f32 / 255.0;
             [v, v, v]
         }
@@ -464,6 +447,248 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
 fn half_to_f32(bytes: &[u8]) -> f32 {
     let bits = u16::from_le_bytes([bytes[0], bytes[1]]);
     half::f16::from_bits(bits).to_f32()
+}
+
+/// Same as [`half_to_f32`] but visible to sibling modules (e.g. `apply`).
+pub(super) fn half_to_f32_pub(bytes: &[u8]) -> f32 {
+    half_to_f32(bytes)
+}
+
+/// Downsample a full-resolution single-channel f32 gain map using zenresize.
+///
+/// Uses `PixelDescriptor::GRAYF32_LINEAR` with a Robidoux filter (good
+/// general-purpose balance between sharpness and ringing).
+#[cfg(feature = "resize")]
+fn downsample_gain_f32(
+    src: &[f32],
+    src_w: u32,
+    src_h: u32,
+    dst_w: u32,
+    dst_h: u32,
+) -> alloc::vec::Vec<f32> {
+    use zenresize::{Filter, ResizeConfig, Resizer};
+    use zenpixels::PixelDescriptor;
+
+    let cfg = ResizeConfig::builder(src_w, src_h, dst_w, dst_h)
+        .filter(Filter::Robidoux)
+        .format(PixelDescriptor::GRAYF32_LINEAR)
+        .build();
+    let mut resizer = Resizer::new(&cfg);
+    resizer.resize_f32(src)
+}
+
+// ---------------------------------------------------------------------------
+// zentone-powered encode path
+// ---------------------------------------------------------------------------
+
+/// Derive a zentone [`SplitConfig`] from a [`GainMapConfig`] and source gamut.
+fn split_config_from_gainmap(config: &GainMapConfig, gamut: ColorGamut) -> SplitConfig {
+    SplitConfig {
+        luma_weights: crate::color::gamut::luma_coefficients(gamut),
+        base_offset: config.base_offset,
+        alternate_offset: config.alternate_offset,
+        min_log2: config.min_boost.log2(),
+        max_log2: config.max_boost.log2(),
+        pre_desaturate: 0.0,
+    }
+}
+
+/// Quantize a raw `log2` gain value to a u8 wire byte.
+///
+/// Normalizes within `[log2_min, log2_min + log2_range]`, applies gamma,
+/// and maps to `[0, 255]`. Mathematically equivalent to the `ln`-domain
+/// normalization in [`compute_and_encode_gain`] — the log base cancels in
+/// the ratio. Compatible with [`super::apply::GainMapLut`] decode.
+pub(super) fn pack_log2_gain_u8(
+    log2_gain: f32,
+    log2_min: f32,
+    log2_range: f32,
+    gamma: f32,
+) -> u8 {
+    let clamped = log2_gain.clamp(log2_min, log2_min + log2_range);
+    let normalized = if log2_range > 0.0 {
+        (clamped - log2_min) / log2_range
+    } else {
+        0.5
+    };
+    let gamma_corrected = if gamma != 1.0 {
+        normalized.powf(gamma)
+    } else {
+        normalized
+    };
+    (gamma_corrected * 255.0).round().clamp(0.0, 255.0) as u8
+}
+
+/// Extract one HDR row as interleaved RGBA f32 for the zentone splitter.
+///
+/// Reuses [`get_linear_rgb`] per pixel (same perf as the existing
+/// `compute_gainmap` path). Alpha is set to 1.0.
+fn extract_linear_row_rgba(img: &RawImageRef<'_>, y: u32, out: &mut [f32]) {
+    let width = img.width as usize;
+    debug_assert!(out.len() >= width * 4);
+    for x in 0..width {
+        let rgb = get_linear_rgb(img, x as u32, y);
+        let i = x * 4;
+        out[i] = rgb[0];
+        out[i + 1] = rgb[1];
+        out[i + 2] = rgb[2];
+        out[i + 3] = 1.0;
+    }
+}
+
+/// Write an interleaved RGBA f32 row into an `Rgba32F` [`RawImage`].
+fn write_rgba32f_row(img: &mut RawImage, y: u32, row: &[f32]) {
+    debug_assert_eq!(img.format, PixelFormat::Rgba32F);
+    let width = img.width as usize;
+    let byte_offset = (y * img.stride) as usize;
+    let row_bytes: &[u8] = bytemuck::cast_slice(&row[..width * 4]);
+    img.data[byte_offset..byte_offset + row_bytes.len()].copy_from_slice(row_bytes);
+}
+
+/// Compute a gain map by tone-mapping HDR to SDR using a [`LumaToneMap`] curve.
+///
+/// Unlike [`compute_gainmap`] which requires the caller to supply both HDR and
+/// SDR images, this function takes only the HDR image and uses zentone's
+/// [`LumaGainMapSplitter`] to produce the SDR base and gain map simultaneously.
+///
+/// Returns `(sdr_image, gain_map, metadata)`:
+/// - `sdr_image`: `Rgba32F` linear, same gamut as the HDR input. The caller
+///   converts to sRGB u8 for JPEG storage.
+/// - `gain_map`: single-channel u8 at `1/scale_factor` resolution.
+/// - `metadata`: ready for `zencodec::GainMapParams` wire serialization.
+///
+/// Multi-channel gain maps are not supported — returns
+/// `Err(EncodeError)` if `config.multi_channel` is `true`.
+pub fn compute_gainmap_tonemap<T: LumaToneMap>(
+    hdr: RawImageRef<'_>,
+    curve: &T,
+    config: &GainMapConfig,
+    stop: impl Stop,
+) -> Result<(RawImage, GainMap, GainMapMetadata)> {
+    if config.multi_channel {
+        return Err(crate::types::Error::EncodeError(
+            "compute_gainmap_tonemap does not support multi-channel gain maps; \
+             use compute_gainmap with separate HDR/SDR images instead"
+                .into(),
+        ));
+    }
+
+    // RawImageRef validates bounds at construction time.
+
+    let width = hdr.width;
+    let height = hdr.height;
+    let scale = config.scale_factor.max(1) as u32;
+    let gm_width = width.div_ceil(scale);
+    let gm_height = height.div_ceil(scale);
+
+    // Build splitter from GainMapConfig + source gamut.
+    let split_cfg = split_config_from_gainmap(config, hdr.gamut);
+    let splitter = LumaGainMapSplitter::new(curve, split_cfg);
+
+    // Allocate outputs.
+    let mut sdr_image = RawImage::new(width, height, PixelFormat::Rgba32F)?;
+    sdr_image.gamut = hdr.gamut;
+    sdr_image.transfer = ColorTransfer::Linear;
+
+    let mut gainmap = GainMap::new(gm_width, gm_height)?;
+    let mut stats = SplitStats::default();
+
+    // Packing constants (log2 domain).
+    let log2_min = config.min_boost.log2();
+    let log2_max = config.max_boost.log2();
+    let log2_range = log2_max - log2_min;
+
+    // Scratch buffers, reused per row.
+    let w = width as usize;
+    let mut hdr_buf = vec![0.0_f32; w * 4];
+    let mut sdr_buf = vec![0.0_f32; w * 4];
+    let mut gain_buf = vec![0.0_f32; w];
+
+    // With zenresize: collect full-resolution gain, then downsample properly.
+    // Without: center-pixel sampling (lower quality, zero extra memory).
+    #[cfg(feature = "resize")]
+    let mut full_gain = vec![0.0_f32; w * height as usize];
+
+    #[cfg(not(feature = "resize"))]
+    let mut next_gy: u32 = 0;
+
+    for y in 0..height {
+        stop.check()?;
+
+        // Linearize HDR row into interleaved RGBA f32.
+        extract_linear_row_rgba(&hdr, y, &mut hdr_buf);
+
+        // Split: HDR → SDR + log2 gain.
+        splitter.split_row(&hdr_buf, &mut sdr_buf, &mut gain_buf, 4, &mut stats);
+
+        // Write SDR row.
+        write_rgba32f_row(&mut sdr_image, y, &sdr_buf);
+
+        #[cfg(feature = "resize")]
+        {
+            let row_offset = y as usize * w;
+            full_gain[row_offset..row_offset + w].copy_from_slice(&gain_buf[..w]);
+        }
+
+        #[cfg(not(feature = "resize"))]
+        {
+            // Center-pixel sampling fallback.
+            while next_gy < gm_height {
+                let center_y = (next_gy * scale + scale / 2).min(height - 1);
+                if center_y != y {
+                    break;
+                }
+                for gx in 0..gm_width {
+                    let cx = (gx * scale + scale / 2).min(width - 1) as usize;
+                    gainmap.data[(next_gy * gm_width + gx) as usize] =
+                        pack_log2_gain_u8(gain_buf[cx], log2_min, log2_range, config.gamma);
+                }
+                next_gy += 1;
+            }
+        }
+    }
+
+    #[cfg(not(feature = "resize"))]
+    {
+        // Edge case: last gain map rows whose center_y was clamped to height-1.
+        while next_gy < gm_height {
+            for gx in 0..gm_width {
+                let cx = (gx * scale + scale / 2).min(width - 1) as usize;
+                gainmap.data[(next_gy * gm_width + gx) as usize] =
+                    pack_log2_gain_u8(gain_buf[cx], log2_min, log2_range, config.gamma);
+            }
+            next_gy += 1;
+        }
+    }
+
+    #[cfg(feature = "resize")]
+    {
+        // Downsample full-resolution gain via zenresize, then pack to u8.
+        let ds_gain = downsample_gain_f32(
+            &full_gain, width, height, gm_width, gm_height,
+        );
+        for (i, &g) in ds_gain.iter().enumerate() {
+            gainmap.data[i] = pack_log2_gain_u8(g, log2_min, log2_range, config.gamma);
+        }
+    }
+
+    // Clamp observed stats to the configured packing range.
+    let observed_min = stats.observed_min_log2.max(log2_min) as f64;
+    let observed_max = stats.observed_max_log2.min(log2_max) as f64;
+
+    let metadata = crate::types::metadata_from_arrays(
+        [observed_min; 3],
+        [observed_max; 3],
+        [config.gamma as f64; 3],
+        [config.base_offset as f64; 3],
+        [config.alternate_offset as f64; 3],
+        (config.base_hdr_headroom as f64).log2(),
+        (config.alternate_hdr_headroom.max(config.max_boost) as f64).log2(),
+        true,
+        false,
+    );
+
+    Ok((sdr_image, gainmap, metadata))
 }
 
 #[cfg(test)]
@@ -518,7 +743,7 @@ mod tests {
         assert_eq!(gainmap.channels, 1);
 
         // Check metadata is populated
-        assert!(metadata.gain_map_max[0] >= 1.0);
+        assert!(metadata.channels[0].max >= 1.0);
     }
 
     // ========================================================================
@@ -812,5 +1037,238 @@ mod tests {
             result,
             Err(crate::Error::Stopped(enough::StopReason::Cancelled))
         ));
+    }
+
+    // -----------------------------------------------------------------------
+    // zentone-powered encode path tests
+    // -----------------------------------------------------------------------
+
+    fn make_uniform_rgba32f(width: u32, height: u32, value: f32) -> RawImage {
+        let mut img = RawImage::new(width, height, PixelFormat::Rgba32F).unwrap();
+        img.gamut = ColorGamut::Bt709;
+        img.transfer = ColorTransfer::Linear;
+        let stride = img.stride;
+        for y in 0..height {
+            for x in 0..width {
+                let offset = (y * stride + x * 16) as usize;
+                for c in 0..3 {
+                    let bytes = value.to_le_bytes();
+                    img.data[offset + c * 4..offset + c * 4 + 4].copy_from_slice(&bytes);
+                }
+                let alpha = 1.0_f32.to_le_bytes();
+                img.data[offset + 12..offset + 16].copy_from_slice(&alpha);
+            }
+        }
+        img
+    }
+
+    fn read_pixel_rgba32f(img: &RawImage, x: u32, y: u32) -> [f32; 4] {
+        let offset = (y * img.stride + x * 16) as usize;
+        [
+            f32::from_le_bytes(img.data[offset..offset + 4].try_into().unwrap()),
+            f32::from_le_bytes(img.data[offset + 4..offset + 8].try_into().unwrap()),
+            f32::from_le_bytes(img.data[offset + 8..offset + 12].try_into().unwrap()),
+            f32::from_le_bytes(img.data[offset + 12..offset + 16].try_into().unwrap()),
+        ]
+    }
+
+    #[test]
+    fn test_tonemap_basic() {
+        let hdr = make_uniform_rgba32f(8, 8, 0.5);
+        let curve = zentone::Bt2446C::new(1000.0, 100.0);
+        let config = GainMapConfig::default();
+        let (sdr, gainmap, metadata) = compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable).unwrap();
+
+        // SDR has same dimensions.
+        assert_eq!(sdr.width, 8);
+        assert_eq!(sdr.height, 8);
+        assert_eq!(sdr.format, PixelFormat::Rgba32F);
+
+        // Gain map has downsampled dimensions.
+        let scale = config.scale_factor as u32;
+        assert_eq!(gainmap.width, 8u32.div_ceil(scale));
+        assert_eq!(gainmap.height, 8u32.div_ceil(scale));
+
+        // SDR pixels in [0, 1].
+        let px = read_pixel_rgba32f(&sdr, 0, 0);
+        for c in 0..3 {
+            assert!(px[c] >= 0.0 && px[c] <= 1.0, "SDR channel {c} = {}", px[c]);
+        }
+        assert!((px[3] - 1.0).abs() < 1e-6, "alpha should be 1.0");
+
+        // Metadata has reasonable values.
+        assert!(metadata.channels[0].min.is_finite());
+        assert!(metadata.channels[0].max.is_finite());
+        assert!(metadata.channels[0].max >= metadata.channels[0].min);
+    }
+
+    #[test]
+    fn test_tonemap_bright_hdr() {
+        let hdr = make_uniform_rgba32f(8, 8, 5.0);
+        let curve = zentone::Bt2446C::new(1000.0, 100.0);
+        let config = GainMapConfig::default();
+        let (sdr, gainmap, _metadata) = compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable).unwrap();
+
+        // SDR should be tonemapped down to [0, 1].
+        let px = read_pixel_rgba32f(&sdr, 4, 4);
+        for c in 0..3 {
+            assert!(px[c] >= 0.0 && px[c] <= 1.01, "SDR channel {c} = {}", px[c]);
+        }
+
+        // Gain map values should reflect HDR boost.
+        // With uniform bright HDR, all gain map bytes should be > 128.
+        for &byte in &gainmap.data {
+            assert!(byte > 64, "gain map byte {byte} too low for 5.0 HDR");
+        }
+    }
+
+    #[test]
+    fn test_tonemap_multi_channel_rejected() {
+        let hdr = make_uniform_rgba32f(8, 8, 0.5);
+        let curve = zentone::Bt2446C::new(1000.0, 100.0);
+        let mut config = GainMapConfig::default();
+        config.multi_channel = true;
+        let result = compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pack_log2_gain_known_values() {
+        // Range [0.0, 2.0] (log2 domain: 1× to 4×)
+        let min = 0.0_f32;
+        let range = 2.0_f32;
+
+        // Min → 0
+        assert_eq!(pack_log2_gain_u8(0.0, min, range, 1.0), 0);
+        // Max → 255
+        assert_eq!(pack_log2_gain_u8(2.0, min, range, 1.0), 255);
+        // Mid → 128 (0.5 * 255 = 127.5 → rounds to 128)
+        assert_eq!(pack_log2_gain_u8(1.0, min, range, 1.0), 128);
+    }
+
+    #[test]
+    fn test_pack_log2_gain_gamma() {
+        let min = 0.0_f32;
+        let range = 2.0_f32;
+        // At midpoint, gamma > 1 darkens the output.
+        let no_gamma = pack_log2_gain_u8(1.0, min, range, 1.0);
+        let with_gamma = pack_log2_gain_u8(1.0, min, range, 2.0);
+        // gamma=2 → normalized 0.5 → 0.5^2 = 0.25 → 64
+        assert!(with_gamma < no_gamma, "gamma should reduce midpoint: {with_gamma} vs {no_gamma}");
+        assert_eq!(with_gamma, 64); // 0.25 * 255 = 63.75 → 64
+    }
+
+    #[test]
+    fn test_split_config_from_gainmap_conversion() {
+        let config = GainMapConfig {
+            min_boost: 1.0,
+            max_boost: 4.0,
+            base_offset: 1.0 / 64.0,
+            alternate_offset: 1.0 / 64.0,
+            ..GainMapConfig::default()
+        };
+        let sc = split_config_from_gainmap(&config, ColorGamut::Bt709);
+        assert!((sc.min_log2 - 0.0).abs() < 1e-6, "log2(1.0) = 0");
+        assert!((sc.max_log2 - 2.0).abs() < 1e-6, "log2(4.0) = 2");
+        assert_eq!(sc.luma_weights, crate::color::gamut::luma_coefficients(ColorGamut::Bt709));
+        assert_eq!(sc.base_offset, 1.0 / 64.0);
+        assert_eq!(sc.alternate_offset, 1.0 / 64.0);
+        assert_eq!(sc.pre_desaturate, 0.0);
+    }
+
+    /// Convert an Rgba32F linear image to Rgba8 sRGB for the decoder.
+    fn rgba32f_to_rgba8_srgb(src: &RawImage) -> RawImage {
+        let mut dst = RawImage::new(src.width, src.height, PixelFormat::Rgba8).unwrap();
+        dst.gamut = src.gamut;
+        dst.transfer = ColorTransfer::Srgb;
+        for y in 0..src.height {
+            for x in 0..src.width {
+                let px = read_pixel_rgba32f(src, x, y);
+                let dst_offset = (y * dst.stride + x * 4) as usize;
+                for c in 0..3 {
+                    let srgb = linear_srgb::tf::linear_to_srgb(px[c].clamp(0.0, 1.0));
+                    dst.data[dst_offset + c] = (srgb * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+                }
+                dst.data[dst_offset + 3] = 255;
+            }
+        }
+        dst
+    }
+
+    #[test]
+    fn test_tonemap_round_trip() {
+        // Grayscale gradient HDR, scale_factor=1 for full-resolution gain map.
+        let width = 16u32;
+        let height = 4u32;
+        let mut hdr = RawImage::new(width, height, PixelFormat::Rgba32F).unwrap();
+        hdr.gamut = ColorGamut::Bt709;
+        hdr.transfer = ColorTransfer::Linear;
+        let stride = hdr.stride;
+        for y in 0..height {
+            for x in 0..width {
+                let v = (x as f32 + 1.0) / width as f32 * 2.0; // 0.125 .. 2.0
+                let offset = (y * stride + x * 16) as usize;
+                for c in 0..3 {
+                    hdr.data[offset + c * 4..offset + c * 4 + 4].copy_from_slice(&v.to_le_bytes());
+                }
+                hdr.data[offset + 12..offset + 16].copy_from_slice(&1.0_f32.to_le_bytes());
+            }
+        }
+
+        let curve = zentone::Bt2446C::new(1000.0, 100.0);
+        let mut config = GainMapConfig::default();
+        config.scale_factor = 1; // Full resolution gain map.
+        let (sdr_f32, gainmap, metadata) =
+            compute_gainmap_tonemap(hdr.as_ref(), &curve, &config, enough::Unstoppable).unwrap();
+
+        // The decoder's get_sdr_linear only handles Rgba8 (with `transfer`
+        // feature). Convert SDR to Rgba8 sRGB for the round-trip.
+        let sdr_u8 = rgba32f_to_rgba8_srgb(&sdr_f32);
+
+        // Reconstruct via apply_gainmap.
+        let reconstructed = crate::gainmap::apply_gainmap(
+            &sdr_u8,
+            &gainmap,
+            &metadata,
+            config.max_boost,
+            crate::gainmap::HdrOutputFormat::LinearFloat,
+            enough::Unstoppable,
+        )
+        .unwrap();
+
+        // Compare reconstructed to original HDR. Error sources:
+        // (1) u8 gain quantization (~1/256 of log2 range),
+        // (2) u8 sRGB quantization of the SDR base (~1/256 of gamma curve),
+        // (3) tone curve non-linearity at extreme values.
+        // Allow generous tolerance — the pipeline correctness test, not a
+        // precision test.
+        for y in 0..height {
+            for x in 0..width {
+                let orig = read_pixel_rgba32f(&hdr, x, y);
+                let recon = read_pixel_rgba32f(&reconstructed, x, y);
+                for c in 0..3 {
+                    let diff = (orig[c] - recon[c]).abs();
+                    assert!(
+                        diff < orig[c] * 0.25 + 0.15,
+                        "round-trip drift at ({x},{y}) ch{c}: orig={} recon={} diff={}",
+                        orig[c], recon[c], diff
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_tonemap_cancellation() {
+        struct ImmediateCancel;
+        impl enough::Stop for ImmediateCancel {
+            fn check(&self) -> std::result::Result<(), enough::StopReason> {
+                Err(enough::StopReason::Cancelled)
+            }
+        }
+        let hdr = make_uniform_rgba32f(8, 8, 0.5);
+        let curve = zentone::Bt2446C::new(1000.0, 100.0);
+        let result = compute_gainmap_tonemap(hdr.as_ref(), &curve, &GainMapConfig::default(), ImmediateCancel);
+        assert!(matches!(result, Err(crate::Error::Stopped(enough::StopReason::Cancelled))));
     }
 }

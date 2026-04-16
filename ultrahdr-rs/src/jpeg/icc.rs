@@ -107,6 +107,8 @@ pub fn get_icc_profile_for_gamut(gamut: ColorGamut) -> Vec<u8> {
             // with a gamma 2.2 TRC (the SDR rendition is always 8-bit).
             ColorProfile::new_bt2020()
         }
+        // ColorGamut is non_exhaustive: default to sRGB for unknown primaries.
+        _ => ColorProfile::new_srgb(),
     };
 
     profile

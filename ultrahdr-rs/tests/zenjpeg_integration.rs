@@ -218,7 +218,7 @@ fn test_gainmap_compute_with_zenjpeg_encode() {
 
     // Verify metadata is sensible
     assert!(metadata.alternate_hdr_headroom > 1.0);
-    assert!(metadata.gain_map_max.iter().any(|&v| v > 1.0));
+    assert!(metadata.channels.iter().any(|ch| ch.max > 1.0));
 
     // Encode gain map with zenjpeg
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
@@ -254,17 +254,17 @@ fn test_xmp_roundtrip() {
 
     for i in 0..3 {
         assert!(
-            (parsed.gain_map_max[i] - metadata.gain_map_max[i]).abs() < 0.01,
+            (parsed.channels[i].max - metadata.channels[i].max).abs() < 0.01,
             "max_content_boost[{}] mismatch",
             i
         );
         assert!(
-            (parsed.gain_map_min[i] - metadata.gain_map_min[i]).abs() < 0.01,
+            (parsed.channels[i].min - metadata.channels[i].min).abs() < 0.01,
             "min_content_boost[{}] mismatch",
             i
         );
         assert!(
-            (parsed.gamma[i] - metadata.gamma[i]).abs() < 0.01,
+            (parsed.channels[i].gamma - metadata.channels[i].gamma).abs() < 0.01,
             "gamma[{}] mismatch",
             i
         );
@@ -964,13 +964,15 @@ fn test_set_existing_gainmap_jpeg_sdr_only() {
     let gm_height = height / 4;
     let gainmap_jpeg = encode_grayscale(&gainmap_data, gm_width, gm_height, 75.0);
 
-    // Create metadata using proper struct fields
-    let mut metadata = ultrahdr_rs::GainMapMetadata::new();
-    metadata.gain_map_max = [4.0, 4.0, 4.0];
-    metadata.gain_map_min = [1.0, 1.0, 1.0];
-    metadata.gamma = [1.0, 1.0, 1.0];
-    metadata.base_offset = [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0];
-    metadata.alternate_offset = [1.0 / 64.0, 1.0 / 64.0, 1.0 / 64.0];
+    // Create metadata using per-channel struct fields
+    let mut metadata = ultrahdr_rs::GainMapMetadata::default();
+    for ch in &mut metadata.channels {
+        ch.max = 4.0;
+        ch.min = 1.0;
+        ch.gamma = 1.0;
+        ch.base_offset = 1.0 / 64.0;
+        ch.alternate_offset = 1.0 / 64.0;
+    }
     metadata.base_hdr_headroom = 0.0;
     metadata.alternate_hdr_headroom = 2.0;
     metadata.use_base_color_space = false;

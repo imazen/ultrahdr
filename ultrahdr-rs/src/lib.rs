@@ -61,8 +61,8 @@ pub use ultrahdr_core::metadata;
 // Re-export core types at crate root
 pub use ultrahdr_core::{
     ColorGamut, ColorTransfer, Error, Fraction, GainMap, GainMapConfig, GainMapEncodingFormat,
-    GainMapMetadata, HdrOutputFormat, PixelFormat, RawImage, Result, Stop, StopReason, Unstoppable,
-    limits, luminance,
+    GainMapMetadata, HdrOutputFormat, Iso21496Format, PixelFormat, RawImage, Result, Stop,
+    StopReason, Unstoppable, limits, luminance,
 };
 
 // This crate's additional modules

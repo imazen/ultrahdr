@@ -3,7 +3,8 @@
 //! This can be compiled to WASI and run under wasmtime or wasmer.
 
 use ultrahdr_core::{
-    ColorGamut, ColorTransfer, GainMap, GainMapMetadata, PixelFormat, RawImage, Unstoppable,
+    ColorGamut, ColorTransfer, GainMap, GainMapChannel, GainMapMetadata, PixelFormat, RawImage,
+    Unstoppable,
     gainmap::{
         apply::{HdrOutputFormat, apply_gainmap},
         compute::{GainMapConfig, compute_gainmap},
@@ -79,14 +80,18 @@ fn create_gainmap(width: u32, height: u32) -> GainMap {
 fn bench_apply_gainmap(width: u32, height: u32, iterations: u32) -> f64 {
     let sdr = create_sdr_image(width, height);
     let gainmap = create_gainmap(width / 4, height / 4);
-    let mut metadata = GainMapMetadata::new();
-    metadata.gain_map_min = [0.0; 3];
-    metadata.gain_map_max = [2.0; 3];
-    metadata.gamma = [1.0; 3];
-    metadata.base_offset = [0.015625; 3];
-    metadata.alternate_offset = [0.015625; 3];
+    // Metadata in log2 domain: 2× linear boost = log2(2) = 1.0.
+    let ch = GainMapChannel {
+        min: 0.0,
+        max: 1.0,
+        gamma: 1.0,
+        base_offset: 1.0 / 64.0,
+        alternate_offset: 1.0 / 64.0,
+    };
+    let mut metadata = GainMapMetadata::default();
+    metadata.channels = [ch; 3];
     metadata.base_hdr_headroom = 0.0;
-    metadata.alternate_hdr_headroom = 2.0;
+    metadata.alternate_hdr_headroom = 1.0;
     metadata.use_base_color_space = true;
 
     // Warmup

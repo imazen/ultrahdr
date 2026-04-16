@@ -200,7 +200,12 @@ fn test_roundtrip_metadata_survives() {
     assert!(decoder.metadata().is_some(), "Should have metadata");
 
     let meta = decoder.metadata().unwrap();
-    assert!(meta.gain_map_max[0] > 1.0, "Max boost should be > 1.0");
+    // log2 domain: > 0.0 means some actual boost was recorded.
+    assert!(
+        meta.channels[0].max > 0.0,
+        "Max boost (log2) should be > 0, got {}",
+        meta.channels[0].max
+    );
 }
 
 /// Test gain map dimensions are correct after round-trip.

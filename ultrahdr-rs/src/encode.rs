@@ -5,7 +5,7 @@ use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8;
 #[cfg(feature = "_test-helpers")]
 use ultrahdr_core::gainmap::compute::{GainMapConfig, compute_gainmap};
 use ultrahdr_core::metadata::{
-    iso21496::create_version_only_iso_app2,
+    iso_jpeg::create_version_only_iso_app2,
     mpf::create_mpf_header,
     xmp::{build_gainmap_metadata_markers, create_xmp_app1_marker, generate_primary_xmp},
 };
@@ -506,7 +506,7 @@ mod tests {
         assert!(!encoder.has_existing_gainmap());
 
         let gainmap = GainMap::new(100, 100).unwrap();
-        let metadata = GainMapMetadata::new();
+        let metadata = GainMapMetadata::default();
         encoder.set_existing_gainmap(gainmap, metadata);
         assert!(encoder.has_existing_gainmap());
 

@@ -18,6 +18,10 @@ features = ["std", "transfer"]
 [dependencies.ultrahdr-rs]
 path = "../ultrahdr-rs"
 
+[dependencies.zentone]
+path = "../../zentone"
+default-features = false
+
 # Prevent this from interfering with workspace resolution
 [workspace]
 members = ["."]

@@ -24,10 +24,10 @@ fuzz_target!(|data: &[u8]| {
             if !x.is_finite() || !y.is_finite() {
                 return;
             }
-            let _ = ultrahdr_core::color::tonemap::reinhard_tonemap(x, y.abs().max(0.001));
-            let _ = ultrahdr_core::color::tonemap::filmic_tonemap(x);
+            let _ = ultrahdr_core::color::tonemap::reinhard_extended(x, y.abs().max(0.001));
+            let _ = ultrahdr_core::color::tonemap::filmic_narkowicz(x);
             let _ = ultrahdr_core::color::tonemap::bt2390_tonemap(x, y.abs().max(1.0), 100.0);
-            let _ = ultrahdr_core::color::tonemap::clamp_tonemap(x);
+            let _ = x.clamp(0.0, 1.0);
         }
         1 => {
             // AGX tonemapper
@@ -70,7 +70,8 @@ fuzz_target!(|data: &[u8]| {
                 let r = r.clamp(0.0, 100.0);
                 let g = g.clamp(0.0, 100.0);
                 let b = b.clamp(0.0, 100.0);
-                let _ = tm.tonemap_rgb([r, g, b]);
+                use zentone::ToneMap;
+                let _ = tm.map_rgb([r, g, b]);
             }
         }
         3 => {

@@ -1,17 +1,58 @@
-//! SIMD-accelerated gain map application.
+//! Row-level gain map application kernels (scalar + SIMD).
 //!
-//! Provides [`apply_gain_row_scalar`] (always available) and
-//! `apply_gain_row_simd` (requires `simd` feature) which dispatches
-//! to the best available SIMD implementation at runtime via
-//! `#[magetypes]` generics and `incant!`:
+//! Two scalar kernels, both row-level:
+//!
+//! | Kernel | Gain input | Offsets | Used by |
+//! |---|---|---|---|
+//! | [`apply_gain_row_presampled`] | Pre-sampled `[f32; 3]` per pixel | base + alternate, per channel | `apply_gainmap`, streaming decoder |
+//! | [`apply_gain_row_scalar`] | Raw `u8` byte + 256-entry LUT | none — plain multiply | SIMD consistency tests |
+//!
+//! The presampled kernel is what the real decode path uses: the caller
+//! first runs bilinear interpolation + per-channel LUT lookup into an
+//! `[f32; 3]` buffer, then applies the full ISO 21496-1 formula:
+//! `hdr_i = (sdr_i + base_offset_i) * gain_i - alternate_offset_i`.
+//!
+//! The byte-input kernel is retained because it maps 1:1 onto the SIMD
+//! dispatch path below and is useful for same-resolution single-channel
+//! gain maps where bilinear interpolation is a no-op.
+//!
+//! SIMD dispatch (`simd` feature): via `#[magetypes]` generics and `incant!`:
 //!
 //! - **AVX2+FMA** on x86_64: 8 pixels per iteration
 //! - **NEON** on aarch64: 8 pixels per iteration (generic f32x8)
 //! - **WASM SIMD128**: 8 pixels per iteration (generic f32x8)
 //! - **Scalar** everywhere else: 8 pixels per iteration (scalar f32x8)
 //!
-//! All functions operate on pre-linearized `[f32; 3]` RGB pixels with a
-//! precomputed LUT mapping gain map bytes to linear gain multipliers.
+//! All kernels operate on pre-linearized `[f32; 3]` RGB pixels.
+
+/// Apply the ISO 21496-1 gain formula to a row of pre-sampled gains.
+///
+/// For each pixel `i` and channel `c`:
+/// `output[i][c] = (sdr[i][c] + base_offset[c]) * gains[i][c] - alternate_offset[c]`.
+///
+/// `gains` is already post-bilinear-interpolation and post-LUT per channel.
+/// For single-channel gain maps, the caller broadcasts the same gain to
+/// `[g, g, g]` before calling.
+///
+/// # Panics
+///
+/// Panics if `sdr`, `gains`, and `output` have different lengths.
+pub fn apply_gain_row_presampled(
+    sdr: &[[f32; 3]],
+    gains: &[[f32; 3]],
+    base_offset: [f32; 3],
+    alternate_offset: [f32; 3],
+    output: &mut [[f32; 3]],
+) {
+    assert_eq!(sdr.len(), output.len());
+    assert_eq!(sdr.len(), gains.len());
+
+    for ((sdr_px, gain_px), out_px) in sdr.iter().zip(gains.iter()).zip(output.iter_mut()) {
+        out_px[0] = (sdr_px[0] + base_offset[0]) * gain_px[0] - alternate_offset[0];
+        out_px[1] = (sdr_px[1] + base_offset[1]) * gain_px[1] - alternate_offset[1];
+        out_px[2] = (sdr_px[2] + base_offset[2]) * gain_px[2] - alternate_offset[2];
+    }
+}
 
 /// Scalar reference implementation for gain map application.
 ///
