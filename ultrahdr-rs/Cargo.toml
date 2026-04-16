@@ -46,9 +46,12 @@ thiserror = { workspace = true }
 # Cooperative cancellation
 enough = { workspace = true }
 
-# Reference implementation comparison (optional, for FFI parity tests)
-# Aliased to avoid name conflict with our crate
-libultrahdr = { package = "ultrahdr", version = "0.1", optional = true }
+# Reference implementation comparison (optional, for FFI parity tests).
+# Aliased to avoid name conflict with our crate. Pinned to the imazen fork
+# until https://github.com/Enter-tainer/libultrahdr-rs takes the
+# ExternalProject UPDATE_DISCONNECTED fix — upstream's build fails on
+# incremental CI rebuilds when the cached turbojpeg .git is stripped.
+libultrahdr = { package = "ultrahdr", git = "https://github.com/imazen/libultrahdr-rs.git", rev = "b820575b0029bfe6684c8d14fe66a655016e9c72", optional = true }
 
 [dev-dependencies]
 # Testing (WASM-compatible)
