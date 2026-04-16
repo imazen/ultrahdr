@@ -26,7 +26,7 @@ pub use transfer::*;
 
 /// Streaming (row-based, bounded-memory) HDR→SDR tonemapper.
 ///
-/// Re-exported from [`zentone::experimental::streaming`] when the `zentone`
+/// Re-exported from `zentone::experimental::streaming` when the `zentone`
 /// feature is enabled (default). Pull-based API:
 /// [`push_row`](StreamingTonemapper::push_row), [`finish`](StreamingTonemapper::finish),
 /// [`pull_row`](StreamingTonemapper::pull_row). Channel count (3 or 4) is

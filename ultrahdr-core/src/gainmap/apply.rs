@@ -1,6 +1,7 @@
 //! Gain map application for HDR reconstruction.
 
 use alloc::boxed::Box;
+use alloc::vec;
 
 #[cfg(feature = "transfer")]
 use crate::color::transfer::{pq_oetf, srgb_eotf, srgb_oetf};

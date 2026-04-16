@@ -678,7 +678,7 @@ pub use zencodec::GainMapChannel;
 
 /// Validate gain map metadata with ultrahdr-core's stricter checks.
 ///
-/// Delegates to [`GainMapParams::validate()`] and additionally rejects
+/// Delegates to [`zencodec::GainMapParams::validate()`] and additionally rejects
 /// negative `alternate_hdr_headroom` (log2 domain), which the base
 /// zencodec validation does not enforce.
 pub fn validate_gainmap_metadata(metadata: &GainMapMetadata) -> Result<()> {

@@ -45,7 +45,8 @@
 //!
 //! The splitter intentionally emits **raw f32 log2 gain**. u8 quantization
 //! and gamma encoding are the caller's responsibility (see
-//! [`super::compute::pack_log2_gain_u8`]).
+//! `pack_log2_gain_u8` in the internal compute module for the canonical
+//! wire quantization).
 
 use alloc::boxed::Box;
 
