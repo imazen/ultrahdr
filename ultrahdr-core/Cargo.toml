@@ -42,8 +42,10 @@ bytemuck = { version = "1.14", features = ["derive"] }
 # Error handling - std only for now
 thiserror = "2.0"
 
-# Transfer functions (optional)
-linear-srgb = { version = "0.6.7", optional = true, features = ["transfer"] }
+# Transfer functions (sRGB, PQ, HLG) — mandatory. These are load-bearing
+# for every meaningful gain map path; the old `transfer` feature flag was
+# removed in favour of always pulling linear-srgb.
+linear-srgb = { version = "0.6.7", default-features = false, features = ["transfer"] }
 
 # Zen ecosystem types (mandatory — canonical gain map metadata types)
 zenpixels = { workspace = true }
@@ -76,10 +78,9 @@ harness = false
 required-features = ["simd"]
 
 [features]
-default = ["std", "transfer", "zentone"]
-std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb?/std", "zentone?/std"]
+default = ["std", "zentone"]
+std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone?/std"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
-transfer = ["dep:linear-srgb"]  # Transfer functions (sRGB, PQ, HLG) via linear-srgb.
 resize = ["dep:zenresize"]  # High-quality gain map downsampling via zenresize.
 # Advanced tone mapping curves + streaming tonemapper via the zentone crate.
 # Default-on; disable for a leaner build when only the in-core Hable filmic

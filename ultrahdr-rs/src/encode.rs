@@ -1,8 +1,7 @@
 //! Ultra HDR encoder.
 
-#[cfg(feature = "_test-helpers")]
 use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8;
-#[cfg(feature = "_test-helpers")]
+
 use ultrahdr_core::gainmap::compute::{GainMapConfig, compute_gainmap};
 use ultrahdr_core::metadata::{
     iso_jpeg::create_version_only_iso_app2,
@@ -10,9 +9,9 @@ use ultrahdr_core::metadata::{
     xmp::{build_gainmap_metadata_markers, create_xmp_app1_marker, generate_primary_xmp},
 };
 use ultrahdr_core::{ColorGamut, Error, GainMapEncodingFormat, GainMapMetadata, Result};
-#[cfg(feature = "_test-helpers")]
+
 use ultrahdr_core::{ColorTransfer, PixelFormat, Unstoppable};
-#[cfg(feature = "_test-helpers")]
+
 use ultrahdr_core::{GainMap, RawImage};
 
 use crate::jpeg::{
@@ -145,12 +144,11 @@ pub fn encode_ultrahdr_with_format(
 /// `encode`) are only available in tests where zenjpeg is a dev-dependency.
 #[derive(Default)]
 pub struct Encoder {
-    #[cfg(feature = "_test-helpers")]
     hdr_image: Option<RawImage>,
-    #[cfg(feature = "_test-helpers")]
+
     sdr_image: Option<RawImage>,
     compressed_sdr: Option<Vec<u8>>,
-    #[cfg(feature = "_test-helpers")]
+
     existing_gainmap: Option<GainMap>,
     existing_metadata: Option<GainMapMetadata>,
     existing_gainmap_jpeg: Option<Vec<u8>>,
@@ -159,7 +157,7 @@ pub struct Encoder {
     gainmap_scale: u8,
     target_display_peak: f32,
     gain_map_min: f32,
-    #[cfg(feature = "_test-helpers")]
+
     use_iso_metadata: bool,
 }
 
@@ -167,12 +165,11 @@ impl Encoder {
     /// Create a new encoder with default settings.
     pub fn new() -> Self {
         Self {
-            #[cfg(feature = "_test-helpers")]
             hdr_image: None,
-            #[cfg(feature = "_test-helpers")]
+
             sdr_image: None,
             compressed_sdr: None,
-            #[cfg(feature = "_test-helpers")]
+
             existing_gainmap: None,
             existing_metadata: None,
             existing_gainmap_jpeg: None,
@@ -181,20 +178,18 @@ impl Encoder {
             gainmap_scale: 4,
             target_display_peak: 10000.0,
             gain_map_min: 1.0,
-            #[cfg(feature = "_test-helpers")]
+
             use_iso_metadata: true,
         }
     }
 
-    /// Set the HDR input image (test only - requires JPEG codec).
-    #[cfg(feature = "_test-helpers")]
+    /// Set the HDR input image.
     pub fn set_hdr_image(&mut self, image: RawImage) -> &mut Self {
         self.hdr_image = Some(image);
         self
     }
 
-    /// Set the SDR input image (test only - requires JPEG codec).
-    #[cfg(feature = "_test-helpers")]
+    /// Set the SDR input image.
     pub fn set_sdr_image(&mut self, image: RawImage) -> &mut Self {
         self.sdr_image = Some(image);
         self
@@ -211,8 +206,7 @@ impl Encoder {
         self.set_compressed_sdr(jpeg)
     }
 
-    /// Set an existing gain map and metadata (test only).
-    #[cfg(feature = "_test-helpers")]
+    /// Set an existing gain map and metadata.
     pub fn set_existing_gainmap(
         &mut self,
         gainmap: GainMap,
@@ -223,8 +217,7 @@ impl Encoder {
         self
     }
 
-    /// Clear any existing gain map (test only).
-    #[cfg(feature = "_test-helpers")]
+    /// Clear any existing gain map.
     pub fn clear_existing_gainmap(&mut self) -> &mut Self {
         self.existing_gainmap = None;
         self.existing_metadata = None;
@@ -248,8 +241,7 @@ impl Encoder {
         self.set_existing_gainmap_jpeg(jpeg, metadata)
     }
 
-    /// Check if an existing gain map is set (test only).
-    #[cfg(feature = "_test-helpers")]
+    /// Check if an existing gain map is set.
     pub fn has_existing_gainmap(&self) -> bool {
         self.existing_gainmap.is_some() && self.existing_metadata.is_some()
     }
@@ -279,15 +271,13 @@ impl Encoder {
         self
     }
 
-    /// Enable or disable ISO 21496-1 metadata (test only).
-    #[cfg(feature = "_test-helpers")]
+    /// Enable or disable ISO 21496-1 metadata.
     pub fn set_use_iso_metadata(&mut self, use_iso: bool) -> &mut Self {
         self.use_iso_metadata = use_iso;
         self
     }
 
-    /// Encode to Ultra HDR JPEG (test only - requires JPEG codec).
-    #[cfg(feature = "_test-helpers")]
+    /// Encode to Ultra HDR JPEG.
     pub fn encode(&self) -> Result<Vec<u8>> {
         // Fast path: if we have raw gain map JPEG bytes, skip gain map processing
         if let (Some(gainmap_jpeg), Some(metadata)) =
@@ -394,8 +384,7 @@ impl Encoder {
         encode_ultrahdr(base_jpeg, gainmap_jpeg, metadata, ColorGamut::Bt709)
     }
 
-    /// Compute a new gain map (test only).
-    #[cfg(feature = "_test-helpers")]
+    /// Compute a new gain map.
     fn compute_new_gainmap(
         &self,
         hdr: &RawImage,
@@ -416,8 +405,7 @@ impl Encoder {
         compute_gainmap(hdr, sdr, &config, Unstoppable)
     }
 
-    /// Encode base SDR image to JPEG (test only).
-    #[cfg(feature = "_test-helpers")]
+    /// Encode base SDR image to JPEG.
     fn encode_base_jpeg(&self, sdr: &RawImage) -> Result<Vec<u8>> {
         use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 
@@ -451,8 +439,7 @@ impl Encoder {
         enc.finish().map_err(|e| Error::JpegEncode(e.to_string()))
     }
 
-    /// Encode gain map to JPEG (test only).
-    #[cfg(feature = "_test-helpers")]
+    /// Encode gain map to JPEG.
     fn encode_gainmap_jpeg(&self, gainmap: &GainMap) -> Result<Vec<u8>> {
         use zenjpeg::encoder::{EncoderConfig, PixelLayout, Unstoppable};
 
@@ -466,7 +453,7 @@ impl Encoder {
     }
 }
 
-#[cfg(all(test, feature = "_test-helpers"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -1,11 +1,11 @@
 //! Ultra HDR decoder.
 
-#[cfg(feature = "_test-helpers")]
 use ultrahdr_core::gainmap::apply::{HdrOutputFormat, apply_gainmap};
 use ultrahdr_core::metadata::{mpf::find_jpeg_boundaries, xmp::parse_xmp};
-#[cfg(feature = "_test-helpers")]
-use ultrahdr_core::{ColorGamut, ColorTransfer, PixelFormat, Unstoppable};
-use ultrahdr_core::{Error, GainMap, GainMapMetadata, RawImage, Result};
+use ultrahdr_core::{
+    ColorGamut, ColorTransfer, Error, GainMap, GainMapMetadata, PixelFormat, RawImage, Result,
+    Unstoppable,
+};
 
 use crate::container::{self, AppSegment};
 
@@ -67,12 +67,11 @@ impl<'a> Decoder<'a> {
             .and_then(|(start, end)| self.data.get(start..end))
     }
 
-    /// Decode the SDR base image.
+    /// Decode the SDR base image using the bundled zenjpeg codec.
     ///
-    /// Note: This method requires a JPEG codec and is only available in tests.
-    /// For production use, access the raw JPEG bytes via [`Decoder::primary_jpeg`] and
-    /// decode with your own codec.
-    #[cfg(feature = "_test-helpers")]
+    /// Returns a linear/sRGB `Rgba8` [`RawImage`] reconstructed from the
+    /// primary JPEG codestream. If you want to decode with a different
+    /// JPEG codec, call [`Decoder::primary_jpeg`] for the raw bytes.
     pub fn decode_sdr(&self) -> Result<RawImage> {
         let primary_data = self
             .primary_jpeg()
@@ -80,25 +79,11 @@ impl<'a> Decoder<'a> {
         decode_jpeg_to_rgb(primary_data)
     }
 
-    /// Decode the SDR base image.
+    /// Decode the gain map using the bundled zenjpeg codec.
     ///
-    /// This method is not available in the library. Access the raw JPEG bytes
-    /// via [`Decoder::primary_jpeg`] and decode with your own codec.
-    #[cfg(not(feature = "_test-helpers"))]
-    pub fn decode_sdr(&self) -> Result<RawImage> {
-        Err(Error::DecodeError(
-            "decode_sdr() requires a JPEG codec. Use primary_jpeg() to get raw bytes \
-             and decode with your own codec"
-                .into(),
-        ))
-    }
-
-    /// Decode the gain map.
-    ///
-    /// Note: This method requires a JPEG codec and is only available in tests.
-    /// For production use, access the raw JPEG bytes via [`Decoder::gainmap_jpeg`] and
-    /// decode with your own codec.
-    #[cfg(feature = "_test-helpers")]
+    /// Returns a single-channel [`GainMap`] reconstructed from the
+    /// gain-map JPEG codestream. For a different JPEG codec, see
+    /// [`Decoder::gainmap_jpeg`].
     pub fn decode_gainmap(&self) -> Result<GainMap> {
         let gainmap_data = self
             .gainmap_jpeg()
@@ -113,19 +98,6 @@ impl<'a> Decoder<'a> {
         })
     }
 
-    /// Decode the gain map.
-    ///
-    /// This method is not available in the library. Access the raw JPEG bytes
-    /// via [`Decoder::gainmap_jpeg`] and decode with your own codec.
-    #[cfg(not(feature = "_test-helpers"))]
-    pub fn decode_gainmap(&self) -> Result<GainMap> {
-        Err(Error::DecodeError(
-            "decode_gainmap() requires a JPEG codec. Use gainmap_jpeg() to get raw bytes \
-             and decode with your own codec"
-                .into(),
-        ))
-    }
-
     /// Decode to HDR at the specified display boost level.
     ///
     /// `display_boost` is the ratio of display peak brightness to SDR white.
@@ -133,19 +105,11 @@ impl<'a> Decoder<'a> {
     /// - 1.0 = SDR display (no HDR enhancement)
     /// - 4.0 = Display capable of 4x SDR brightness
     /// - ~49.0 = Full HDR10 (10000 nits / 203 SDR nits)
-    ///
-    /// Note: This method requires a JPEG codec and is only available in tests.
-    /// For production use, decode the JPEGs yourself using [`Decoder::primary_jpeg`] and
-    /// [`Decoder::gainmap_jpeg`], then call [`ultrahdr_core::gainmap::apply::apply_gainmap`].
-    #[cfg(feature = "_test-helpers")]
     pub fn decode_hdr(&self, display_boost: f32) -> Result<RawImage> {
         self.decode_hdr_with_format(display_boost, HdrOutputFormat::LinearFloat)
     }
 
     /// Decode to HDR with a specific output format.
-    ///
-    /// Note: This method requires a JPEG codec and is only available in tests.
-    #[cfg(feature = "_test-helpers")]
     pub fn decode_hdr_with_format(
         &self,
         display_boost: f32,
@@ -265,10 +229,7 @@ impl<'a> Decoder<'a> {
         crate::jpeg::extract_icc_profile(self.data)
     }
 
-    /// Get information about the decoded image dimensions.
-    ///
-    /// Note: This method requires a JPEG codec and is only available in tests.
-    #[cfg(feature = "_test-helpers")]
+    /// Get the image dimensions by decoding the primary JPEG header.
     pub fn dimensions(&self) -> Result<(u32, u32)> {
         let sdr = self.decode_sdr()?;
         Ok((sdr.width, sdr.height))
@@ -295,7 +256,6 @@ fn find_xmp_in_segments(segments: &[AppSegment]) -> Option<String> {
 }
 
 /// Decode JPEG to RGB.
-#[cfg(feature = "_test-helpers")]
 fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<RawImage> {
     use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
     let decoded = JpegDecoder::new()
@@ -352,7 +312,6 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<RawImage> {
 }
 
 /// Decode JPEG to grayscale.
-#[cfg(feature = "_test-helpers")]
 fn decode_jpeg_to_grayscale(jpeg_data: &[u8]) -> Result<RawImage> {
     use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
     let decoded = JpegDecoder::new()

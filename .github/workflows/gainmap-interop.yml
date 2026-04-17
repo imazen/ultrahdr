@@ -85,7 +85,7 @@ jobs:
         run: |
           cp Cargo.toml.full Cargo.toml
           rm -f Cargo.lock
-          cargo test --release -p ultrahdr-rs --features _test-helpers \
+          cargo test --release -p ultrahdr-rs \
             --test encode_basic -- write_test_ultrahdr --ignored --nocapture
           cp /tmp/test_ultrahdr_output.jpg /tmp/samples/rust_encoded.jpg
 

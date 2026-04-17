@@ -3,7 +3,6 @@
 use alloc::boxed::Box;
 use alloc::vec;
 
-#[cfg(feature = "transfer")]
 use crate::color::transfer::{pq_oetf, srgb_eotf, srgb_oetf};
 use crate::types::{ColorTransfer, GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
 use enough::Stop;
@@ -240,7 +239,6 @@ pub(crate) fn calculate_weight(display_boost: f32, metadata: &GainMapMetadata) -
 }
 
 /// Get linear RGB from SDR image.
-#[cfg(feature = "transfer")]
 fn get_sdr_linear(sdr: &RawImage, x: u32, y: u32) -> [f32; 3] {
     match sdr.format {
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
@@ -288,56 +286,6 @@ fn get_sdr_linear(sdr: &RawImage, x: u32, y: u32) -> [f32; 3] {
             // For other formats, return mid-gray as fallback
             [0.18, 0.18, 0.18]
         }
-    }
-}
-
-/// Get linear RGB from SDR image (no transfer feature - assumes linear input).
-#[cfg(not(feature = "transfer"))]
-fn get_sdr_linear(sdr: &RawImage, x: u32, y: u32) -> [f32; 3] {
-    match sdr.format {
-        PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
-            let bpp = if sdr.format == PixelFormat::Rgba8 {
-                4
-            } else {
-                3
-            };
-            let idx = (y * sdr.stride + x * bpp as u32) as usize;
-            let r = sdr.data[idx] as f32 / 255.0;
-            let g = sdr.data[idx + 1] as f32 / 255.0;
-            let b = sdr.data[idx + 2] as f32 / 255.0;
-            // Assume already linear - caller must pre-convert
-            [r, g, b]
-        }
-        PixelFormat::Rgba32F => {
-            let idx = (y * sdr.stride + x * 16) as usize;
-            let r = f32::from_le_bytes([
-                sdr.data[idx],
-                sdr.data[idx + 1],
-                sdr.data[idx + 2],
-                sdr.data[idx + 3],
-            ]);
-            let g = f32::from_le_bytes([
-                sdr.data[idx + 4],
-                sdr.data[idx + 5],
-                sdr.data[idx + 6],
-                sdr.data[idx + 7],
-            ]);
-            let b = f32::from_le_bytes([
-                sdr.data[idx + 8],
-                sdr.data[idx + 9],
-                sdr.data[idx + 10],
-                sdr.data[idx + 11],
-            ]);
-            [r, g, b]
-        }
-        PixelFormat::Rgba16F => {
-            let idx = (y * sdr.stride + x * 8) as usize;
-            let r = super::compute::half_to_f32_pub(&sdr.data[idx..idx + 2]);
-            let g = super::compute::half_to_f32_pub(&sdr.data[idx + 2..idx + 4]);
-            let b = super::compute::half_to_f32_pub(&sdr.data[idx + 4..idx + 6]);
-            [r, g, b]
-        }
-        _ => [0.18, 0.18, 0.18],
     }
 }
 
@@ -406,7 +354,6 @@ fn sample_gainmap_lut(
 }
 
 /// Write HDR pixel to output image.
-#[cfg(feature = "transfer")]
 fn write_output(output: &mut RawImage, x: u32, y: u32, hdr: [f32; 3], format: HdrOutputFormat) {
     match format {
         HdrOutputFormat::LinearFloat => {
@@ -443,25 +390,6 @@ fn write_output(output: &mut RawImage, x: u32, y: u32, hdr: [f32; 3], format: Hd
             output.data[idx] = (r * 255.0).round() as u8;
             output.data[idx + 1] = (g * 255.0).round() as u8;
             output.data[idx + 2] = (b * 255.0).round() as u8;
-            output.data[idx + 3] = 255;
-        }
-    }
-}
-
-/// Write HDR pixel to output image (no transfer feature - linear output only).
-#[cfg(not(feature = "transfer"))]
-fn write_output(output: &mut RawImage, x: u32, y: u32, hdr: [f32; 3], format: HdrOutputFormat) {
-    match format {
-        HdrOutputFormat::LinearFloat => {
-            write_linear_float(output, x, y, hdr);
-        }
-        // Without transfer feature, PQ and sRGB output are not supported
-        // Fall back to linear float in RGBA8 format (clamped)
-        _ => {
-            let idx = (y * output.stride + x * 4) as usize;
-            output.data[idx] = (hdr[0].clamp(0.0, 1.0) * 255.0).round() as u8;
-            output.data[idx + 1] = (hdr[1].clamp(0.0, 1.0) * 255.0).round() as u8;
-            output.data[idx + 2] = (hdr[2].clamp(0.0, 1.0) * 255.0).round() as u8;
             output.data[idx + 3] = 255;
         }
     }

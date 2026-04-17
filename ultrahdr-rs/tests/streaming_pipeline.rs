@@ -10,7 +10,6 @@
 //! Memory usage: ~4-8 MB instead of ~165 MB for full-frame processing.
 
 #![cfg(not(target_arch = "wasm32"))]
-#![cfg(feature = "_test-helpers")]
 
 mod common;
 

@@ -3,8 +3,6 @@
 //! These tests show the recommended usage patterns for UltraHDR encode/decode
 //! using zenjpeg for JPEG codec operations and ultrahdr for gain map math.
 
-#![cfg(feature = "_test-helpers")]
-
 use ultrahdr_rs::{
     ColorGamut, ColorTransfer, GainMap, PixelFormat, RawImage, Unstoppable as CoreUnstoppable,
     gainmap::{

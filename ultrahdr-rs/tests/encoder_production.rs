@@ -1,7 +1,7 @@
 //! Tests for the production encoder API (`encode_ultrahdr` and `encode_from_jpegs`).
 //!
-//! These tests don't require zenjpeg or the `_test-helpers` feature.
-//! They work with pre-built JPEG bytes and the public `encode_ultrahdr` function.
+//! These work with pre-built JPEG bytes and the public `encode_ultrahdr`
+//! function; they do not use the bundled `zenjpeg` decode path.
 
 use ultrahdr_rs::{ColorGamut, Decoder, Encoder, GainMapMetadata, encode_ultrahdr};
 

@@ -22,8 +22,8 @@ We also build on ISO/IEC 21496-1 (Gain map metadata for image conversion), the s
 
 | Crate | Description |
 |-------|-------------|
-| [`ultrahdr-rs`](ultrahdr/) | Full encoder/decoder with zenjpeg JPEG codec |
-| [`ultrahdr-core`](ultrahdr-core/) | Pure math and metadata - no codec dependency, WASM-compatible |
+| [`ultrahdr-rs`](ultrahdr-rs/) | Full encoder/decoder with the [zenjpeg](https://github.com/imazen/zenjpeg) JPEG codec bundled |
+| [`ultrahdr-core`](ultrahdr-core/) | Gain map math + metadata (zencodec + zenpixels + linear-srgb; zentone optional default-on; no JPEG codec, WASM-compatible, `no_std + alloc`) |
 
 ## Features
 
@@ -32,7 +32,7 @@ We also build on ISO/IEC 21496-1 (Gain map metadata for image conversion), the s
 - **Tone mapping**: Automatic SDR generation from HDR-only input
 - **Adaptive tonemapping**: Learn tone curves from existing HDR/SDR pairs
 - **Metadata**: Full XMP (hdrgm namespace) and ISO 21496-1 support
-- **Pure Rust**: No C dependencies, uses [zenjpeg](https://github.com/imazen/zenjpeg) for JPEG
+- **Pure Rust**: No C dependencies, [zenjpeg](https://github.com/imazen/zenjpeg) is the bundled JPEG codec
 - **WASM**: `ultrahdr-core` compiles to WebAssembly
 
 ## Comparison with C++ libultrahdr
@@ -71,7 +71,7 @@ We also build on ISO/IEC 21496-1 (Gain map metadata for image conversion), the s
 | Pure Rust (no C deps) | Yes | No (C++) |
 | WASM support | Yes (`ultrahdr-core`) | No |
 | `no_std` support | Yes (`ultrahdr-core`) | No |
-| JPEG codec bundled | Optional (zenjpeg) | Yes (built-in) |
+| JPEG codec bundled | Yes (zenjpeg) | Yes (built-in) |
 | **Not Yet Implemented** | | |
 | Editing API (in-place metadata update) | No | Yes |
 | GPU acceleration | No | Yes (OpenGL) |
@@ -83,22 +83,19 @@ We also build on ISO/IEC 21496-1 (Gain map metadata for image conversion), the s
 ```rust
 use ultrahdr_rs::{Encoder, RawImage, PixelFormat, ColorGamut, ColorTransfer};
 
-// Create HDR image (linear float RGB, BT.2020 gamut)
-let hdr_image = RawImage {
-    width: 1920,
-    height: 1080,
-    format: PixelFormat::Rgba32F,
-    gamut: ColorGamut::Bt2100,
-    transfer: ColorTransfer::Linear,
-    data: hdr_pixels,
-    stride: 1920 * 16,
-};
+// HDR input as linear float RGB in BT.2020 / BT.2100 primaries.
+// `hdr_pixels: Vec<u8>` holds Rgba32F data (16 bytes/pixel).
+let mut hdr_image = RawImage::new(1920, 1080, PixelFormat::Rgba32F)?;
+hdr_image.gamut = ColorGamut::Bt2020;
+hdr_image.transfer = ColorTransfer::Linear;
+hdr_image.data = hdr_pixels;
 
-// Encode to Ultra HDR JPEG (SDR is auto-generated via tone mapping)
+// Encode to Ultra HDR JPEG. SDR is auto-generated via tone mapping
+// when you don't call .set_sdr_image().
 let ultrahdr_jpeg = Encoder::new()
     .set_hdr_image(hdr_image)
-    .set_quality(90, 85)  // base quality, gainmap quality
-    .set_gainmap_scale(4) // 1/4 resolution gain map
+    .set_quality(90, 85)           // base quality, gainmap quality
+    .set_gainmap_scale(4)          // 1/4 resolution gain map
     .set_target_display_peak(1000.0) // nits
     .encode()?;
 
@@ -114,15 +111,21 @@ let data = std::fs::read("ultrahdr.jpg")?;
 let decoder = Decoder::new(&data)?;
 
 if decoder.is_ultrahdr() {
-    // Get HDR output (4x display boost)
+    // Reconstruct HDR at 4× display boost.
     let hdr = decoder.decode_hdr(4.0)?;
 
-    // Or just get SDR
+    // Or just the SDR base.
     let sdr = decoder.decode_sdr()?;
 
-    // Inspect metadata
-    let metadata = decoder.metadata();
-    println!("HDR capacity: {:.1}x", metadata.unwrap().hdr_capacity_max);
+    // Inspect metadata. All gains and headroom are log2 domain per
+    // ISO 21496-1. Convert with 2^x for a linear ratio.
+    let metadata = decoder.metadata().unwrap();
+    let linear_headroom = 2f64.powf(metadata.alternate_hdr_headroom);
+    let linear_max_boost = 2f64.powf(metadata.channels[0].max);
+    println!(
+        "HDR headroom: {:.1}× linear ({:.2} log2); per-channel max boost: {:.1}×",
+        linear_headroom, metadata.alternate_hdr_headroom, linear_max_boost,
+    );
 }
 ```
 

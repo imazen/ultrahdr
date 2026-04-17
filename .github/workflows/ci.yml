@@ -53,10 +53,10 @@ jobs:
         run: cargo test -p ultrahdr-core --all-targets --features simd
 
       - name: Build without zentone (leaner decoder-path config)
-        run: cargo build -p ultrahdr-core --no-default-features --features "std,transfer"
+        run: cargo build -p ultrahdr-core --no-default-features --features "std"
 
       - name: Test without zentone (leaner decoder-path config)
-        run: cargo test -p ultrahdr-core --no-default-features --features "std,transfer"
+        run: cargo test -p ultrahdr-core --no-default-features --features "std"
 
       - name: Check ultrahdr-core no_std (no default features)
         run: cargo build --package ultrahdr-core --no-default-features
@@ -65,7 +65,7 @@ jobs:
         run: cargo clippy -p ultrahdr-core --all-targets -- -D warnings
 
       - name: Clippy without zentone
-        run: cargo clippy -p ultrahdr-core --no-default-features --features "std,transfer" -- -D warnings
+        run: cargo clippy -p ultrahdr-core --no-default-features --features "std" -- -D warnings
 
   fmt:
     name: Format

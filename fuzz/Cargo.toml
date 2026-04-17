@@ -13,7 +13,7 @@ libfuzzer-sys = "0.4"
 [dependencies.ultrahdr-core]
 path = "../ultrahdr-core"
 default-features = false
-features = ["std", "transfer"]
+features = ["std"]
 
 [dependencies.ultrahdr-rs]
 path = "../ultrahdr-rs"

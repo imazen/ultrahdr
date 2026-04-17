@@ -5,7 +5,6 @@
 //! is correct.
 
 #![cfg(not(target_arch = "wasm32"))]
-#![cfg(feature = "_test-helpers")]
 
 mod common;
 

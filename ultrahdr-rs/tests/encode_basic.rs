@@ -2,8 +2,6 @@
 //!
 //! Tests encoding using synthetically generated images.
 
-#![cfg(feature = "_test-helpers")]
-
 mod common;
 
 use common::{
@@ -303,7 +301,7 @@ fn test_encode_contains_mpf() {
 }
 
 /// Write a test Ultra HDR JPEG for external validation.
-/// Run: cargo test --features _test-helpers -- write_test_ultrahdr --ignored --nocapture
+/// Run: cargo test -- write_test_ultrahdr --ignored --nocapture
 #[test]
 #[ignore = "writes file to /tmp for external validation"]
 fn write_test_ultrahdr() {

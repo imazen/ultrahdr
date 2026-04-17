@@ -3,7 +3,7 @@
 use alloc::vec;
 
 use crate::color::gamut::rgb_to_luminance;
-#[cfg(feature = "transfer")]
+
 use crate::color::transfer::{apply_eotf, pq_eotf, srgb_eotf};
 use crate::gainmap::splitter::{LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats};
 use crate::types::ColorTransfer;
@@ -274,13 +274,8 @@ fn compute_multichannel_gainmap(
 
 /// Extract linear RGB `[0,1]` from a raw image at the given pixel position.
 ///
-/// When the `transfer` feature is enabled, this function applies appropriate
-/// EOTF conversions (sRGB, PQ, HLG) based on the image's transfer function.
-///
-/// When the `transfer` feature is disabled, only inherently linear formats
-/// (Rgba16F, Rgba32F) are supported. For encoded formats, the caller must
-/// pre-convert to linear using an external CMS.
-#[cfg(feature = "transfer")]
+/// Applies the appropriate EOTF conversion (sRGB, PQ, HLG) based on the
+/// image's declared transfer function.
 fn get_linear_rgb(img: &RawImageRef<'_>, x: u32, y: u32) -> [f32; 3] {
     match img.format {
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
@@ -389,56 +384,6 @@ fn get_linear_rgb(img: &RawImageRef<'_>, x: u32, y: u32) -> [f32; 3] {
             let linear = srgb_eotf(v);
             [linear, linear, linear]
         }
-    }
-}
-
-/// Extract linear RGB from a raw image (no transfer feature).
-///
-/// Only supports inherently linear formats (Rgba16F, Rgba32F).
-/// For encoded formats (sRGB, PQ, etc.), use an external CMS to pre-convert.
-#[cfg(not(feature = "transfer"))]
-fn get_linear_rgb(img: &RawImageRef<'_>, x: u32, y: u32) -> [f32; 3] {
-    match img.format {
-        PixelFormat::Rgba16F => {
-            let idx = y as usize * img.stride + x as usize * 8;
-            let r = half_to_f32(&img.data[idx..idx + 2]);
-            let g = half_to_f32(&img.data[idx + 2..idx + 4]);
-            let b = half_to_f32(&img.data[idx + 4..idx + 6]);
-            [r, g, b]
-        }
-
-        PixelFormat::Rgba32F => {
-            let idx = y as usize * img.stride + x as usize * 16;
-            let r = f32::from_le_bytes(img.data[idx..idx + 4].try_into().unwrap());
-            let g = f32::from_le_bytes(img.data[idx + 4..idx + 8].try_into().unwrap());
-            let b = f32::from_le_bytes(img.data[idx + 8..idx + 12].try_into().unwrap());
-            [r, g, b]
-        }
-
-        // For encoded formats without transfer feature, treat as linear
-        // (caller must pre-convert using external CMS)
-        PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
-            let bpp: usize = if img.format == PixelFormat::Rgba8 {
-                4
-            } else {
-                3
-            };
-            let idx = y as usize * img.stride + x as usize * bpp;
-            let r = img.data[idx] as f32 / 255.0;
-            let g = img.data[idx + 1] as f32 / 255.0;
-            let b = img.data[idx + 2] as f32 / 255.0;
-            // Assume already linear - caller must pre-convert
-            [r, g, b]
-        }
-
-        PixelFormat::Gray8 => {
-            let idx = y as usize * img.stride + x as usize;
-            let v = img.data[idx] as f32 / 255.0;
-            [v, v, v]
-        }
-
-        // Formats that require transfer functions - return mid-gray as fallback
-        _ => [0.18, 0.18, 0.18],
     }
 }
 

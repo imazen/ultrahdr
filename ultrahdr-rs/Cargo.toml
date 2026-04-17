@@ -75,13 +75,11 @@ zune-jpeg = "0.5"
 [features]
 default = []
 simd = ["ultrahdr-core/simd"]  # Enable explicit SIMD optimizations
-ffi-tests = ["libultrahdr_rs", "_test-helpers"]  # FFI parity tests against libultrahdr (C++); pulls in zenjpeg test helpers to exercise our Encoder/Decoder on both sides.
-_test-helpers = ["dep:zenjpeg"]  # Internal: enables test helper methods (underscore prefix = not public API)
-zencodec = ["dep:zencodec", "dep:zenpixels", "dep:zenjpeg"]  # zencodec trait integration
+ffi-tests = ["dep:libultrahdr_rs"]  # FFI parity tests against libultrahdr (C++).
+zencodec = ["dep:zencodec", "dep:zenpixels"]  # zencodec trait integration
 
 [dependencies.zenjpeg]
 workspace = true
-optional = true
 
 [dependencies.zencodec]
 workspace = true
