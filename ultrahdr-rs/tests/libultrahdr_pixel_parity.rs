@@ -23,28 +23,21 @@
 //! |------|----------|
 //! | #13 MPF byte offsets       | `mpf_offsets_match_libultrahdr` |
 //! | #14 Probe field-by-field   | `probe_metadata_matches_libultrahdr` |
+//! | #15 SDR bit parity         | `sdr_decode_matches_libultrahdr` |
+//! | #16 HDR similarity         | `hdr_decode_matches_libultrahdr` |
 //!
-//! # Pixel-diff tests deferred
+//! # Thresholds
 //!
-//! Items #15 (SDR bit parity) and #16 (HDR similarity) are intentionally
-//! not yet implemented. Initial attempts produced real but unresolved
-//! divergences that deserve investigation on their own before we commit
-//! to thresholds:
+//! Pixel thresholds are grounded in zenjpeg's own chroma-upsample regression
+//! gate (`zenjpeg/tests/bundled/chroma_upsample_regression.rs`): post-fix
+//! `boundary_max <= 6` at MCU boundaries (IDCT rounding only, ISO/IEC
+//! 10918-2 allows ±1 per channel but both sides use libjpeg-turbo-family
+//! IDCT, so realistic maxes are 2-5). We assert `max_delta <= 8` to keep
+//! one byte of headroom over that gate.
 //!
-//! - **SDR** — overall MAE is ~0.008 across tens of millions of bytes
-//!   (essentially perfect) but a handful of edge/chroma-boundary pixels
-//!   differ by up to ~46. zenjpeg's IDCT + upsampling pipeline is not
-//!   identical to libjpeg-turbo's. Needs a locality-aware comparison
-//!   (e.g. 99.9th-percentile delta, or interior-only) grounded in a
-//!   measured baseline, not a guessed threshold.
-//! - **HDR** — `ultrahdr_app -O 4` produces exactly 2× the bytes we
-//!   expected for f32 RGBA at primary resolution. Format or resolution
-//!   assumption is wrong; need to read libultrahdr source to pin down
-//!   what `-O 4` actually means (likely f16 or mismatched geometry)
-//!   before asserting anything.
-//!
-//! Until we have real data for those gates, the suite covers only the
-//! two items whose expectations are grounded in ground truth.
+//! The HDR format is `UHDR_IMG_FMT_64bppRGBAHalfFloat` — 8 bytes/pixel
+//! (f16 RGBA), not f32. We decode f32, convert to f16 via `half::f16`,
+//! then compare.
 
 #![cfg(all(not(target_arch = "wasm32"), feature = "__pixel-parity"))]
 
@@ -233,4 +226,158 @@ fn mpf_offsets_match_libultrahdr() {
         String::from_utf8_lossy(&out.stderr)
     );
     eprintln!("mpf_offsets_match_libultrahdr: libultrahdr probed our re-encode cleanly");
+}
+
+// ---------------------------------------------------------------------------
+// #15 — SDR pixel parity against `ultrahdr_app -m 1 -o 3 -O 3`
+//
+// Threshold is grounded in zenjpeg/tests/bundled/chroma_upsample_regression.rs,
+// which asserts boundary_max <= 6 at MCU boundaries after the h2v2-fancy
+// fix (3ba1f1ab, in zenjpeg >= 0.8.0). One byte of headroom → 8.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn sdr_decode_matches_libultrahdr() {
+    let bin = ultrahdr_app();
+    let c = corpus();
+    let fixture = first_pixel_sample(&c);
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let rgb_path = tmp.path().join("out.rgb");
+
+    // -o 3 = sRGB transfer, -O 3 = rgba8888 color format.
+    let status = Command::new(&bin)
+        .args(["-m", "1", "-j"])
+        .arg(&fixture)
+        .args(["-o", "3", "-O", "3", "-z"])
+        .arg(&rgb_path)
+        .status()
+        .expect("invoke ultrahdr_app sdr decode");
+    assert!(status.success(), "ultrahdr_app sdr decode failed");
+
+    let lib_raw = std::fs::read(&rgb_path).expect("read libultrahdr output");
+
+    let data = std::fs::read(&fixture).expect("read");
+    let dec = Decoder::new(&data).expect("parse");
+    let our_sdr = dec.decode_sdr().expect("our decode_sdr");
+    let expected_bytes = (our_sdr.width as usize) * (our_sdr.height as usize) * 4;
+    assert_eq!(
+        lib_raw.len(),
+        expected_bytes,
+        "libultrahdr raw size mismatch: {} bytes vs expected {}",
+        lib_raw.len(),
+        expected_bytes
+    );
+
+    let mut max_delta = 0i32;
+    let mut sum_abs_delta: u64 = 0;
+    let mut count: u64 = 0;
+    let row_bytes = our_sdr.width as usize * 4;
+    for y in 0..our_sdr.height as usize {
+        let our_row_start = y * our_sdr.stride as usize;
+        let lib_row_start = y * row_bytes;
+        for x in 0..row_bytes {
+            let a = our_sdr.data[our_row_start + x] as i32;
+            let b = lib_raw[lib_row_start + x] as i32;
+            let d = (a - b).abs();
+            if d > max_delta {
+                max_delta = d;
+            }
+            sum_abs_delta += d as u64;
+            count += 1;
+        }
+    }
+    let mae = sum_abs_delta as f64 / count as f64;
+    eprintln!(
+        "sdr_decode_matches_libultrahdr: MAE={mae:.6}, max_delta={max_delta} over {count} bytes"
+    );
+    assert!(
+        max_delta <= 8,
+        "max per-byte delta {max_delta} exceeds zenjpeg's own chroma-upsample \
+         regression gate (boundary_max <= 6 + 1 byte headroom). This likely \
+         means a known chroma-boundary fix is missing — check that zenjpeg \
+         >= 0.8.0 (3ba1f1ab, 6755b21a)."
+    );
+    assert!(mae < 0.1, "MAE {mae} is too high for the same JPEG input");
+}
+
+// ---------------------------------------------------------------------------
+// #16 — HDR pixel similarity
+//
+// libultrahdr `-O 4` is UHDR_IMG_FMT_64bppRGBAHalfFloat (8 bytes/pixel,
+// f16 RGBA). We decode to f32 RGBA via LinearFloat, convert to f16, and
+// compare.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn hdr_decode_matches_libultrahdr() {
+    let bin = ultrahdr_app();
+    let c = corpus();
+    let fixture = first_pixel_sample(&c);
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let hdr_path = tmp.path().join("out.hdr");
+
+    let status = Command::new(&bin)
+        .args(["-m", "1", "-j"])
+        .arg(&fixture)
+        .args(["-o", "0", "-O", "4", "-z"])
+        .arg(&hdr_path)
+        .status()
+        .expect("invoke ultrahdr_app hdr decode");
+    assert!(status.success(), "ultrahdr_app hdr decode failed");
+
+    let lib_raw = std::fs::read(&hdr_path).expect("read libultrahdr hdr output");
+    // 8 bytes/pixel (f16 RGBA). f16 lacks AnyBitPattern, so go via u16 bits.
+    let lib_halfs: Vec<half::f16> = bytemuck::cast_slice::<u8, u16>(&lib_raw)
+        .iter()
+        .map(|&bits| half::f16::from_bits(bits))
+        .collect();
+
+    let data = std::fs::read(&fixture).expect("read");
+    let dec = Decoder::new(&data).expect("parse");
+    let our_hdr = dec
+        .decode_hdr_with_format(
+            1.0, // libultrahdr default applies stored headroom; 1.0 = no boost from us
+            ultrahdr_rs::HdrOutputFormat::LinearFloat,
+        )
+        .expect("our decode_hdr");
+
+    assert_eq!(
+        lib_raw.len() as u32,
+        our_hdr.width * our_hdr.height * 8,
+        "HDR byte size mismatch (expected 8 bytes/pixel for f16 RGBA)"
+    );
+
+    let our_floats: &[f32] = bytemuck::cast_slice(&our_hdr.data);
+    assert_eq!(our_floats.len(), lib_halfs.len(), "pixel count mismatch");
+
+    let mut sum_abs: f64 = 0.0;
+    let mut count: u64 = 0;
+    let mut max_abs: f32 = 0.0;
+    for (i, (&ours_f32, &theirs_f16)) in our_floats.iter().zip(lib_halfs.iter()).enumerate() {
+        if i % 4 == 3 {
+            continue; // alpha
+        }
+        let theirs = theirs_f16.to_f32();
+        if !(ours_f32.is_finite() && theirs.is_finite()) {
+            continue;
+        }
+        let d = (ours_f32 - theirs).abs();
+        if d > max_abs {
+            max_abs = d;
+        }
+        sum_abs += d as f64;
+        count += 1;
+    }
+    let mae = sum_abs / count as f64;
+    eprintln!("hdr_decode_matches_libultrahdr: MAE={mae:.6}, max_abs={max_abs:.6}");
+
+    // Linear HDR values span ~[0, 16] for 4× boost content; 0.1 MAE is
+    // ~0.6% of dynamic range. f16 quantizes to ~10-bit mantissa so we
+    // can't go tighter than a few ULPs at large magnitudes.
+    assert!(
+        mae < 0.1,
+        "HDR MAE {mae} too high — pixel reconstruction diverges from libultrahdr"
+    );
 }
