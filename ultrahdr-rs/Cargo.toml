@@ -71,6 +71,10 @@ proptest = { workspace = true }
 zune-image = "0.5"
 zune-core = "0.5"
 zune-jpeg = "0.5"
+# Real-file parity fixtures (Pixel samples, Google libultrahdr testdata,
+# awesome-gain-maps corpus, rejection goldens). Downloaded lazily on
+# first run from imazen/codec-corpus; cached in ~/.cache.
+codec-corpus = "1.1"
 
 [features]
 default = []
