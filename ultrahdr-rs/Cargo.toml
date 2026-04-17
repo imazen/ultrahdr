@@ -75,11 +75,21 @@ zune-jpeg = "0.5"
 # awesome-gain-maps corpus, rejection goldens). Downloaded lazily on
 # first run from imazen/codec-corpus; cached in ~/.cache.
 codec-corpus = "1.1"
+# Pixel-parity tests shell out to `ultrahdr_app`; `which` discovers the
+# binary on PATH, `tempfile` manages scratch files for raw-pixel output.
+# Both are gated behind the __pixel-parity feature via tests/ cfg attrs.
+which = "8.0.2"
+tempfile = "3.27.0"
 
 [features]
 default = []
 simd = ["ultrahdr-core/simd"]  # Enable explicit SIMD optimizations
 ffi-tests = ["dep:libultrahdr_rs"]  # FFI parity tests against libultrahdr (C++).
+# Pixel-level parity tests against Google's `ultrahdr_app` subprocess. Gated
+# because the binary is not available on most developer machines; CI enables
+# this in the Gain Map Interop workflow where `ultrahdr_app` is installed.
+# The caller (CI) decides whether to run these — no runtime "silent skip".
+__pixel-parity = []
 zencodec = ["dep:zencodec", "dep:zenpixels"]  # zencodec trait integration
 
 [dependencies.zenjpeg]

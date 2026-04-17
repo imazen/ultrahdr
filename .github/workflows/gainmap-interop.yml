@@ -89,6 +89,15 @@ jobs:
             --test encode_basic -- write_test_ultrahdr --ignored --nocapture
           cp /tmp/test_ultrahdr_output.jpg /tmp/samples/rust_encoded.jpg
 
+      - name: Pixel parity vs ultrahdr_app (feature-gated)
+        # The `__pixel-parity` feature gates tests that subprocess out to
+        # `ultrahdr_app`. It's enabled here because the binary is installed
+        # above; local dev runs without the feature and gets zero noise.
+        run: |
+          cargo test --release -p ultrahdr-rs \
+            --features __pixel-parity \
+            --test libultrahdr_pixel_parity -- --nocapture
+
       - name: Validate with ultrahdr_app (JPEG)
         run: |
           echo "=== Validating Rust-encoded JPEG ==="
