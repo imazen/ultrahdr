@@ -272,8 +272,22 @@ fn sdr_decode_matches_libultrahdr() {
     let mut max_delta = 0i32;
     let mut sum_abs_delta: u64 = 0;
     let mut count: u64 = 0;
-    let row_bytes = our_sdr.width as usize * 4;
-    for y in 0..our_sdr.height as usize {
+    let mut histogram = [0u64; 256];
+    // Per-row max delta buckets in groups of 16 rows to find MCU-row
+    // patterns without 10K-row spam.
+    let w = our_sdr.width as usize;
+    let h = our_sdr.height as usize;
+    let row_bytes = w * 4;
+    let row_bucket = |y: usize| y / 16;
+    let n_buckets = (h + 15) / 16;
+    let mut row_max = vec![0i32; n_buckets];
+    // Per-column bucket max (columns in groups of 16).
+    let col_bucket = |x: usize| (x / 4) / 16;
+    let n_col_buckets = (w + 15) / 16;
+    let mut col_max = vec![0i32; n_col_buckets];
+    // Sample high-delta hotspots.
+    let mut hot: Vec<(usize, usize, u8, i32)> = Vec::new(); // (y, x, channel, delta)
+    for y in 0..h {
         let our_row_start = y * our_sdr.stride as usize;
         let lib_row_start = y * row_bytes;
         for x in 0..row_bytes {
@@ -285,18 +299,77 @@ fn sdr_decode_matches_libultrahdr() {
             }
             sum_abs_delta += d as u64;
             count += 1;
+            histogram[d as usize] += 1;
+            let rb = row_bucket(y);
+            if d > row_max[rb] {
+                row_max[rb] = d;
+            }
+            let cb = col_bucket(x);
+            if d > col_max[cb] {
+                col_max[cb] = d;
+            }
+            if d >= 30 && hot.len() < 20 {
+                let px = x / 4;
+                let ch = (x % 4) as u8;
+                hot.push((y, px, ch, d));
+            }
         }
     }
     let mae = sum_abs_delta as f64 / count as f64;
     eprintln!(
         "sdr_decode_matches_libultrahdr: MAE={mae:.6}, max_delta={max_delta} over {count} bytes"
     );
+    eprintln!("  size: {w}x{h}  stride={}", our_sdr.stride);
+    // Delta histogram (top bins only).
+    let mut cum: u64 = 0;
+    eprintln!("  delta histogram (cumulative %):");
+    for (d, c) in histogram.iter().enumerate() {
+        if *c == 0 {
+            continue;
+        }
+        cum += *c;
+        if d <= 10 || d % 5 == 0 || *c > count / 1000 {
+            let pct = (cum as f64 / count as f64) * 100.0;
+            eprintln!("    delta={d:>3}: count={c:>10} cum={pct:7.4}%");
+        }
+    }
+    // Row bucket max — look for MCU-row bottom boundaries (y % 16 == 15)
+    // or MCU-row top (y % 16 == 0).
+    eprintln!("  per-16-row max delta (first 8 + last 4):");
+    for rb in 0..n_buckets.min(8) {
+        eprintln!("    rows {:>5}..{:>5}: max={}", rb * 16, rb * 16 + 15, row_max[rb]);
+    }
+    for rb in n_buckets.saturating_sub(4)..n_buckets {
+        eprintln!("    rows {:>5}..{:>5}: max={}", rb * 16, rb * 16 + 15, row_max[rb]);
+    }
+    // Column bucket max — should be roughly flat unless there's a horizontal edge issue.
+    let col_max_overall = *col_max.iter().max().unwrap_or(&0);
+    let col_min_of_max = *col_max.iter().min().unwrap_or(&0);
+    eprintln!(
+        "  col buckets: {} total, max-across={col_max_overall}, min-of-maxes={col_min_of_max}",
+        n_col_buckets
+    );
+    // High-delta hotspots.
+    eprintln!("  sample pixels with delta >= 30:");
+    for (y, px, ch, d) in hot.iter().take(10) {
+        let name = match ch {
+            0 => "R",
+            1 => "G",
+            2 => "B",
+            _ => "A",
+        };
+        let y_mod16 = y % 16;
+        eprintln!(
+            "    ({:>5},{:>5}) ch={name} delta={d}  y%16={y_mod16}",
+            y, px
+        );
+    }
+
     assert!(
         max_delta <= 8,
         "max per-byte delta {max_delta} exceeds zenjpeg's own chroma-upsample \
-         regression gate (boundary_max <= 6 + 1 byte headroom). This likely \
-         means a known chroma-boundary fix is missing — check that zenjpeg \
-         >= 0.8.0 (3ba1f1ab, 6755b21a)."
+         regression gate (boundary_max <= 6 + 1 byte headroom). Diagnostics \
+         above show where the deltas live."
     );
     assert!(mae < 0.1, "MAE {mae} is too high for the same JPEG input");
 }
