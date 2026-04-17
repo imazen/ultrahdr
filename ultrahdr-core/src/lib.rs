@@ -21,25 +21,37 @@
 //! Long-running operations accept an `impl Stop` parameter from the `enough` crate
 //! for cooperative cancellation. Use `Unstoppable` when cancellation is not needed.
 //!
-//! # Example
+//! # Example — compute a gain map from an HDR/SDR pair
 //!
-//! ```ignore
+//! ```
 //! use ultrahdr_core::{
+//!     ColorGamut, ColorTransfer, PixelFormat, RawImage, Unstoppable,
 //!     gainmap::{apply_gainmap, compute_gainmap, GainMapConfig, HdrOutputFormat},
-//!     metadata::xmp::{parse_xmp, generate_xmp},
-//!     GainMap, GainMapMetadata, RawImage,
+//!     metadata::xmp::generate_xmp,
 //! };
-//! use enough::Unstoppable;
 //!
-//! // Compute gain map from HDR and SDR images
+//! // Minimal 8x8 matching HDR + SDR surfaces. In practice these come from
+//! // your image decoder — this example just shows the call shape.
+//! let mut hdr = RawImage::new(8, 8, PixelFormat::Rgba8)?;
+//! hdr.gamut = ColorGamut::Bt709;
+//! hdr.transfer = ColorTransfer::Srgb;
+//! let mut sdr = RawImage::new(8, 8, PixelFormat::Rgba8)?;
+//! sdr.gamut = ColorGamut::Bt709;
+//! sdr.transfer = ColorTransfer::Srgb;
+//!
+//! // Derive gain map + metadata.
 //! let config = GainMapConfig::default();
 //! let (gainmap, metadata) = compute_gainmap(&hdr, &sdr, &config, Unstoppable)?;
 //!
-//! // Generate XMP metadata
-//! let xmp = generate_xmp(&metadata, gainmap_jpeg_size);
+//! // Emit XMP for the secondary JPEG (second arg is the gain-map JPEG's byte length).
+//! let _xmp = generate_xmp(&metadata, 1234);
 //!
-//! // Apply gain map to reconstruct HDR
-//! let hdr_output = apply_gainmap(&sdr, &gainmap, &metadata, 4.0, HdrOutputFormat::LinearFloat, Unstoppable)?;
+//! // Reconstruct HDR at 4× boost.
+//! let _hdr_out = apply_gainmap(
+//!     &sdr, &gainmap, &metadata,
+//!     4.0, HdrOutputFormat::LinearFloat, Unstoppable,
+//! )?;
+//! # Ok::<(), ultrahdr_core::Error>(())
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]

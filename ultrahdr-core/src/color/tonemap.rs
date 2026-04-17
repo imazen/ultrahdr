@@ -8,16 +8,23 @@
 //! # Adaptive Tonemapping
 //!
 //! When re-encoding UltraHDR after edits, use [`AdaptiveTonemapper`] to preserve
-//! the original artistic intent:
+//! the original artistic intent. The builder fits a per-channel LUT (or a
+//! luminance curve, depending on the config) from an HDR/SDR pair you
+//! already have on hand; you can then [`AdaptiveTonemapper::apply`] it to
+//! an edited HDR to regenerate the SDR rendition with a matching look.
 //!
-//! ```ignore
-//! use ultrahdr_core::color::tonemap::AdaptiveTonemapper;
+//! ```no_run
+//! use ultrahdr_core::{RawImage, color::tonemap::AdaptiveTonemapper};
 //!
-//! // Fit from original HDR/SDR pair
+//! # fn load_hdr(_name: &str) -> RawImage { unimplemented!() }
+//! # fn load_sdr(_name: &str) -> RawImage { unimplemented!() }
+//! let hdr_original = load_hdr("before-edit.exr");
+//! let sdr_original = load_sdr("before-edit.jpg");
+//! let hdr_edited   = load_hdr("after-edit.exr");
+//!
 //! let tonemapper = AdaptiveTonemapper::fit(&hdr_original, &sdr_original)?;
-//!
-//! // Apply to edited HDR (preserves original "look")
-//! let sdr_new = tonemapper.apply(&hdr_edited)?;
+//! let _sdr_new   = tonemapper.apply(&hdr_edited)?;
+//! # Ok::<(), ultrahdr_core::Error>(())
 //! ```
 
 use alloc::boxed::Box;
@@ -670,6 +677,22 @@ impl AdaptiveTonemapper {
         let lut_g = build_channel_lut(&mut pairs_g, max_hdr)?;
         let lut_b = build_channel_lut(&mut pairs_b, max_hdr)?;
 
+        // Per-channel MAE: average of |lut(hdr) - sdr_actual| across every
+        // fitted pair, same formulation as the Luminance path above.
+        let mut mae_sum = 0.0f32;
+        let mut mae_count = 0usize;
+        for (lut, pairs) in [(&lut_r, &pairs_r), (&lut_g, &pairs_g), (&lut_b, &pairs_b)] {
+            for (hdr, sdr) in pairs {
+                mae_sum += (lookup_lut(lut, *hdr, max_hdr) - sdr).abs();
+                mae_count += 1;
+            }
+        }
+        let mae = if mae_count > 0 {
+            mae_sum / mae_count as f32
+        } else {
+            0.0
+        };
+
         Ok(Self {
             mode: TonemapMode::PerChannel(PerChannelLut {
                 lut_r,
@@ -680,7 +703,7 @@ impl AdaptiveTonemapper {
             max_hdr_observed: max_hdr,
             stats: FitStats {
                 samples: pairs_r.len() + pairs_g.len() + pairs_b.len(),
-                mae: 0.0, // TODO: calculate
+                mae,
                 max_hdr_luminance: max_hdr,
                 saturation_ratio: 1.0,
             },

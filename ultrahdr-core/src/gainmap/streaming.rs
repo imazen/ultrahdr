@@ -32,23 +32,29 @@
 //!
 //! # Example: Streaming HDR Reconstruction
 //!
-//! ```ignore
-//! use ultrahdr_core::gainmap::streaming::RowDecoder;
+//! ```
+//! use ultrahdr_core::{
+//!     ColorGamut, GainMap, GainMapMetadata,
+//!     gainmap::streaming::RowDecoder,
+//! };
 //!
-//! // Caller converts sRGB JPEG output to linear f32 using moxcms
-//! let sdr_linear: Vec<f32> = moxcms::srgb_to_linear(&sdr_srgb);
+//! // Inputs would come from your JPEG decoder + metadata parser; this shows
+//! // the call shape with a trivial 8×8 gain map.
+//! let width = 8u32;
+//! let height = 8u32;
+//! let gainmap = GainMap::new(width, height)?;
+//! let metadata = GainMapMetadata::default();
 //!
-//! let mut decoder = RowDecoder::new(
-//!     gainmap, metadata, width, height, 4.0, gamut
-//! )?;
+//! let mut decoder =
+//!     RowDecoder::new(gainmap, metadata, width, height, 4.0, ColorGamut::Bt709)?;
 //!
-//! // Process in 16-row batches
-//! for batch_start in (0..height).step_by(16) {
-//!     let batch_height = 16.min(height - batch_start);
-//!     let sdr_batch = &sdr_linear[batch_start as usize * width as usize * 3..];
-//!     let hdr_batch = decoder.process_rows(sdr_batch, batch_height)?;
-//!     // hdr_batch is linear f32 RGBA - convert to PQ/sRGB as needed
-//! }
+//! // Caller converts sRGB JPEG output to linear f32 via their own CMS; here
+//! // we just pass zeros at the right row stride (3 floats per pixel).
+//! let batch_rows = 4u32;
+//! let sdr_linear = vec![0.0_f32; (width * batch_rows * 3) as usize];
+//! let _hdr_batch = decoder.process_rows(&sdr_linear, batch_rows)?;
+//! // hdr_batch is linear f32 RGBA; convert to PQ/sRGB on the way out.
+//! # Ok::<(), ultrahdr_core::Error>(())
 //! ```
 
 use alloc::format;
