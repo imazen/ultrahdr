@@ -168,9 +168,18 @@ impl<'a> Decoder<'a> {
             && let Ok(mpf_dir) = container::parse_mpf_segment(&mpf_seg.data, mpf_seg.offset)
             && mpf_dir.entries.len() >= 2
         {
-            // Primary image
-            let primary_size = mpf_dir.entries[0].size as usize;
-            self.primary_jpeg = Some((0, primary_size));
+            // Primary image — locate via JPEG marker scan, NOT MPF's declared
+            // size. Some encoders (notably Pixel HDR+ 1.0.*) write a too-short
+            // primary_size that cuts off the last MCU row's entropy-coded data.
+            // libultrahdr's own decoder uses a JpegScanner (see jpegr.cpp
+            // extractPrimaryImageAndGainMap) for exactly this reason.
+            if let Some(bounds) = container::primary_bounds(self.data) {
+                self.primary_jpeg = Some((bounds.start, bounds.end));
+            } else {
+                // Fallback to MPF's size if marker scan somehow fails.
+                let primary_size = mpf_dir.entries[0].size as usize;
+                self.primary_jpeg = Some((0, primary_size));
+            }
 
             // Secondary images (gain map)
             let secondaries = container::extract_secondary_images(self.data, &mpf_dir);

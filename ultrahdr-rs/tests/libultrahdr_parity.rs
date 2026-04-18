@@ -108,6 +108,32 @@ fn decode_pixel_samples() {
         );
         let hdr = dec.decode_hdr(4.0).expect("decode HDR");
         assert!(hdr.width > 0 && hdr.height > 0);
+
+        // Regression: MPF's primary_size is unreliable on Pixel HDR+ 1.0.*
+        // output (truncates the last MCU row by ~300 bytes). Decoder must
+        // use JPEG marker scanning to find the real primary end, so the
+        // returned primary_jpeg MUST end with FFD9 (EOI).
+        // See fix that replaces MPF size with primary_bounds() lookup.
+        let primary = dec
+            .primary_jpeg()
+            .expect("primary_jpeg must be set after parse");
+        assert!(
+            primary.len() >= 4,
+            "{}: primary_jpeg too short ({} bytes)",
+            path.display(),
+            primary.len()
+        );
+        assert_eq!(
+            &primary[primary.len() - 2..],
+            &[0xFF, 0xD9],
+            "{}: primary_jpeg does not end with FFD9 (EOI) — last 4 bytes: {:02x?}. \
+             This means the Decoder is truncating the primary inside the entropy-coded \
+             scan, which corrupts the last MCU row. Root cause: trusting MPF's \
+             primary_image_size field instead of scanning JPEG markers.",
+            path.display(),
+            &primary[primary.len().saturating_sub(4)..]
+        );
+
         decoded += 1;
     }
     assert!(decoded >= 1, "expected at least one Pixel sample in corpus");
