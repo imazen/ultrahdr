@@ -446,28 +446,114 @@ fn parse_mpf_data_typed(mpf_data: &[u8], tiff_header_pos: usize) -> Result<Vec<M
     Ok(entries)
 }
 
-/// Find JPEG boundaries (SOI and EOI markers) in data.
+/// Find top-level JPEG boundaries (SOI/EOI pairs) in a byte buffer.
+///
+/// Walks the marker stream and skips length-bearing segments as a unit,
+/// so an embedded thumbnail JPEG inside an APP1 EXIF segment does NOT
+/// cause a false EOI match (Pixel HDR+ output would otherwise report
+/// the thumbnail's EOI near byte 27,000 as the primary end). Inside
+/// entropy-coded scan data, byte-stuffing rules are respected —
+/// `FF00` and `FFD0..FFD7` are skipped as pseudo-markers.
+///
+/// If the stream has no recognizable marker structure after an SOI
+/// (e.g. synthetic test data that's just SOI + padding + EOI), this
+/// falls back to a byte-wise EOI scan from the SOI onward.
 pub fn find_jpeg_boundaries(data: &[u8]) -> Vec<(usize, usize)> {
     let mut boundaries = Vec::new();
     let mut pos = 0;
 
     while pos + 1 < data.len() {
-        // Look for SOI (Start Of Image) marker
-        if data[pos] == 0xFF && data[pos + 1] == 0xD8 {
-            let start = pos;
+        // Advance to the next SOI.
+        if data[pos] != 0xFF || data[pos + 1] != 0xD8 {
+            pos += 1;
+            continue;
+        }
+        let start = pos;
+        let mut p = pos + 2;
+        let mut found_end: Option<usize> = None;
 
-            // Find EOI (End Of Image) marker
-            pos += 2;
-            while pos + 1 < data.len() {
-                if data[pos] == 0xFF && data[pos + 1] == 0xD9 {
-                    boundaries.push((start, pos + 2));
-                    pos += 2;
+        while p + 1 < data.len() {
+            // Non-marker byte: treat as content and advance one byte.
+            // (Valid JPEGs would only have non-FF bytes inside an
+            // entropy-coded scan we've already routed through below.)
+            if data[p] != 0xFF {
+                p += 1;
+                continue;
+            }
+            let m = data[p + 1];
+            if m == 0xD9 {
+                found_end = Some(p + 2);
+                break;
+            }
+            // Markers without a length word — skip 2 bytes.
+            if m == 0x00 || m == 0x01 || (0xD0..=0xD7).contains(&m) || m == 0xFF {
+                p += 2;
+                continue;
+            }
+            // SOS (0xDA): skip the SOS segment header, then scan its
+            // entropy-coded stream for the next real marker.
+            if m == 0xDA {
+                if p + 4 > data.len() {
                     break;
                 }
-                pos += 1;
+                let seg_len = u16::from_be_bytes([data[p + 2], data[p + 3]]) as usize;
+                if seg_len < 2 {
+                    break;
+                }
+                p += 2 + seg_len;
+                while p + 1 < data.len() {
+                    if data[p] == 0xFF {
+                        let nm = data[p + 1];
+                        // FF00 stuffing and restart markers are not
+                        // boundaries — keep scanning.
+                        if nm == 0x00 || (0xD0..=0xD7).contains(&nm) {
+                            p += 2;
+                            continue;
+                        }
+                        // Real marker — exit scan loop to re-enter
+                        // the outer marker-handling branch.
+                        break;
+                    }
+                    p += 1;
+                }
+                continue;
             }
-        } else {
-            pos += 1;
+            // Generic length-bearing marker (APPn, DQT, DHT, SOFn, DRI, COM, …).
+            // Skipping by declared length is what prevents embedded
+            // thumbnail SOI/EOI inside APP1 EXIF from being mis-matched.
+            if p + 4 > data.len() {
+                break;
+            }
+            let seg_len = u16::from_be_bytes([data[p + 2], data[p + 3]]) as usize;
+            if seg_len < 2 {
+                break;
+            }
+            p += 2 + seg_len;
+        }
+
+        // Fallback for inputs with no recognizable marker structure: scan
+        // linearly from the SOI for the first FFD9. Keeps behavior
+        // compatible with synthetic test fixtures that aren't real JPEGs.
+        if found_end.is_none() {
+            let mut q = start + 2;
+            while q + 1 < data.len() {
+                if data[q] == 0xFF && data[q + 1] == 0xD9 {
+                    found_end = Some(q + 2);
+                    break;
+                }
+                q += 1;
+            }
+        }
+
+        match found_end {
+            Some(end) => {
+                boundaries.push((start, end));
+                pos = end;
+            }
+            None => {
+                // No EOI anywhere after this SOI — stop searching.
+                break;
+            }
         }
     }
 
@@ -558,6 +644,59 @@ mod tests {
         assert_eq!(boundaries.len(), 2);
         assert_eq!(boundaries[0], (0, 104));
         assert_eq!(boundaries[1], (104, 158));
+    }
+
+    /// Regression: a primary JPEG with an APP1 EXIF segment that contains
+    /// an embedded thumbnail JPEG must be parsed as ONE image ending at
+    /// the outer EOI — NOT split at the thumbnail's EOI inside the APP1.
+    ///
+    /// Pixel HDR+ output triggers this: the APP1 EXIF carries an embedded
+    /// thumbnail whose FFD9 sits ~27 KB into the file, while the real
+    /// primary EOI is megabytes later.
+    #[test]
+    fn test_find_jpeg_boundaries_skips_embedded_thumbnail() {
+        // Build: SOI | APP1(thumbnail w/ its own SOI..EOI inside) | DQT | SOS+payload | EOI
+        let mut data = vec![0xFF, 0xD8]; // outer SOI
+
+        // Fake thumbnail JPEG (just markers, ~40 bytes).
+        let mut thumb = Vec::new();
+        thumb.extend_from_slice(&[0xFF, 0xD8]); // inner SOI
+        thumb.extend_from_slice(&[0x00; 30]); // content
+        thumb.extend_from_slice(&[0xFF, 0xD9]); // inner EOI — this is the trap
+
+        // APP1 EXIF wrapping the thumbnail. Length word = 2 (length bytes)
+        // + 6-byte Exif\0\0 identifier + tiny header + thumbnail bytes.
+        let exif_header = b"Exif\0\0";
+        let app1_payload_len = exif_header.len() + thumb.len();
+        let app1_seg_len = 2 + app1_payload_len;
+        assert!(app1_seg_len <= u16::MAX as usize);
+        data.push(0xFF);
+        data.push(0xE1);
+        data.extend_from_slice(&(app1_seg_len as u16).to_be_bytes());
+        data.extend_from_slice(exif_header);
+        data.extend_from_slice(&thumb);
+
+        // DQT segment (length=5: 2 for length + 3 bytes body).
+        data.extend_from_slice(&[0xFF, 0xDB, 0x00, 0x05, 0x00, 0x00, 0x00]);
+
+        // SOS: length=8 (2 length + 6 body), then a tiny entropy stream.
+        data.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x08]);
+        data.extend_from_slice(&[0x01, 0x01, 0x00, 0x00, 0x3F, 0x00]);
+        // Entropy bytes including a stuffed FF00 that must NOT be misread.
+        data.extend_from_slice(&[0xAB, 0xCD, 0xFF, 0x00, 0x12, 0x34]);
+
+        // Outer EOI — the only real one.
+        let outer_eoi_pos = data.len();
+        data.extend_from_slice(&[0xFF, 0xD9]);
+
+        let boundaries = find_jpeg_boundaries(&data);
+        assert_eq!(
+            boundaries.len(),
+            1,
+            "expected 1 top-level JPEG, got {:?} (likely matched embedded thumbnail EOI)",
+            boundaries
+        );
+        assert_eq!(boundaries[0], (0, outer_eoi_pos + 2));
     }
 
     #[test]
