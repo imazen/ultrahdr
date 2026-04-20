@@ -44,7 +44,7 @@ rgb = { version = "0.8", features = ["as-bytes"] }
 linear-srgb = { version = "0.6.7", default-features = false, features = ["transfer"] }
 
 # Zen ecosystem interop
-zenpixels = { version = "0.2.1", default-features = false }
+zenpixels = { version = "0.2.10", default-features = false }
 zencodec = { version = "0.1.13" }
 zenresize = { version = "0.2.2", default-features = false }
 
