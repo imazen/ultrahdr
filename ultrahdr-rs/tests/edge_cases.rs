@@ -253,7 +253,7 @@ fn test_value_negative() {
     let hdr = RawImage::from_data(
         32,
         32,
-        PixelFormat::Rgba32F,
+        PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
         data,
@@ -288,7 +288,7 @@ fn test_value_nan() {
     let hdr = RawImage::from_data(
         32,
         32,
-        PixelFormat::Rgba32F,
+        PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
         data,
@@ -323,7 +323,7 @@ fn test_value_infinity() {
     let hdr = RawImage::from_data(
         32,
         32,
-        PixelFormat::Rgba32F,
+        PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
         data,
@@ -472,7 +472,7 @@ fn test_color_p3_gamut() {
     let hdr = RawImage::from_data(
         64,
         64,
-        PixelFormat::Rgba32F,
+        PixelFormat::RgbaF32,
         ColorPrimaries::DisplayP3,
         TransferFunction::Linear,
         data,
@@ -502,7 +502,7 @@ fn test_color_bt2100_gamut() {
     let hdr = RawImage::from_data(
         64,
         64,
-        PixelFormat::Rgba32F,
+        PixelFormat::RgbaF32,
         ColorPrimaries::Bt2020,
         TransferFunction::Linear,
         data,

@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hdr_image = RawImage::from_data(
         width as u32,
         height as u32,
-        PixelFormat::Rgba32F,
+        PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
         hdr_data,

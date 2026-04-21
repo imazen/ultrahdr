@@ -111,9 +111,10 @@ fn test_decode_hdr_4x_boost() {
 
     assert!(hdr.width > 0);
     assert!(hdr.height > 0);
-    assert!(
-        hdr.format.is_hdr(),
-        "HDR output should be an HDR format, got {:?}",
+    assert_eq!(
+        hdr.format,
+        PixelFormat::RgbaF32,
+        "HDR output should be linear float RGBA, got {:?}",
         hdr.format
     );
 }

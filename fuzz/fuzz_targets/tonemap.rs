@@ -110,7 +110,7 @@ fuzz_target!(|data: &[u8]| {
             let transfer_idx = remaining[4] % 4;
 
             let format = if fmt_idx == 0 {
-                ultrahdr_core::PixelFormat::Rgba32F
+                ultrahdr_core::PixelFormat::RgbaF32
             } else {
                 ultrahdr_core::PixelFormat::Rgba8
             };
@@ -134,8 +134,8 @@ fuzz_target!(|data: &[u8]| {
             }
 
             let mut pixel_data = remaining[pixel_start..pixel_start + needed].to_vec();
-            // For Rgba32F, clamp f32 values to avoid upstream linear-srgb panic
-            if format == ultrahdr_core::PixelFormat::Rgba32F {
+            // For RgbaF32, clamp f32 values to avoid upstream linear-srgb panic
+            if format == ultrahdr_core::PixelFormat::RgbaF32 {
                 for chunk in pixel_data.chunks_exact_mut(4) {
                     let val = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                     let clamped = if val.is_finite() { val.clamp(0.0, 10.0) } else { 0.5 };

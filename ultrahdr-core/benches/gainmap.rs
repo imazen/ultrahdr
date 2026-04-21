@@ -120,23 +120,6 @@ fn bench_apply_gainmap(c: &mut Criterion) {
             },
         );
 
-        group.bench_with_input(
-            BenchmarkId::new("pq1010102", format!("{}x{}", width, height)),
-            &(width, height),
-            |b, _| {
-                b.iter(|| {
-                    apply_gainmap(
-                        black_box(&sdr),
-                        black_box(&gainmap),
-                        black_box(&metadata),
-                        black_box(4.0),
-                        HdrOutputFormat::Pq1010102,
-                        enough::Unstoppable,
-                    )
-                    .unwrap()
-                });
-            },
-        );
     }
 
     group.finish();

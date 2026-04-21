@@ -297,7 +297,7 @@ fn get_linear_rgb(img: &RawImageRef<'_>, x: u32, y: u32) -> [f32; 3] {
             }
         }
 
-        PixelFormat::Rgba32F => {
+        PixelFormat::RgbaF32 => {
             let idx = y as usize * img.stride + x as usize * 16;
             let r = f32::from_le_bytes(img.data[idx..idx + 4].try_into().unwrap());
             let g = f32::from_le_bytes(img.data[idx + 4..idx + 8].try_into().unwrap());
@@ -311,6 +311,7 @@ fn get_linear_rgb(img: &RawImageRef<'_>, x: u32, y: u32) -> [f32; 3] {
             let linear = srgb_eotf(v);
             [linear, linear, linear]
         }
+        _ => [0.0, 0.0, 0.0],
     }
 }
 
@@ -391,9 +392,9 @@ fn extract_linear_row_rgba(img: &RawImageRef<'_>, y: u32, out: &mut [f32]) {
     }
 }
 
-/// Write an interleaved RGBA f32 row into an `Rgba32F` [`RawImage`].
+/// Write an interleaved RGBA f32 row into an `RgbaF32` [`RawImage`].
 fn write_rgba32f_row(img: &mut RawImage, y: u32, row: &[f32]) {
-    debug_assert_eq!(img.format, PixelFormat::Rgba32F);
+    debug_assert_eq!(img.format, PixelFormat::RgbaF32);
     let width = img.width as usize;
     let byte_offset = (y * img.stride) as usize;
     let row_bytes: &[u8] = bytemuck::cast_slice(&row[..width * 4]);
@@ -407,7 +408,7 @@ fn write_rgba32f_row(img: &mut RawImage, y: u32, row: &[f32]) {
 /// [`LumaGainMapSplitter`] to produce the SDR base and gain map simultaneously.
 ///
 /// Returns `(sdr_image, gain_map, metadata)`:
-/// - `sdr_image`: `Rgba32F` linear, same gamut as the HDR input. The caller
+/// - `sdr_image`: `RgbaF32` linear, same gamut as the HDR input. The caller
 ///   converts to sRGB u8 for JPEG storage.
 /// - `gain_map`: single-channel u8 at `1/scale_factor` resolution.
 /// - `metadata`: ready for `zencodec::GainMapParams` wire serialization.
@@ -441,7 +442,7 @@ pub fn compute_gainmap_tonemap<T: LumaToneMap>(
     let splitter = LumaGainMapSplitter::new(curve, split_cfg);
 
     // Allocate outputs.
-    let mut sdr_image = RawImage::new(width, height, PixelFormat::Rgba32F)?;
+    let mut sdr_image = RawImage::new(width, height, PixelFormat::RgbaF32)?;
     sdr_image.gamut = hdr.gamut;
     sdr_image.transfer = TransferFunction::Linear;
 
@@ -688,7 +689,7 @@ mod tests {
         }
     }
 
-    /// Helper: create an 8x8 HDR image (Rgba32F, Linear, BT.709) filled with a uniform color.
+    /// Helper: create an 8x8 HDR image (RgbaF32, Linear, BT.709) filled with a uniform color.
     fn make_hdr_8x8(r: f32, g: f32, b: f32) -> RawImage {
         let w = 8u32;
         let h = 8u32;
@@ -703,7 +704,7 @@ mod tests {
         RawImage::from_data(
             w,
             h,
-            PixelFormat::Rgba32F,
+            PixelFormat::RgbaF32,
             ColorPrimaries::Bt709,
             TransferFunction::Linear,
             data,
@@ -897,7 +898,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     fn make_uniform_rgba32f(width: u32, height: u32, value: f32) -> RawImage {
-        let mut img = RawImage::new(width, height, PixelFormat::Rgba32F).unwrap();
+        let mut img = RawImage::new(width, height, PixelFormat::RgbaF32).unwrap();
         img.gamut = ColorPrimaries::Bt709;
         img.transfer = TransferFunction::Linear;
         let stride = img.stride;
@@ -936,7 +937,7 @@ mod tests {
         // SDR has same dimensions.
         assert_eq!(sdr.width, 8);
         assert_eq!(sdr.height, 8);
-        assert_eq!(sdr.format, PixelFormat::Rgba32F);
+        assert_eq!(sdr.format, PixelFormat::RgbaF32);
 
         // Gain map has downsampled dimensions.
         let scale = config.scale_factor as u32;
@@ -1039,7 +1040,7 @@ mod tests {
         assert_eq!(sc.pre_desaturate, 0.0);
     }
 
-    /// Convert an Rgba32F linear image to Rgba8 sRGB for the decoder.
+    /// Convert an RgbaF32 linear image to Rgba8 sRGB for the decoder.
     fn rgba32f_to_rgba8_srgb(src: &RawImage) -> RawImage {
         let mut dst = RawImage::new(src.width, src.height, PixelFormat::Rgba8).unwrap();
         dst.gamut = src.gamut;
@@ -1063,7 +1064,7 @@ mod tests {
         // Grayscale gradient HDR, scale_factor=1 for full-resolution gain map.
         let width = 16u32;
         let height = 4u32;
-        let mut hdr = RawImage::new(width, height, PixelFormat::Rgba32F).unwrap();
+        let mut hdr = RawImage::new(width, height, PixelFormat::RgbaF32).unwrap();
         hdr.gamut = ColorPrimaries::Bt709;
         hdr.transfer = TransferFunction::Linear;
         let stride = hdr.stride;

@@ -111,42 +111,13 @@ pub use zenpixels::ColorPrimaries;
 /// [`zenpixels::TransferFunction`].
 pub use zenpixels::TransferFunction;
 
-/// Pixel format for raw images.
+/// Pixel format for raw images. Re-exported from [`zenpixels::PixelFormat`].
 ///
-/// Narrowed to the variants that zenpixels already expresses, pending the
-/// eventual fold to `zenpixels::PixelFormat` (#9). Packed / half-float
-/// formats (Rgba16F, P010, Yuv420, Rgba1010102Pq, Rgba1010102Hlg) were
-/// removed as dormant — every production caller uses one of the four
-/// below; the packed variants had only test / fuzz / bench constructors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum PixelFormat {
-    /// 8-bit RGBA (SDR)
-    Rgba8,
-    /// 8-bit RGB (SDR)
-    Rgb8,
-    /// 32-bit float RGBA (HDR linear)
-    Rgba32F,
-    /// 8-bit grayscale (for gain maps)
-    Gray8,
-}
-
-impl PixelFormat {
-    /// Returns the number of bytes per pixel.
-    pub fn bytes_per_pixel(&self) -> Option<usize> {
-        match self {
-            Self::Rgba8 => Some(4),
-            Self::Rgb8 => Some(3),
-            Self::Rgba32F => Some(16),
-            Self::Gray8 => Some(1),
-        }
-    }
-
-    /// Returns true if this is an HDR format.
-    pub fn is_hdr(&self) -> bool {
-        matches!(self, Self::Rgba32F)
-    }
-}
+/// ultrahdr-core uses a subset (`Rgba8`, `Rgb8`, `RgbaF32`, `Gray8`); other
+/// zenpixels variants are accepted at the type level but will fail validation
+/// in the gain map / tone mapping kernels that only accept SDR 8-bit and
+/// linear float HDR.
+pub use zenpixels::PixelFormat;
 
 /// Controls which metadata format(s) to embed in Ultra HDR output.
 ///
@@ -200,12 +171,10 @@ impl RawImage {
     pub fn new(width: u32, height: u32, format: PixelFormat) -> Result<Self> {
         Self::validate_dimensions(width, height)?;
 
-        let stride = match format.bytes_per_pixel() {
-            Some(bpp) => width.checked_mul(bpp as u32).ok_or_else(|| {
-                Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp))
-            })?,
-            None => width, // For planar, stride is width
-        };
+        let bpp = format.bytes_per_pixel();
+        let stride = width
+            .checked_mul(bpp as u32)
+            .ok_or_else(|| Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp)))?;
 
         let data_size = Self::calculate_data_size(width, height, stride, format)?;
 
@@ -234,12 +203,10 @@ impl RawImage {
     ) -> Result<Self> {
         Self::validate_dimensions(width, height)?;
 
-        let stride = match format.bytes_per_pixel() {
-            Some(bpp) => width.checked_mul(bpp as u32).ok_or_else(|| {
-                Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp))
-            })?,
-            None => width,
-        };
+        let bpp = format.bytes_per_pixel();
+        let stride = width
+            .checked_mul(bpp as u32)
+            .ok_or_else(|| Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp)))?;
 
         let expected_size = Self::calculate_data_size(width, height, stride, format)?;
         if data.len() < expected_size {
@@ -400,12 +367,10 @@ pub(crate) fn validate_dimensions(width: u32, height: u32) -> Result<()> {
 
 /// Minimum stride in bytes required for one row of the given format at `width`.
 pub(crate) fn min_stride_bytes(width: u32, format: PixelFormat) -> Result<usize> {
-    match format.bytes_per_pixel() {
-        Some(bpp) => (width as usize)
-            .checked_mul(bpp)
-            .ok_or_else(|| Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp))),
-        None => Ok(width as usize),
-    }
+    let bpp = format.bytes_per_pixel();
+    (width as usize)
+        .checked_mul(bpp)
+        .ok_or_else(|| Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp)))
 }
 
 // ============================================================================
@@ -661,58 +626,39 @@ pub fn validate_gainmap_metadata(metadata: &GainMapMetadata) -> Result<()> {
 
 mod zenpixels_interop {
     use super::*;
-    use zenpixels::{ColorPrimaries, PixelSlice, TransferFunction};
+    use zenpixels::PixelSlice;
 
-    // --- PixelFormat ↔ zenpixels::PixelFormat ---
-
-    fn map_pixel_format(zp: zenpixels::PixelFormat) -> Option<PixelFormat> {
-        use zenpixels::PixelFormat as Zp;
-        Some(match zp {
-            Zp::Rgba8 => PixelFormat::Rgba8,
-            Zp::Rgb8 => PixelFormat::Rgb8,
-            Zp::RgbaF32 => PixelFormat::Rgba32F,
-            Zp::Gray8 => PixelFormat::Gray8,
-            // No mapping: Rgb16/Rgba16 (u16), RgbF32 (no Rgb32F variant),
-            // GrayF32, GrayA*, Bgra8, Rgbx8, Bgrx8, Oklab*.
-            _ => return None,
-        })
-    }
-
-    /// Try to adapt a [`zenpixels::PixelSlice`] into a [`RawImageRef`].
-    ///
-    /// Returns `None` if the source pixel format, primaries, or transfer
-    /// function aren't representable in ultrahdr-core's narrower enums.
-    /// ICC color context (if any) is dropped — the caller is responsible
-    /// for ensuring the slice is already in a gamut/transfer ultrahdr-core
-    /// understands.
+    /// Accept any [`zenpixels::PixelSlice`] that uses one of the pixel formats
+    /// ultrahdr-core's gain map / tone mapping kernels understand (`Rgba8`,
+    /// `Rgb8`, `RgbaF32`, `Gray8`). ICC color context on the slice is dropped —
+    /// the caller is responsible for pre-converting to a primaries/transfer
+    /// combination that the kernels accept.
     impl<'a> TryFrom<&PixelSlice<'a>> for RawImageRef<'a> {
         type Error = Error;
 
         fn try_from(ps: &PixelSlice<'a>) -> Result<Self> {
             let desc = ps.descriptor();
-            let format = map_pixel_format(desc.pixel_format()).ok_or_else(|| {
-                Error::InvalidPixelData(format!(
-                    "zenpixels format {:?} not representable in ultrahdr PixelFormat",
-                    desc.pixel_format()
-                ))
-            })?;
-            let gamut = desc.primaries;
-            let transfer = desc.transfer();
+            let format = desc.pixel_format();
+            if !matches!(
+                format,
+                PixelFormat::Rgba8 | PixelFormat::Rgb8 | PixelFormat::RgbaF32 | PixelFormat::Gray8
+            ) {
+                return Err(Error::InvalidPixelData(format!(
+                    "zenpixels format {:?} not supported by ultrahdr-core kernels",
+                    format
+                )));
+            }
             RawImageRef::new(
                 ps.as_strided_bytes(),
                 ps.width(),
                 ps.rows(),
                 ps.stride(),
                 format,
-                gamut,
-                transfer,
+                desc.primaries,
+                desc.transfer(),
             )
         }
     }
-
-    // Post-#9: `ColorPrimaries` / `TransferFunction` are zenpixels' own
-    // types (re-exported from `crate::types`). No conversion impls are
-    // needed — the two sides of the old interop are the same type.
 }
 
 /// Signed fraction for ISO 21496-1 metadata encoding.

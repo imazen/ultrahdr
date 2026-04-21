@@ -1080,7 +1080,7 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
                 [r, g, b]
             }
         }
-        PixelFormat::Rgba32F => {
+        PixelFormat::RgbaF32 => {
             let idx = (y * img.stride + x * 16) as usize;
             let r = f32::from_le_bytes([
                 img.data[idx],
@@ -1354,7 +1354,7 @@ mod tests {
     fn test_adaptive_tonemapper_fit() {
         use crate::PixelFormat;
 
-        // Create simple HDR image in Rgba32F (the only HDR pixel format we
+        // Create simple HDR image in RgbaF32 (the only HDR pixel format we
         // carry post-narrow; #9 removed Rgba16F as dormant).
         let width = 32u32;
         let height = 32u32;
@@ -1383,7 +1383,7 @@ mod tests {
         let hdr = RawImage::from_data(
             width,
             height,
-            PixelFormat::Rgba32F,
+            PixelFormat::RgbaF32,
             ColorPrimaries::Bt709,
             TransferFunction::Linear,
             hdr_data,
@@ -1696,7 +1696,7 @@ mod tests {
         let hdr = RawImage::from_data(
             width,
             height,
-            PixelFormat::Rgba32F,
+            PixelFormat::RgbaF32,
             ColorPrimaries::Bt709,
             TransferFunction::Linear,
             hdr_data,

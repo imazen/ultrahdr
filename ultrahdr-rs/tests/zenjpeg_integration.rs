@@ -49,7 +49,7 @@ fn create_test_hdr_image(width: u32, height: u32) -> RawImage {
     RawImage::from_data(
         width,
         height,
-        PixelFormat::Rgba32F,
+        PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
         pixels,
@@ -717,7 +717,7 @@ fn test_readme_workflow_encode_decode() {
     // Verify HDR reconstruction
     assert_eq!(hdr_reconstructed.width, width);
     assert_eq!(hdr_reconstructed.height, height);
-    assert_eq!(hdr_reconstructed.format, PixelFormat::Rgba32F);
+    assert_eq!(hdr_reconstructed.format, PixelFormat::RgbaF32);
 
     // Verify HDR values exceed SDR range (> 1.0)
     let hdr_data = &hdr_reconstructed.data;

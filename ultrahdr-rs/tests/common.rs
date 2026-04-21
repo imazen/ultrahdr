@@ -33,7 +33,7 @@ pub fn create_hdr_gradient(width: u32, height: u32, peak_brightness: f32) -> Raw
     RawImage::from_data(
         width,
         height,
-        PixelFormat::Rgba32F,
+        PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
         data,
@@ -86,7 +86,7 @@ pub fn create_hdr_solid(width: u32, height: u32, r: f32, g: f32, b: f32) -> RawI
     RawImage::from_data(
         width,
         height,
-        PixelFormat::Rgba32F,
+        PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
         data,
@@ -138,7 +138,7 @@ pub fn create_hdr_checkerboard(width: u32, height: u32, low: f32, high: f32) -> 
     RawImage::from_data(
         width,
         height,
-        PixelFormat::Rgba32F,
+        PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
         data,
@@ -205,7 +205,7 @@ pub fn create_hdr_highlights(width: u32, height: u32, background: f32, highlight
     RawImage::from_data(
         width,
         height,
-        PixelFormat::Rgba32F,
+        PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
         data,

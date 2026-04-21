@@ -125,7 +125,7 @@ pub fn apply_gainmap(
     // Create output image
     let mut output = match output_format {
         HdrOutputFormat::LinearFloat => {
-            let mut img = RawImage::new(width, height, PixelFormat::Rgba32F)?;
+            let mut img = RawImage::new(width, height, PixelFormat::RgbaF32)?;
             img.transfer = TransferFunction::Linear;
             img.gamut = sdr.gamut;
             img
@@ -246,7 +246,7 @@ fn get_sdr_linear(sdr: &RawImage, x: u32, y: u32) -> [f32; 3] {
             let b = sdr.data[idx + 2] as f32 / 255.0;
             [srgb_eotf(r), srgb_eotf(g), srgb_eotf(b)]
         }
-        PixelFormat::Rgba32F => {
+        PixelFormat::RgbaF32 => {
             let idx = (y * sdr.stride + x * 16) as usize;
             let r = f32::from_le_bytes([
                 sdr.data[idx],
@@ -273,6 +273,7 @@ fn get_sdr_linear(sdr: &RawImage, x: u32, y: u32) -> [f32; 3] {
             let v = sdr.data[idx] as f32 / 255.0;
             [v, v, v]
         }
+        _ => [0.0, 0.0, 0.0],
     }
 }
 
@@ -727,10 +728,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.format, PixelFormat::Rgba32F);
+        assert_eq!(result.format, PixelFormat::RgbaF32);
         assert_eq!(result.width, 4);
         assert_eq!(result.height, 4);
-        // Rgba32F: 16 bytes per pixel (4 f32 channels)
+        // RgbaF32: 16 bytes per pixel (4 f32 channels)
         assert_eq!(result.data.len(), 4 * 4 * 16);
     }
 
@@ -925,7 +926,7 @@ mod tests {
 
         assert_eq!(result.width, 4);
         assert_eq!(result.height, 4);
-        assert_eq!(result.format, PixelFormat::Rgba32F);
+        assert_eq!(result.format, PixelFormat::RgbaF32);
         assert_eq!(result.data.len(), 4 * 4 * 16);
     }
 
