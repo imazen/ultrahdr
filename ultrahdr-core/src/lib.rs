@@ -1,10 +1,14 @@
-//! Core gain map math and metadata for Ultra HDR.
+//! Core gain map math for Ultra HDR.
 //!
 //! This crate provides the pure computational components for Ultra HDR:
-//! - Gain map metadata parsing/generation (XMP, ISO 21496-1)
 //! - Pixel math for applying/computing gain maps
 //! - Tone mapping (HDR → SDR)
 //! - Color space conversions and transfer functions
+//!
+//! JPEG-container metadata (MPF, XMP, ISO 21496-1 APP2 envelope) previously
+//! lived here in `ultrahdr_core::metadata`; it has moved to
+//! [`zenjpeg::container`] (JPEG-specific parsing) and
+//! [`zencodec::gainmap`] (codec-agnostic payload). See issue #8.
 //!
 //! This crate has **no JPEG codec dependency**. For full Ultra HDR encode/decode,
 //! use the `ultrahdr` crate which provides codec integration.
@@ -27,7 +31,6 @@
 //! use ultrahdr_core::{
 //!     ColorPrimaries, TransferFunction, PixelFormat, RawImage, Unstoppable,
 //!     gainmap::{apply_gainmap, compute_gainmap, GainMapConfig, HdrOutputFormat},
-//!     metadata::xmp::generate_xmp,
 //! };
 //!
 //! // Minimal 8x8 matching HDR + SDR surfaces. In practice these come from
@@ -43,8 +46,8 @@
 //! let config = GainMapConfig::default();
 //! let (gainmap, metadata) = compute_gainmap(&hdr, &sdr, &config, Unstoppable)?;
 //!
-//! // Emit XMP for the secondary JPEG (second arg is the gain-map JPEG's byte length).
-//! let _xmp = generate_xmp(&metadata, 1234);
+//! // For XMP / ISO 21496-1 APP2 serialization, use `zenjpeg::container::xmp`
+//! // and `zencodec::gainmap`.
 //!
 //! // Reconstruct HDR at 4× boost.
 //! let _hdr_out = apply_gainmap(
@@ -63,7 +66,6 @@ extern crate alloc;
 
 pub mod color;
 pub mod gainmap;
-pub mod metadata;
 mod types;
 
 // Re-export core types (local)
@@ -86,9 +88,6 @@ pub use gainmap::{
     compute::{GainMapConfig, compute_gainmap_tonemap},
     splitter::{HableFilmic, LumaFn, LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats},
 };
-
-// Re-export container types
-pub use metadata::container::{ContainerItem, ItemSemantic, MpImageType, MpfEntry};
 
 /// Safety limits for parsing and allocation.
 pub mod limits {

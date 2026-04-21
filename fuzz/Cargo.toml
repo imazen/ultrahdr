@@ -22,6 +22,12 @@ path = "../ultrahdr-rs"
 path = "../../zentone"
 default-features = false
 
+[dependencies.zenjpeg]
+path = "../../zenjpeg/zenjpeg"
+
+[dependencies.zencodec]
+path = "../../zencodec"
+
 # Prevent this from interfering with workspace resolution
 [workspace]
 members = ["."]

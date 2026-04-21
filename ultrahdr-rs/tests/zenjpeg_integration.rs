@@ -9,10 +9,10 @@ use ultrahdr_rs::{
         apply::{HdrOutputFormat, apply_gainmap},
         compute::{GainMapConfig, compute_gainmap},
     },
-    metadata::xmp::{generate_xmp, parse_xmp},
 };
 
 // Re-export zenjpeg types for tests
+use zenjpeg::container::xmp::{generate_xmp, parse_xmp};
 use zenjpeg::decoder::{Decoder, PreserveConfig};
 use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 
