@@ -33,11 +33,11 @@ thiserror = "2.0"
 # JPEG codec — sibling path while we evolve zenjpeg main and ultrahdr in
 # lockstep toward the zentone→ultrahdr-core→zenjpeg→ultrahdr-rs release
 # cascade. CI workflows clone `imazen/zenjpeg` into `../zenjpeg` alongside
-# this repo (same pattern as zentone). Published `version` is advisory for
-# downstream tooling; the path wins locally.
-zenjpeg = { path = "../zenjpeg/zenjpeg", version = "0.8", features = [
-    "decoder",
-] }
+# this repo (same pattern as zentone). The `version` hint is advisory for
+# downstream tooling; the path wins locally. Kept on ONE line so
+# `ci.yml`'s `sed '/^zenjpeg/d' Cargo.toml` correctly strips it for the
+# ultrahdr-core-only standalone jobs.
+zenjpeg = { path = "../zenjpeg/zenjpeg", version = "0.8", features = ["decoder"] }
 
 # Color management
 moxcms = "0.8.1"
