@@ -129,6 +129,12 @@ pub enum ColorTransfer {
 }
 
 /// Pixel format for raw images.
+///
+/// Narrowed to the variants that zenpixels already expresses, pending the
+/// eventual fold to `zenpixels::PixelFormat` (#9). Packed / half-float
+/// formats (Rgba16F, P010, Yuv420, Rgba1010102Pq, Rgba1010102Hlg) were
+/// removed as dormant — every production caller uses one of the four
+/// below; the packed variants had only test / fuzz / bench constructors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PixelFormat {
@@ -136,43 +142,26 @@ pub enum PixelFormat {
     Rgba8,
     /// 8-bit RGB (SDR)
     Rgb8,
-    /// 16-bit float RGBA (HDR linear)
-    Rgba16F,
     /// 32-bit float RGBA (HDR linear)
     Rgba32F,
-    /// 10-bit YCbCr 4:2:0 P010 format (HDR)
-    P010,
-    /// 8-bit YCbCr 4:2:0 (SDR)
-    Yuv420,
-    /// 10-bit packed RGBA (1010102) with PQ transfer
-    Rgba1010102Pq,
-    /// 10-bit packed RGBA (1010102) with HLG transfer
-    Rgba1010102Hlg,
     /// 8-bit grayscale (for gain maps)
     Gray8,
 }
 
 impl PixelFormat {
-    /// Returns the number of bytes per pixel for packed formats.
-    /// Returns None for planar formats like P010 and Yuv420.
+    /// Returns the number of bytes per pixel.
     pub fn bytes_per_pixel(&self) -> Option<usize> {
         match self {
             Self::Rgba8 => Some(4),
             Self::Rgb8 => Some(3),
-            Self::Rgba16F => Some(8),
             Self::Rgba32F => Some(16),
-            Self::Rgba1010102Pq | Self::Rgba1010102Hlg => Some(4),
             Self::Gray8 => Some(1),
-            Self::P010 | Self::Yuv420 => None, // Planar
         }
     }
 
     /// Returns true if this is an HDR format.
     pub fn is_hdr(&self) -> bool {
-        matches!(
-            self,
-            Self::Rgba16F | Self::Rgba32F | Self::P010 | Self::Rgba1010102Pq | Self::Rgba1010102Hlg
-        )
+        matches!(self, Self::Rgba32F)
     }
 }
 
@@ -380,25 +369,12 @@ pub(crate) fn calculate_data_size(
     stride: usize,
     format: PixelFormat,
 ) -> Result<usize> {
+    let _ = format;
     let h = height as u64;
     let s = stride as u64;
-    let size = match format {
-        PixelFormat::Yuv420 => {
-            // Y plane + U plane (1/4) + V plane (1/4)
-            let y_size = h.checked_mul(s);
-            let uv_size = (h / 2).checked_mul(s / 2).and_then(|v| v.checked_mul(2));
-            y_size.and_then(|y| uv_size.and_then(|uv| y.checked_add(uv)))
-        }
-        PixelFormat::P010 => {
-            // Y plane (16-bit) + UV interleaved plane (16-bit, half height)
-            let y_size = h.checked_mul(s).and_then(|v| v.checked_mul(2));
-            let uv_size = (h / 2).checked_mul(s).and_then(|v| v.checked_mul(2));
-            y_size.and_then(|y| uv_size.and_then(|uv| y.checked_add(uv)))
-        }
-        _ => h.checked_mul(s),
-    };
-
-    let size = size.ok_or_else(|| Error::LimitExceeded("data size overflow".into()))?;
+    let size = h
+        .checked_mul(s)
+        .ok_or_else(|| Error::LimitExceeded("data size overflow".into()))?;
 
     if size > usize::MAX as u64 {
         return Err(Error::LimitExceeded(format!(

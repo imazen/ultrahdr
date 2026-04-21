@@ -4,7 +4,7 @@ use alloc::vec;
 
 use crate::color::gamut::rgb_to_luminance;
 
-use crate::color::transfer::{apply_eotf, pq_eotf, srgb_eotf};
+use crate::color::transfer::srgb_eotf;
 use crate::gainmap::splitter::{LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats};
 use crate::types::ColorTransfer;
 use crate::types::{
@@ -297,85 +297,12 @@ fn get_linear_rgb(img: &RawImageRef<'_>, x: u32, y: u32) -> [f32; 3] {
             }
         }
 
-        PixelFormat::Rgba16F => {
-            let idx = y as usize * img.stride + x as usize * 8;
-            let r = half_to_f32(&img.data[idx..idx + 2]);
-            let g = half_to_f32(&img.data[idx + 2..idx + 4]);
-            let b = half_to_f32(&img.data[idx + 4..idx + 6]);
-            [r, g, b]
-        }
-
         PixelFormat::Rgba32F => {
             let idx = y as usize * img.stride + x as usize * 16;
             let r = f32::from_le_bytes(img.data[idx..idx + 4].try_into().unwrap());
             let g = f32::from_le_bytes(img.data[idx + 4..idx + 8].try_into().unwrap());
             let b = f32::from_le_bytes(img.data[idx + 8..idx + 12].try_into().unwrap());
             [r, g, b]
-        }
-
-        PixelFormat::Rgba1010102Pq | PixelFormat::Rgba1010102Hlg => {
-            let idx = y as usize * img.stride + x as usize * 4;
-            let packed = u32::from_le_bytes(img.data[idx..idx + 4].try_into().unwrap());
-
-            let r = (packed & 0x3FF) as f32 / 1023.0;
-            let g = ((packed >> 10) & 0x3FF) as f32 / 1023.0;
-            let b = ((packed >> 20) & 0x3FF) as f32 / 1023.0;
-
-            match img.format {
-                PixelFormat::Rgba1010102Pq => [pq_eotf(r), pq_eotf(g), pq_eotf(b)],
-                _ => [
-                    apply_eotf(r, ColorTransfer::Hlg),
-                    apply_eotf(g, ColorTransfer::Hlg),
-                    apply_eotf(b, ColorTransfer::Hlg),
-                ],
-            }
-        }
-
-        PixelFormat::P010 => {
-            let stride = img.stride;
-            let y_idx = y as usize * stride * 2 + x as usize * 2;
-            let y_val = u16::from_le_bytes(img.data[y_idx..y_idx + 2].try_into().unwrap());
-            let y_lum = (y_val >> 6) as f32 / 1023.0;
-
-            let uv_offset = img.height as usize * stride * 2;
-            let uv_y = y as usize / 2;
-            let uv_x = x as usize / 2;
-            let uv_idx = uv_offset + uv_y * stride * 2 + uv_x * 4;
-
-            let u_val = u16::from_le_bytes(img.data[uv_idx..uv_idx + 2].try_into().unwrap());
-            let v_val = u16::from_le_bytes(img.data[uv_idx + 2..uv_idx + 4].try_into().unwrap());
-
-            let u = (u_val >> 6) as f32 / 1023.0 - 0.5;
-            let v = (v_val >> 6) as f32 / 1023.0 - 0.5;
-
-            let r = y_lum + 1.4746 * v;
-            let g = y_lum - 0.1646 * u - 0.5714 * v;
-            let b = y_lum + 1.8814 * u;
-
-            [pq_eotf(r), pq_eotf(g), pq_eotf(b)]
-        }
-
-        PixelFormat::Yuv420 => {
-            let stride = img.stride;
-            let y_idx = y as usize * stride + x as usize;
-            let y_val = img.data[y_idx] as f32 / 255.0;
-
-            let half_stride = stride / 2;
-            let u_offset = img.height as usize * stride;
-            let v_offset = u_offset + half_stride * (img.height as usize / 2);
-
-            let uv_x = x as usize / 2;
-            let uv_y = y as usize / 2;
-            let uv_idx = uv_y * half_stride + uv_x;
-
-            let u = img.data[u_offset + uv_idx] as f32 / 255.0 - 0.5;
-            let v = img.data[v_offset + uv_idx] as f32 / 255.0 - 0.5;
-
-            let r = y_val + 1.5748 * v;
-            let g = y_val - 0.1873 * u - 0.4681 * v;
-            let b = y_val + 1.8556 * u;
-
-            [srgb_eotf(r), srgb_eotf(g), srgb_eotf(b)]
         }
 
         PixelFormat::Gray8 => {
@@ -385,17 +312,6 @@ fn get_linear_rgb(img: &RawImageRef<'_>, x: u32, y: u32) -> [f32; 3] {
             [linear, linear, linear]
         }
     }
-}
-
-/// Convert half-precision float bytes to f32.
-fn half_to_f32(bytes: &[u8]) -> f32 {
-    let bits = u16::from_le_bytes([bytes[0], bytes[1]]);
-    half::f16::from_bits(bits).to_f32()
-}
-
-/// Same as [`half_to_f32`] but visible to sibling modules (e.g. `apply`).
-pub(super) fn half_to_f32_pub(bytes: &[u8]) -> f32 {
-    half_to_f32(bytes)
 }
 
 /// Downsample a full-resolution single-channel f32 gain map using zenresize.

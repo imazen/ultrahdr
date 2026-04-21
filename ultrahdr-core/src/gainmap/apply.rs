@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 use alloc::vec;
 
-use crate::color::transfer::{pq_oetf, srgb_eotf, srgb_oetf};
+use crate::color::transfer::{srgb_eotf, srgb_oetf};
 use crate::types::{ColorTransfer, GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
 use enough::Stop;
 
@@ -85,11 +85,10 @@ impl GainMapLut {
 
 /// Output format for HDR reconstruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum HdrOutputFormat {
     /// Linear float RGB `[0, ~50]` where 1.0 = SDR white (203 nits)
     LinearFloat,
-    /// PQ-encoded 10-bit RGBA (1010102)
-    Pq1010102,
     /// sRGB 8-bit (SDR output, no HDR boost)
     Srgb8,
 }
@@ -128,12 +127,6 @@ pub fn apply_gainmap(
         HdrOutputFormat::LinearFloat => {
             let mut img = RawImage::new(width, height, PixelFormat::Rgba32F)?;
             img.transfer = ColorTransfer::Linear;
-            img.gamut = sdr.gamut;
-            img
-        }
-        HdrOutputFormat::Pq1010102 => {
-            let mut img = RawImage::new(width, height, PixelFormat::Rgba1010102Pq)?;
-            img.transfer = ColorTransfer::Pq;
             img.gamut = sdr.gamut;
             img
         }
@@ -275,16 +268,10 @@ fn get_sdr_linear(sdr: &RawImage, x: u32, y: u32) -> [f32; 3] {
             ]);
             [r, g, b]
         }
-        PixelFormat::Rgba16F => {
-            let idx = (y * sdr.stride + x * 8) as usize;
-            let r = super::compute::half_to_f32_pub(&sdr.data[idx..idx + 2]);
-            let g = super::compute::half_to_f32_pub(&sdr.data[idx + 2..idx + 4]);
-            let b = super::compute::half_to_f32_pub(&sdr.data[idx + 4..idx + 6]);
-            [r, g, b]
-        }
-        _ => {
-            // For other formats, return mid-gray as fallback
-            [0.18, 0.18, 0.18]
+        PixelFormat::Gray8 => {
+            let idx = (y * sdr.stride + x) as usize;
+            let v = sdr.data[idx] as f32 / 255.0;
+            [v, v, v]
         }
     }
 }
@@ -358,26 +345,6 @@ fn write_output(output: &mut RawImage, x: u32, y: u32, hdr: [f32; 3], format: Hd
     match format {
         HdrOutputFormat::LinearFloat => {
             write_linear_float(output, x, y, hdr);
-        }
-
-        HdrOutputFormat::Pq1010102 => {
-            // Convert linear to PQ
-            // First normalize: linear HDR has 1.0 = SDR white (203 nits)
-            // PQ expects 1.0 = 10000 nits, so multiply by 203/10000
-            let scale = 203.0 / 10000.0;
-            let r_pq = pq_oetf(hdr[0].max(0.0) * scale);
-            let g_pq = pq_oetf(hdr[1].max(0.0) * scale);
-            let b_pq = pq_oetf(hdr[2].max(0.0) * scale);
-
-            // Pack to 1010102
-            let r = (r_pq * 1023.0).round().clamp(0.0, 1023.0) as u32;
-            let g = (g_pq * 1023.0).round().clamp(0.0, 1023.0) as u32;
-            let b = (b_pq * 1023.0).round().clamp(0.0, 1023.0) as u32;
-            let a = 3u32; // Full alpha
-
-            let packed = r | (g << 10) | (b << 20) | (a << 30);
-            let idx = (y * output.stride + x * 4) as usize;
-            output.data[idx..idx + 4].copy_from_slice(&packed.to_le_bytes());
         }
 
         HdrOutputFormat::Srgb8 => {

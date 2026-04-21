@@ -1064,7 +1064,6 @@ pub fn tonemap_image_to_srgb8(img: &RawImage, target_gamut: ColorGamut) -> Resul
 /// Get linear RGB from any image format.
 fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
     use crate::PixelFormat;
-    use crate::color::transfer::{hlg_oetf_inv, pq_eotf};
 
     match img.format {
         PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
@@ -1104,39 +1103,6 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
                 img.data[idx + 11],
             ]);
             [r, g, b]
-        }
-        PixelFormat::Rgba16F => {
-            let idx = (y * img.stride + x * 8) as usize;
-            let r = half::f16::from_le_bytes([img.data[idx], img.data[idx + 1]]).to_f32();
-            let g = half::f16::from_le_bytes([img.data[idx + 2], img.data[idx + 3]]).to_f32();
-            let b = half::f16::from_le_bytes([img.data[idx + 4], img.data[idx + 5]]).to_f32();
-            [r, g, b]
-        }
-        PixelFormat::Rgba1010102Pq => {
-            let idx = (y * img.stride + x * 4) as usize;
-            let packed = u32::from_le_bytes([
-                img.data[idx],
-                img.data[idx + 1],
-                img.data[idx + 2],
-                img.data[idx + 3],
-            ]);
-            let r = (packed & 0x3FF) as f32 / 1023.0;
-            let g = ((packed >> 10) & 0x3FF) as f32 / 1023.0;
-            let b = ((packed >> 20) & 0x3FF) as f32 / 1023.0;
-            [pq_eotf(r), pq_eotf(g), pq_eotf(b)]
-        }
-        PixelFormat::Rgba1010102Hlg => {
-            let idx = (y * img.stride + x * 4) as usize;
-            let packed = u32::from_le_bytes([
-                img.data[idx],
-                img.data[idx + 1],
-                img.data[idx + 2],
-                img.data[idx + 3],
-            ]);
-            let r = (packed & 0x3FF) as f32 / 1023.0;
-            let g = ((packed >> 10) & 0x3FF) as f32 / 1023.0;
-            let b = ((packed >> 20) & 0x3FF) as f32 / 1023.0;
-            [hlg_oetf_inv(r), hlg_oetf_inv(g), hlg_oetf_inv(b)]
         }
         _ => [0.5, 0.5, 0.5],
     }
@@ -1390,24 +1356,21 @@ mod tests {
     fn test_adaptive_tonemapper_fit() {
         use crate::PixelFormat;
 
-        // Create simple HDR image
+        // Create simple HDR image in Rgba32F (the only HDR pixel format we
+        // carry post-narrow; #9 removed Rgba16F as dormant).
         let width = 32u32;
         let height = 32u32;
-        let mut hdr_data = Vec::with_capacity((width * height * 8) as usize);
+        let mut hdr_data = Vec::with_capacity((width * height * 16) as usize);
         let mut sdr_data = Vec::with_capacity((width * height * 4) as usize);
 
         for _y in 0..height {
             for x in 0..width {
                 // HDR: gradient from 0 to 4 (2 stops over SDR white)
                 let l = (x as f32 / width as f32) * 4.0;
-                let hdr_r = half::f16::from_f32(l);
-                let hdr_g = half::f16::from_f32(l);
-                let hdr_b = half::f16::from_f32(l);
-                let hdr_a = half::f16::from_f32(1.0);
-                hdr_data.extend_from_slice(&hdr_r.to_le_bytes());
-                hdr_data.extend_from_slice(&hdr_g.to_le_bytes());
-                hdr_data.extend_from_slice(&hdr_b.to_le_bytes());
-                hdr_data.extend_from_slice(&hdr_a.to_le_bytes());
+                hdr_data.extend_from_slice(&l.to_le_bytes());
+                hdr_data.extend_from_slice(&l.to_le_bytes());
+                hdr_data.extend_from_slice(&l.to_le_bytes());
+                hdr_data.extend_from_slice(&1.0f32.to_le_bytes());
 
                 // SDR: simple tonemap (clamped)
                 let sdr_l = l.min(1.0);
@@ -1422,7 +1385,7 @@ mod tests {
         let hdr = RawImage::from_data(
             width,
             height,
-            PixelFormat::Rgba16F,
+            PixelFormat::Rgba32F,
             ColorGamut::Bt709,
             ColorTransfer::Linear,
             hdr_data,
@@ -1728,14 +1691,14 @@ mod tests {
         let width = 8u32;
         let height = 8u32;
 
-        // Create all-black HDR (16F) and SDR (RGBA8) images
-        let hdr_data = vec![0u8; (width * height * 8) as usize]; // f16 RGBA = 8 bytes/pixel
+        // Create all-black HDR (f32) and SDR (RGBA8) images
+        let hdr_data = vec![0u8; (width * height * 16) as usize]; // f32 RGBA = 16 bytes/pixel
         let sdr_data = vec![0u8; (width * height * 4) as usize]; // RGBA8 = 4 bytes/pixel
 
         let hdr = RawImage::from_data(
             width,
             height,
-            PixelFormat::Rgba16F,
+            PixelFormat::Rgba32F,
             ColorGamut::Bt709,
             ColorTransfer::Linear,
             hdr_data,

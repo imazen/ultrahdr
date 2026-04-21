@@ -56,9 +56,8 @@ We also build on ISO/IEC 21496-1 (Gain map metadata for image conversion), the s
 | MPF (Multi-Picture Format) | Yes | Yes |
 | **Pixel Formats** | | |
 | RGBA 8-bit (SDR) | Yes | Yes |
-| RGBA 32F / 16F (HDR) | Yes | Yes |
-| P010 (10-bit YUV) | Yes | Yes |
-| RGBA 1010102 (PQ/HLG) | Yes | Yes |
+| RGBA 32F (HDR) | Yes | Yes |
+| f16 / 1010102 Pq+Hlg / P010 | Planned ([#10](https://github.com/imazen/ultrahdr/issues/10)) | Yes |
 | **Transfer Functions** | | |
 | sRGB | Yes | Yes |
 | PQ (ST.2084) | Yes | Yes |
@@ -147,8 +146,6 @@ let new_sdr = tonemapper.apply(&edited_hdr)?;
 
 ### Input (HDR)
 - `Rgba32F` - Linear float RGBA
-- `Rgba16F` - Half-float RGBA
-- `P010` - 10-bit YUV (BT.2020)
 
 ### Input (SDR)
 - `Rgba8` - 8-bit sRGB RGBA
@@ -156,8 +153,14 @@ let new_sdr = tonemapper.apply(&edited_hdr)?;
 
 ### Output (HDR)
 - `LinearFloat` - Linear RGB float
-- `Pq1010102` - PQ-encoded 10-bit packed
 - `Srgb8` - Clipped to SDR range
+
+Platform-specific packed/half-float HDR formats (`Rgba16F`, `P010`, `Rgba1010102Pq`,
+`Rgba1010102Hlg`) are tracked as a follow-up in
+[#10](https://github.com/imazen/ultrahdr/issues/10) — when an integration with iOS
+AVFoundation / Android Camera2 / HEIC-decoded HDR materialises, these adapters
+belong in `ultrahdr-rs` as an I/O layer over zenpixels, not in `ultrahdr-core`
+math.
 
 ## Metadata Formats
 
