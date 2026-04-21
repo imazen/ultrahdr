@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use ultrahdr_rs::{ColorGamut, ColorTransfer, GainMapMetadata, PixelFormat, RawImage};
+use ultrahdr_rs::{ColorPrimaries, TransferFunction, GainMapMetadata, PixelFormat, RawImage};
 
 /// Create an HDR gradient image for testing.
 ///
@@ -34,8 +34,8 @@ pub fn create_hdr_gradient(width: u32, height: u32, peak_brightness: f32) -> Raw
         width,
         height,
         PixelFormat::Rgba32F,
-        ColorGamut::Bt709,
-        ColorTransfer::Linear,
+        ColorPrimaries::Bt709,
+        TransferFunction::Linear,
         data,
     )
     .unwrap()
@@ -63,8 +63,8 @@ pub fn create_sdr_gradient(width: u32, height: u32) -> RawImage {
         width,
         height,
         PixelFormat::Rgba8,
-        ColorGamut::Bt709,
-        ColorTransfer::Srgb,
+        ColorPrimaries::Bt709,
+        TransferFunction::Srgb,
         data,
     )
     .unwrap()
@@ -87,8 +87,8 @@ pub fn create_hdr_solid(width: u32, height: u32, r: f32, g: f32, b: f32) -> RawI
         width,
         height,
         PixelFormat::Rgba32F,
-        ColorGamut::Bt709,
-        ColorTransfer::Linear,
+        ColorPrimaries::Bt709,
+        TransferFunction::Linear,
         data,
     )
     .unwrap()
@@ -111,8 +111,8 @@ pub fn create_sdr_solid(width: u32, height: u32, r: u8, g: u8, b: u8) -> RawImag
         width,
         height,
         PixelFormat::Rgba8,
-        ColorGamut::Bt709,
-        ColorTransfer::Srgb,
+        ColorPrimaries::Bt709,
+        TransferFunction::Srgb,
         data,
     )
     .unwrap()
@@ -139,8 +139,8 @@ pub fn create_hdr_checkerboard(width: u32, height: u32, low: f32, high: f32) -> 
         width,
         height,
         PixelFormat::Rgba32F,
-        ColorGamut::Bt709,
-        ColorTransfer::Linear,
+        ColorPrimaries::Bt709,
+        TransferFunction::Linear,
         data,
     )
     .unwrap()
@@ -167,8 +167,8 @@ pub fn create_sdr_checkerboard(width: u32, height: u32, low: u8, high: u8) -> Ra
         width,
         height,
         PixelFormat::Rgba8,
-        ColorGamut::Bt709,
-        ColorTransfer::Srgb,
+        ColorPrimaries::Bt709,
+        TransferFunction::Srgb,
         data,
     )
     .unwrap()
@@ -206,8 +206,8 @@ pub fn create_hdr_highlights(width: u32, height: u32, background: f32, highlight
         width,
         height,
         PixelFormat::Rgba32F,
-        ColorGamut::Bt709,
-        ColorTransfer::Linear,
+        ColorPrimaries::Bt709,
+        TransferFunction::Linear,
         data,
     )
     .unwrap()

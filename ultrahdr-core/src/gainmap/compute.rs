@@ -6,9 +6,9 @@ use crate::color::gamut::rgb_to_luminance;
 
 use crate::color::transfer::srgb_eotf;
 use crate::gainmap::splitter::{LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats};
-use crate::types::ColorTransfer;
+use crate::types::TransferFunction;
 use crate::types::{
-    ColorGamut, GainMap, GainMapMetadata, PixelFormat, RawImage, RawImageRef, Result,
+    ColorPrimaries, GainMap, GainMapMetadata, PixelFormat, RawImage, RawImageRef, Result,
 };
 use enough::Stop;
 
@@ -291,8 +291,8 @@ fn get_linear_rgb(img: &RawImageRef<'_>, x: u32, y: u32) -> [f32; 3] {
 
             // Apply EOTF based on transfer function
             match img.transfer {
-                ColorTransfer::Srgb => [srgb_eotf(r), srgb_eotf(g), srgb_eotf(b)],
-                ColorTransfer::Linear => [r, g, b],
+                TransferFunction::Srgb => [srgb_eotf(r), srgb_eotf(g), srgb_eotf(b)],
+                TransferFunction::Linear => [r, g, b],
                 _ => [srgb_eotf(r), srgb_eotf(g), srgb_eotf(b)], // Assume sRGB for 8-bit
             }
         }
@@ -342,7 +342,7 @@ fn downsample_gain_f32(
 // ---------------------------------------------------------------------------
 
 /// Derive a zentone [`SplitConfig`] from a [`GainMapConfig`] and source gamut.
-fn split_config_from_gainmap(config: &GainMapConfig, gamut: ColorGamut) -> SplitConfig {
+fn split_config_from_gainmap(config: &GainMapConfig, gamut: ColorPrimaries) -> SplitConfig {
     SplitConfig {
         luma_weights: crate::color::gamut::luma_coefficients(gamut),
         base_offset: config.base_offset,
@@ -443,7 +443,7 @@ pub fn compute_gainmap_tonemap<T: LumaToneMap>(
     // Allocate outputs.
     let mut sdr_image = RawImage::new(width, height, PixelFormat::Rgba32F)?;
     sdr_image.gamut = hdr.gamut;
-    sdr_image.transfer = ColorTransfer::Linear;
+    sdr_image.transfer = TransferFunction::Linear;
 
     let mut gainmap = GainMap::new(gm_width, gm_height)?;
     let mut stats = SplitStats::default();
@@ -547,7 +547,7 @@ pub fn compute_gainmap_tonemap<T: LumaToneMap>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ColorGamut;
+    use crate::ColorPrimaries;
 
     #[test]
     fn test_gainmap_config_default() {
@@ -561,8 +561,8 @@ mod tests {
     fn test_compute_gainmap_basic() {
         // Create simple test images
         let mut hdr = RawImage::new(8, 8, PixelFormat::Rgba8).unwrap();
-        hdr.gamut = ColorGamut::Bt709;
-        hdr.transfer = ColorTransfer::Srgb;
+        hdr.gamut = ColorPrimaries::Bt709;
+        hdr.transfer = TransferFunction::Srgb;
         // Fill with mid-gray
         for i in 0..hdr.data.len() / 4 {
             hdr.data[i * 4] = 180; // R - brighter
@@ -572,8 +572,8 @@ mod tests {
         }
 
         let mut sdr = RawImage::new(8, 8, PixelFormat::Rgba8).unwrap();
-        sdr.gamut = ColorGamut::Bt709;
-        sdr.transfer = ColorTransfer::Srgb;
+        sdr.gamut = ColorPrimaries::Bt709;
+        sdr.transfer = TransferFunction::Srgb;
         // Fill with darker gray
         for i in 0..sdr.data.len() / 4 {
             sdr.data[i * 4] = 128; // R
@@ -704,8 +704,8 @@ mod tests {
             w,
             h,
             PixelFormat::Rgba32F,
-            ColorGamut::Bt709,
-            ColorTransfer::Linear,
+            ColorPrimaries::Bt709,
+            TransferFunction::Linear,
             data,
         )
         .unwrap()
@@ -727,8 +727,8 @@ mod tests {
             w,
             h,
             PixelFormat::Rgba8,
-            ColorGamut::Bt709,
-            ColorTransfer::Srgb,
+            ColorPrimaries::Bt709,
+            TransferFunction::Srgb,
             data,
         )
         .unwrap()
@@ -852,8 +852,8 @@ mod tests {
             4,
             4,
             PixelFormat::Rgba8,
-            ColorGamut::Bt709,
-            ColorTransfer::Srgb,
+            ColorPrimaries::Bt709,
+            TransferFunction::Srgb,
             vec![128u8; 4 * 4 * 4],
         )
         .unwrap();
@@ -898,8 +898,8 @@ mod tests {
 
     fn make_uniform_rgba32f(width: u32, height: u32, value: f32) -> RawImage {
         let mut img = RawImage::new(width, height, PixelFormat::Rgba32F).unwrap();
-        img.gamut = ColorGamut::Bt709;
-        img.transfer = ColorTransfer::Linear;
+        img.gamut = ColorPrimaries::Bt709;
+        img.transfer = TransferFunction::Linear;
         let stride = img.stride;
         for y in 0..height {
             for x in 0..width {
@@ -1027,12 +1027,12 @@ mod tests {
             alternate_offset: 1.0 / 64.0,
             ..GainMapConfig::default()
         };
-        let sc = split_config_from_gainmap(&config, ColorGamut::Bt709);
+        let sc = split_config_from_gainmap(&config, ColorPrimaries::Bt709);
         assert!((sc.min_log2 - 0.0).abs() < 1e-6, "log2(1.0) = 0");
         assert!((sc.max_log2 - 2.0).abs() < 1e-6, "log2(4.0) = 2");
         assert_eq!(
             sc.luma_weights,
-            crate::color::gamut::luma_coefficients(ColorGamut::Bt709)
+            crate::color::gamut::luma_coefficients(ColorPrimaries::Bt709)
         );
         assert_eq!(sc.base_offset, 1.0 / 64.0);
         assert_eq!(sc.alternate_offset, 1.0 / 64.0);
@@ -1043,7 +1043,7 @@ mod tests {
     fn rgba32f_to_rgba8_srgb(src: &RawImage) -> RawImage {
         let mut dst = RawImage::new(src.width, src.height, PixelFormat::Rgba8).unwrap();
         dst.gamut = src.gamut;
-        dst.transfer = ColorTransfer::Srgb;
+        dst.transfer = TransferFunction::Srgb;
         for y in 0..src.height {
             for x in 0..src.width {
                 let px = read_pixel_rgba32f(src, x, y);
@@ -1064,8 +1064,8 @@ mod tests {
         let width = 16u32;
         let height = 4u32;
         let mut hdr = RawImage::new(width, height, PixelFormat::Rgba32F).unwrap();
-        hdr.gamut = ColorGamut::Bt709;
-        hdr.transfer = ColorTransfer::Linear;
+        hdr.gamut = ColorPrimaries::Bt709;
+        hdr.transfer = TransferFunction::Linear;
         let stride = hdr.stride;
         for y in 0..height {
             for x in 0..width {

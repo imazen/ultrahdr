@@ -15,7 +15,7 @@
 
 use alloc::boxed::Box;
 
-use crate::types::ColorTransfer;
+use crate::types::TransferFunction;
 
 // All scalar transfer functions delegate to `linear-srgb` for fast
 // rational polynomial / fast-math implementations. Ultrahdr-specific
@@ -147,29 +147,35 @@ pub fn hlg_eotf(encoded: f32, display_peak_nits: f32) -> f32 {
 // ============================================================================
 
 /// Apply OETF (linear → encoded) for the given transfer function.
+///
+/// Transfer functions outside ultrahdr's handled set (Srgb, Linear, Pq,
+/// Hlg) — for example BT.709, Gamma 2.2 — fall through to sRGB.
 #[inline]
-pub fn apply_oetf(linear: f32, transfer: ColorTransfer) -> f32 {
+pub fn apply_oetf(linear: f32, transfer: TransferFunction) -> f32 {
     match transfer {
-        ColorTransfer::Srgb => srgb_oetf(linear),
-        ColorTransfer::Linear => linear,
-        ColorTransfer::Pq => pq_oetf(linear),
-        ColorTransfer::Hlg => hlg_oetf(linear),
+        TransferFunction::Srgb => srgb_oetf(linear),
+        TransferFunction::Linear => linear,
+        TransferFunction::Pq => pq_oetf(linear),
+        TransferFunction::Hlg => hlg_oetf(linear),
+        _ => srgb_oetf(linear),
     }
 }
 
 /// Apply EOTF (encoded → linear) for the given transfer function.
 ///
 /// For HLG, assumes a 1000 nit display and returns normalized linear `[0,1]`.
+/// Unhandled variants fall through to sRGB (see [`apply_oetf`]).
 #[inline]
-pub fn apply_eotf(encoded: f32, transfer: ColorTransfer) -> f32 {
+pub fn apply_eotf(encoded: f32, transfer: TransferFunction) -> f32 {
     match transfer {
-        ColorTransfer::Srgb => srgb_eotf(encoded),
-        ColorTransfer::Linear => encoded,
-        ColorTransfer::Pq => pq_eotf(encoded),
-        ColorTransfer::Hlg => {
+        TransferFunction::Srgb => srgb_eotf(encoded),
+        TransferFunction::Linear => encoded,
+        TransferFunction::Pq => pq_eotf(encoded),
+        TransferFunction::Hlg => {
             // Return normalized to SDR white (203 nits)
             hlg_eotf(encoded, 1000.0) / 1000.0
         }
+        _ => srgb_eotf(encoded),
     }
 }
 

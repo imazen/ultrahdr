@@ -5,7 +5,7 @@
 mod common;
 
 use common::{create_hdr_solid, create_sdr_solid};
-use ultrahdr_rs::{ColorGamut, ColorTransfer, Encoder, PixelFormat, RawImage};
+use ultrahdr_rs::{ColorPrimaries, TransferFunction, Encoder, PixelFormat, RawImage};
 
 // ============================================================================
 // Dimension Edge Cases
@@ -254,8 +254,8 @@ fn test_value_negative() {
         32,
         32,
         PixelFormat::Rgba32F,
-        ColorGamut::Bt709,
-        ColorTransfer::Linear,
+        ColorPrimaries::Bt709,
+        TransferFunction::Linear,
         data,
     )
     .unwrap();
@@ -289,8 +289,8 @@ fn test_value_nan() {
         32,
         32,
         PixelFormat::Rgba32F,
-        ColorGamut::Bt709,
-        ColorTransfer::Linear,
+        ColorPrimaries::Bt709,
+        TransferFunction::Linear,
         data,
     )
     .unwrap();
@@ -324,8 +324,8 @@ fn test_value_infinity() {
         32,
         32,
         PixelFormat::Rgba32F,
-        ColorGamut::Bt709,
-        ColorTransfer::Linear,
+        ColorPrimaries::Bt709,
+        TransferFunction::Linear,
         data,
     )
     .unwrap();
@@ -473,8 +473,8 @@ fn test_color_p3_gamut() {
         64,
         64,
         PixelFormat::Rgba32F,
-        ColorGamut::DisplayP3,
-        ColorTransfer::Linear,
+        ColorPrimaries::DisplayP3,
+        TransferFunction::Linear,
         data,
     )
     .unwrap();
@@ -503,8 +503,8 @@ fn test_color_bt2100_gamut() {
         64,
         64,
         PixelFormat::Rgba32F,
-        ColorGamut::Bt2020,
-        ColorTransfer::Linear,
+        ColorPrimaries::Bt2020,
+        TransferFunction::Linear,
         data,
     )
     .unwrap();

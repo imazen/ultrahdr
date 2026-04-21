@@ -25,7 +25,7 @@
 //!
 //! ```
 //! use ultrahdr_core::{
-//!     ColorGamut, ColorTransfer, PixelFormat, RawImage, Unstoppable,
+//!     ColorPrimaries, TransferFunction, PixelFormat, RawImage, Unstoppable,
 //!     gainmap::{apply_gainmap, compute_gainmap, GainMapConfig, HdrOutputFormat},
 //!     metadata::xmp::generate_xmp,
 //! };
@@ -33,11 +33,11 @@
 //! // Minimal 8x8 matching HDR + SDR surfaces. In practice these come from
 //! // your image decoder — this example just shows the call shape.
 //! let mut hdr = RawImage::new(8, 8, PixelFormat::Rgba8)?;
-//! hdr.gamut = ColorGamut::Bt709;
-//! hdr.transfer = ColorTransfer::Srgb;
+//! hdr.gamut = ColorPrimaries::Bt709;
+//! hdr.transfer = TransferFunction::Srgb;
 //! let mut sdr = RawImage::new(8, 8, PixelFormat::Rgba8)?;
-//! sdr.gamut = ColorGamut::Bt709;
-//! sdr.transfer = ColorTransfer::Srgb;
+//! sdr.gamut = ColorPrimaries::Bt709;
+//! sdr.transfer = TransferFunction::Srgb;
 //!
 //! // Derive gain map + metadata.
 //! let config = GainMapConfig::default();
@@ -68,7 +68,7 @@ mod types;
 
 // Re-export core types (local)
 pub use types::{
-    ColorGamut, ColorTransfer, Error, GainMap, GainMapEncodingFormat, PixelFormat, RawImage,
+    ColorPrimaries, TransferFunction, Error, GainMap, GainMapEncodingFormat, PixelFormat, RawImage,
     RawImageRef, RawImageRefMut, Result, luminance, validate_gainmap_metadata,
 };
 

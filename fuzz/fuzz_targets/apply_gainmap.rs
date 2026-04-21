@@ -69,8 +69,8 @@ fuzz_target!(|data: &[u8]| {
         width,
         height,
         sdr_format,
-        ultrahdr_core::ColorGamut::Bt709,
-        ultrahdr_core::ColorTransfer::Srgb,
+        ultrahdr_core::ColorPrimaries::Bt709,
+        ultrahdr_core::TransferFunction::Srgb,
         sdr_data,
     ) {
         Ok(img) => img,

@@ -4,7 +4,7 @@
 //!
 //! Run with: cargo run --example encode
 
-use ultrahdr::{ColorGamut, ColorTransfer, Encoder, PixelFormat, RawImage};
+use ultrahdr::{ColorPrimaries, TransferFunction, Encoder, PixelFormat, RawImage};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Ultra HDR Encoder Example");
@@ -41,8 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         width as u32,
         height as u32,
         PixelFormat::Rgba32F,
-        ColorGamut::Bt709,
-        ColorTransfer::Linear,
+        ColorPrimaries::Bt709,
+        TransferFunction::Linear,
         hdr_data,
     )?;
 

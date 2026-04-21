@@ -92,8 +92,8 @@ fuzz_target!(|data: &[u8]| {
             let config = ultrahdr_core::color::tonemap::ToneMapConfig {
                 target_peak_nits: 203.0,
                 hdr_peak_nits: 10000.0,
-                target_gamut: ultrahdr_core::ColorGamut::Bt709,
-                source_gamut: ultrahdr_core::ColorGamut::Bt2020,
+                target_gamut: ultrahdr_core::ColorPrimaries::Bt709,
+                source_gamut: ultrahdr_core::ColorPrimaries::Bt2020,
             };
             let _ = ultrahdr_core::color::tonemap::tonemap_pq_to_sdr([r, g, b], &config);
             let _ = ultrahdr_core::color::tonemap::tonemap_hlg_to_sdr([r, g, b], &config);
@@ -115,15 +115,15 @@ fuzz_target!(|data: &[u8]| {
                 ultrahdr_core::PixelFormat::Rgba8
             };
             let gamut = match gamut_idx {
-                0 => ultrahdr_core::ColorGamut::Bt709,
-                1 => ultrahdr_core::ColorGamut::DisplayP3,
-                _ => ultrahdr_core::ColorGamut::Bt2020,
+                0 => ultrahdr_core::ColorPrimaries::Bt709,
+                1 => ultrahdr_core::ColorPrimaries::DisplayP3,
+                _ => ultrahdr_core::ColorPrimaries::Bt2020,
             };
             let transfer = match transfer_idx {
-                0 => ultrahdr_core::ColorTransfer::Srgb,
-                1 => ultrahdr_core::ColorTransfer::Linear,
-                2 => ultrahdr_core::ColorTransfer::Pq,
-                _ => ultrahdr_core::ColorTransfer::Hlg,
+                0 => ultrahdr_core::TransferFunction::Srgb,
+                1 => ultrahdr_core::TransferFunction::Linear,
+                2 => ultrahdr_core::TransferFunction::Pq,
+                _ => ultrahdr_core::TransferFunction::Hlg,
             };
 
             let pixel_start = 5;
@@ -151,7 +151,7 @@ fuzz_target!(|data: &[u8]| {
 
             let _ = ultrahdr_core::color::tonemap::tonemap_image_to_srgb8(
                 &img,
-                ultrahdr_core::ColorGamut::Bt709,
+                ultrahdr_core::ColorPrimaries::Bt709,
             );
         }
         _ => {

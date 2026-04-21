@@ -3,7 +3,7 @@
 use ultrahdr_core::gainmap::apply::{HdrOutputFormat, apply_gainmap};
 use ultrahdr_core::metadata::{mpf::find_jpeg_boundaries, xmp::parse_xmp};
 use ultrahdr_core::{
-    ColorGamut, ColorTransfer, Error, GainMap, GainMapMetadata, PixelFormat, RawImage, Result,
+    ColorPrimaries, TransferFunction, Error, GainMap, GainMapMetadata, PixelFormat, RawImage, Result,
     Unstoppable,
 };
 
@@ -315,8 +315,8 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<RawImage> {
         stride: width * 4,
         data,
         format: PixelFormat::Rgba8,
-        gamut: ColorGamut::Bt709, // Assume sRGB for SDR
-        transfer: ColorTransfer::Srgb,
+        gamut: ColorPrimaries::Bt709, // Assume sRGB for SDR
+        transfer: TransferFunction::Srgb,
     })
 }
 
@@ -363,8 +363,8 @@ fn decode_jpeg_to_grayscale(jpeg_data: &[u8]) -> Result<RawImage> {
         stride: width,
         data,
         format: PixelFormat::Gray8,
-        gamut: ColorGamut::Bt709,
-        transfer: ColorTransfer::Srgb,
+        gamut: ColorPrimaries::Bt709,
+        transfer: TransferFunction::Srgb,
     })
 }
 

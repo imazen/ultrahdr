@@ -15,7 +15,7 @@ mod common;
 
 use ultrahdr_rs::gainmap::streaming::RowEncoder;
 use ultrahdr_rs::{
-    ColorGamut, GainMapConfig, color::tonemap::filmic_narkowicz, color::transfer::srgb_oetf,
+    ColorPrimaries, GainMapConfig, color::tonemap::filmic_narkowicz, color::transfer::srgb_oetf,
 };
 use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 
@@ -124,8 +124,8 @@ fn test_streaming_pipeline_memory_usage() {
         width,
         height,
         gainmap_config,
-        ColorGamut::Bt709, // HDR gamut
-        ColorGamut::Bt709, // SDR gamut
+        ColorPrimaries::Bt709, // HDR gamut
+        ColorPrimaries::Bt709, // SDR gamut
     )
     .unwrap();
 
@@ -304,8 +304,8 @@ fn test_streaming_vs_batch_equivalence() {
         width,
         height,
         gainmap_config.clone(),
-        ColorGamut::Bt709,
-        ColorGamut::Bt709,
+        ColorPrimaries::Bt709,
+        ColorPrimaries::Bt709,
     )
     .unwrap();
 

@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 use alloc::vec;
 
 use crate::color::transfer::{srgb_eotf, srgb_oetf};
-use crate::types::{ColorTransfer, GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
+use crate::types::{TransferFunction, GainMap, GainMapMetadata, PixelFormat, RawImage, Result};
 use enough::Stop;
 
 /// Precomputed lookup table for gain map decoding.
@@ -126,13 +126,13 @@ pub fn apply_gainmap(
     let mut output = match output_format {
         HdrOutputFormat::LinearFloat => {
             let mut img = RawImage::new(width, height, PixelFormat::Rgba32F)?;
-            img.transfer = ColorTransfer::Linear;
+            img.transfer = TransferFunction::Linear;
             img.gamut = sdr.gamut;
             img
         }
         HdrOutputFormat::Srgb8 => {
             let mut img = RawImage::new(width, height, PixelFormat::Rgba8)?;
-            img.transfer = ColorTransfer::Srgb;
+            img.transfer = TransferFunction::Srgb;
             img.gamut = sdr.gamut;
             img
         }
@@ -405,7 +405,7 @@ mod tests {
         );
         out_row[0]
     }
-    use crate::types::ColorGamut;
+    use crate::types::ColorPrimaries;
 
     #[test]
     fn test_calculate_weight() {
@@ -452,8 +452,8 @@ mod tests {
     fn test_apply_gainmap_basic() {
         // Create SDR image
         let mut sdr = RawImage::new(4, 4, PixelFormat::Rgba8).unwrap();
-        sdr.gamut = ColorGamut::Bt709;
-        sdr.transfer = ColorTransfer::Srgb;
+        sdr.gamut = ColorPrimaries::Bt709;
+        sdr.transfer = TransferFunction::Srgb;
         for i in 0..sdr.data.len() / 4 {
             sdr.data[i * 4] = 128;
             sdr.data[i * 4 + 1] = 128;
@@ -679,8 +679,8 @@ mod tests {
             4,
             4,
             PixelFormat::Rgba8,
-            ColorGamut::Bt709,
-            ColorTransfer::Srgb,
+            ColorPrimaries::Bt709,
+            TransferFunction::Srgb,
             data,
         )
         .unwrap()

@@ -1,7 +1,7 @@
 //! ICC profile handling for JPEG images.
 
 use moxcms::ColorProfile;
-use ultrahdr_core::ColorGamut;
+use ultrahdr_core::ColorPrimaries;
 
 /// ICC profile APP2 identifier.
 pub const ICC_IDENTIFIER: &[u8] = b"ICC_PROFILE\0";
@@ -97,17 +97,17 @@ pub fn extract_icc_profile(data: &[u8]) -> Option<Vec<u8>> {
 ///
 /// Uses moxcms to generate correct ICC v2 profiles with proper
 /// chromatic adaptation and transfer curves.
-pub fn get_icc_profile_for_gamut(gamut: ColorGamut) -> Vec<u8> {
+pub fn get_icc_profile_for_gamut(gamut: ColorPrimaries) -> Vec<u8> {
     let profile = match gamut {
-        ColorGamut::Bt709 => ColorProfile::new_srgb(),
-        ColorGamut::DisplayP3 => ColorProfile::new_display_p3(),
-        ColorGamut::Bt2020 => {
+        ColorPrimaries::Bt709 => ColorProfile::new_srgb(),
+        ColorPrimaries::DisplayP3 => ColorProfile::new_display_p3(),
+        ColorPrimaries::Bt2020 => {
             // BT.2100 typically uses PQ or HLG, not sRGB TRC.
             // For the SDR base image's ICC tag we use BT.2020 primaries
             // with a gamma 2.2 TRC (the SDR rendition is always 8-bit).
             ColorProfile::new_bt2020()
         }
-        // ColorGamut is non_exhaustive: default to sRGB for unknown primaries.
+        // ColorPrimaries is non_exhaustive: default to sRGB for unknown primaries.
         _ => ColorProfile::new_srgb(),
     };
 
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_icc_roundtrip() {
-        let original = get_icc_profile_for_gamut(ColorGamut::Bt709);
+        let original = get_icc_profile_for_gamut(ColorPrimaries::Bt709);
         let markers = create_icc_markers(&original);
 
         // Build fake JPEG with ICC markers
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn test_get_icc_profile_srgb() {
-        let profile_bytes = get_icc_profile_for_gamut(ColorGamut::Bt709);
+        let profile_bytes = get_icc_profile_for_gamut(ColorPrimaries::Bt709);
         // moxcms generates valid ICC profiles — verify basic structure
         assert!(profile_bytes.len() > 128, "ICC profile too short");
         // ICC signature at offset 36: 'acsp'
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_get_icc_profile_p3() {
-        let profile_bytes = get_icc_profile_for_gamut(ColorGamut::DisplayP3);
+        let profile_bytes = get_icc_profile_for_gamut(ColorPrimaries::DisplayP3);
         assert!(profile_bytes.len() > 128);
         assert_eq!(&profile_bytes[36..40], b"acsp");
         // Should be parseable by moxcms
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_get_icc_profile_bt2100() {
-        let profile_bytes = get_icc_profile_for_gamut(ColorGamut::Bt2020);
+        let profile_bytes = get_icc_profile_for_gamut(ColorPrimaries::Bt2020);
         assert!(profile_bytes.len() > 128);
         assert_eq!(&profile_bytes[36..40], b"acsp");
         let parsed = ColorProfile::new_from_slice(&profile_bytes);

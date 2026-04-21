@@ -100,33 +100,16 @@ impl From<StopReason> for Error {
     }
 }
 
-/// Color gamut / color space primaries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
-pub enum ColorGamut {
-    /// BT.709 / sRGB primaries
-    #[default]
-    Bt709,
-    /// Display P3 primaries
-    DisplayP3,
-    /// BT.2020 primaries (also used by BT.2100 for HDR)
-    Bt2020,
-}
+/// Color primaries. Re-exported from [`zenpixels::ColorPrimaries`].
+///
+/// ultrahdr-core used to define its own `ColorGamut` enum; #9 folded it
+/// into zenpixels so every `zen*` crate speaks the same color-metadata
+/// vocabulary.
+pub use zenpixels::ColorPrimaries;
 
-/// Electro-optical transfer function (EOTF/OETF).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
-pub enum ColorTransfer {
-    /// sRGB transfer function (gamma ~2.2)
-    #[default]
-    Srgb,
-    /// Linear (gamma 1.0)
-    Linear,
-    /// Perceptual Quantizer (SMPTE ST 2084) - HDR
-    Pq,
-    /// Hybrid Log-Gamma (ITU-R BT.2100) - HDR
-    Hlg,
-}
+/// Electro-optical transfer function. Re-exported from
+/// [`zenpixels::TransferFunction`].
+pub use zenpixels::TransferFunction;
 
 /// Pixel format for raw images.
 ///
@@ -200,9 +183,9 @@ pub struct RawImage {
     /// Pixel format.
     pub format: PixelFormat,
     /// Color gamut.
-    pub gamut: ColorGamut,
+    pub gamut: ColorPrimaries,
     /// Transfer function.
-    pub transfer: ColorTransfer,
+    pub transfer: TransferFunction,
     /// Pixel data (layout depends on format).
     pub data: Vec<u8>,
     /// Row stride in bytes (for packed formats).
@@ -230,8 +213,11 @@ impl RawImage {
             width,
             height,
             format,
-            gamut: ColorGamut::default(),
-            transfer: ColorTransfer::default(),
+            gamut: ColorPrimaries::default(),
+            // `zenpixels::TransferFunction` doesn't derive Default; pick
+            // sRGB explicitly (was the `#[default]` on ultrahdr-core's
+            // old enum before the #9 fold).
+            transfer: TransferFunction::Srgb,
             data: vec![0u8; data_size],
             stride,
         })
@@ -242,8 +228,8 @@ impl RawImage {
         width: u32,
         height: u32,
         format: PixelFormat,
-        gamut: ColorGamut,
-        transfer: ColorTransfer,
+        gamut: ColorPrimaries,
+        transfer: TransferFunction,
         data: Vec<u8>,
     ) -> Result<Self> {
         Self::validate_dimensions(width, height)?;
@@ -448,9 +434,9 @@ pub struct RawImageRef<'a> {
     /// Pixel format.
     pub format: PixelFormat,
     /// Color gamut.
-    pub gamut: ColorGamut,
+    pub gamut: ColorPrimaries,
     /// Transfer function.
-    pub transfer: ColorTransfer,
+    pub transfer: TransferFunction,
     /// Borrowed pixel data (layout depends on format).
     pub data: &'a [u8],
 }
@@ -467,8 +453,8 @@ impl<'a> RawImageRef<'a> {
         height: u32,
         stride: usize,
         format: PixelFormat,
-        gamut: ColorGamut,
-        transfer: ColorTransfer,
+        gamut: ColorPrimaries,
+        transfer: TransferFunction,
     ) -> Result<Self> {
         validate_dimensions(width, height)?;
         let min_row = min_stride_bytes(width, format)?;
@@ -514,9 +500,9 @@ pub struct RawImageRefMut<'a> {
     /// Pixel format.
     pub format: PixelFormat,
     /// Color gamut.
-    pub gamut: ColorGamut,
+    pub gamut: ColorPrimaries,
     /// Transfer function.
-    pub transfer: ColorTransfer,
+    pub transfer: TransferFunction,
     /// Mutably borrowed pixel data (layout depends on format).
     pub data: &'a mut [u8],
 }
@@ -531,8 +517,8 @@ impl<'a> RawImageRefMut<'a> {
         height: u32,
         stride: usize,
         format: PixelFormat,
-        gamut: ColorGamut,
-        transfer: ColorTransfer,
+        gamut: ColorPrimaries,
+        transfer: TransferFunction,
     ) -> Result<Self> {
         validate_dimensions(width, height)?;
         let min_row = min_stride_bytes(width, format)?;
@@ -670,7 +656,7 @@ pub fn validate_gainmap_metadata(metadata: &GainMapMetadata) -> Result<()> {
 }
 
 // ============================================================================
-// zenpixels interop: From conversions for ColorGamut/ColorTransfer
+// zenpixels interop: From conversions for ColorPrimaries/TransferFunction
 // ============================================================================
 
 mod zenpixels_interop {
@@ -710,8 +696,8 @@ mod zenpixels_interop {
                     desc.pixel_format()
                 ))
             })?;
-            let gamut = ColorGamut::from(desc.primaries);
-            let transfer = ColorTransfer::from(desc.transfer());
+            let gamut = desc.primaries;
+            let transfer = desc.transfer();
             RawImageRef::new(
                 ps.as_strided_bytes(),
                 ps.width(),
@@ -724,53 +710,9 @@ mod zenpixels_interop {
         }
     }
 
-    // --- ColorGamut ↔ ColorPrimaries ---
-
-    impl From<ColorGamut> for ColorPrimaries {
-        fn from(gamut: ColorGamut) -> Self {
-            match gamut {
-                ColorGamut::Bt709 => ColorPrimaries::Bt709,
-                ColorGamut::DisplayP3 => ColorPrimaries::DisplayP3,
-                ColorGamut::Bt2020 => ColorPrimaries::Bt2020,
-            }
-        }
-    }
-
-    impl From<ColorPrimaries> for ColorGamut {
-        fn from(primaries: ColorPrimaries) -> Self {
-            match primaries {
-                ColorPrimaries::Bt709 => ColorGamut::Bt709,
-                ColorPrimaries::DisplayP3 => ColorGamut::DisplayP3,
-                ColorPrimaries::Bt2020 => ColorGamut::Bt2020,
-                _ => ColorGamut::Bt709, // fallback
-            }
-        }
-    }
-
-    // --- ColorTransfer ↔ TransferFunction ---
-
-    impl From<ColorTransfer> for TransferFunction {
-        fn from(transfer: ColorTransfer) -> Self {
-            match transfer {
-                ColorTransfer::Srgb => TransferFunction::Srgb,
-                ColorTransfer::Linear => TransferFunction::Linear,
-                ColorTransfer::Pq => TransferFunction::Pq,
-                ColorTransfer::Hlg => TransferFunction::Hlg,
-            }
-        }
-    }
-
-    impl From<TransferFunction> for ColorTransfer {
-        fn from(tf: TransferFunction) -> Self {
-            match tf {
-                TransferFunction::Srgb => ColorTransfer::Srgb,
-                TransferFunction::Linear => ColorTransfer::Linear,
-                TransferFunction::Pq => ColorTransfer::Pq,
-                TransferFunction::Hlg => ColorTransfer::Hlg,
-                _ => ColorTransfer::Srgb, // fallback
-            }
-        }
-    }
+    // Post-#9: `ColorPrimaries` / `TransferFunction` are zenpixels' own
+    // types (re-exported from `crate::types`). No conversion impls are
+    // needed — the two sides of the old interop are the same type.
 }
 
 /// Signed fraction for ISO 21496-1 metadata encoding.
@@ -1039,78 +981,6 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_color_gamut_to_primaries() {
-        assert_eq!(
-            ColorPrimaries::from(ColorGamut::Bt709),
-            ColorPrimaries::Bt709
-        );
-        assert_eq!(
-            ColorPrimaries::from(ColorGamut::DisplayP3),
-            ColorPrimaries::DisplayP3
-        );
-        assert_eq!(
-            ColorPrimaries::from(ColorGamut::Bt2020),
-            ColorPrimaries::Bt2020
-        );
-    }
-
-    #[test]
-    fn test_primaries_to_color_gamut() {
-        assert_eq!(ColorGamut::from(ColorPrimaries::Bt709), ColorGamut::Bt709);
-        assert_eq!(
-            ColorGamut::from(ColorPrimaries::DisplayP3),
-            ColorGamut::DisplayP3
-        );
-        assert_eq!(ColorGamut::from(ColorPrimaries::Bt2020), ColorGamut::Bt2020);
-        assert_eq!(ColorGamut::from(ColorPrimaries::Unknown), ColorGamut::Bt709);
-    }
-
-    #[test]
-    fn test_color_transfer_to_transfer_function() {
-        assert_eq!(
-            TransferFunction::from(ColorTransfer::Srgb),
-            TransferFunction::Srgb
-        );
-        assert_eq!(
-            TransferFunction::from(ColorTransfer::Linear),
-            TransferFunction::Linear
-        );
-        assert_eq!(
-            TransferFunction::from(ColorTransfer::Pq),
-            TransferFunction::Pq
-        );
-        assert_eq!(
-            TransferFunction::from(ColorTransfer::Hlg),
-            TransferFunction::Hlg
-        );
-    }
-
-    #[test]
-    fn test_transfer_function_to_color_transfer() {
-        assert_eq!(
-            ColorTransfer::from(TransferFunction::Srgb),
-            ColorTransfer::Srgb
-        );
-        assert_eq!(
-            ColorTransfer::from(TransferFunction::Linear),
-            ColorTransfer::Linear
-        );
-        assert_eq!(ColorTransfer::from(TransferFunction::Pq), ColorTransfer::Pq);
-        assert_eq!(
-            ColorTransfer::from(TransferFunction::Hlg),
-            ColorTransfer::Hlg
-        );
-        assert_eq!(
-            ColorTransfer::from(TransferFunction::Unknown),
-            ColorTransfer::Srgb
-        );
-        assert_eq!(
-            ColorTransfer::from(TransferFunction::Bt709),
-            ColorTransfer::Srgb
-        );
-    }
-
-    #[test]
     fn test_iso21496_format_identity() {
         // Iso21496Format is now a re-export — no conversion needed
         assert_eq!(Iso21496Format::AvifTmap, zencodec::Iso21496Format::AvifTmap);
@@ -1171,8 +1041,8 @@ mod tests {
             4,
             16,
             PixelFormat::Rgba8,
-            ColorGamut::Bt709,
-            ColorTransfer::Srgb,
+            ColorPrimaries::Bt709,
+            TransferFunction::Srgb,
         )
         .expect("valid image should construct");
         assert_eq!(r.width, 4);
@@ -1187,8 +1057,8 @@ mod tests {
                 4,
                 8,
                 PixelFormat::Rgba8,
-                ColorGamut::Bt709,
-                ColorTransfer::Srgb,
+                ColorPrimaries::Bt709,
+                TransferFunction::Srgb,
             )
             .is_err()
         );
@@ -1202,8 +1072,8 @@ mod tests {
                 4,
                 16,
                 PixelFormat::Rgba8,
-                ColorGamut::Bt709,
-                ColorTransfer::Srgb,
+                ColorPrimaries::Bt709,
+                TransferFunction::Srgb,
             )
             .is_err()
         );

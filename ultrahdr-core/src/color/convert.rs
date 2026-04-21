@@ -5,7 +5,7 @@
 //! - BT.709 (HD)
 //! - BT.2020 (UHD/HDR)
 
-use crate::types::ColorGamut;
+use crate::types::ColorPrimaries;
 
 /// YUV coefficients for different standards.
 #[derive(Debug, Clone, Copy)]
@@ -41,12 +41,14 @@ impl YuvCoefficients {
         1.0 - self.kr - self.kb
     }
 
-    /// Get coefficients for a color gamut.
-    pub fn for_gamut(gamut: ColorGamut) -> Self {
+    /// Get coefficients for a color gamut. Unknown primaries fall back to
+    /// BT.709.
+    pub fn for_gamut(gamut: ColorPrimaries) -> Self {
         match gamut {
-            ColorGamut::Bt709 => Self::BT709,
-            ColorGamut::DisplayP3 => Self::BT709, // P3 typically uses BT.709 matrix
-            ColorGamut::Bt2020 => Self::BT2020,
+            ColorPrimaries::Bt709 => Self::BT709,
+            ColorPrimaries::DisplayP3 => Self::BT709, // P3 typically uses BT.709 matrix
+            ColorPrimaries::Bt2020 => Self::BT2020,
+            _ => Self::BT709,
         }
     }
 }

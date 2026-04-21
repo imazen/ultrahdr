@@ -97,8 +97,8 @@ fn create_small_hdr(width: u32, height: u32) -> ultrahdr_rs::RawImage {
         height,
         stride: width * 16,
         format: ultrahdr_rs::PixelFormat::Rgba32F,
-        gamut: ultrahdr_rs::ColorGamut::Bt2020,
-        transfer: ultrahdr_rs::ColorTransfer::Linear,
+        gamut: ultrahdr_rs::ColorPrimaries::Bt2020,
+        transfer: ultrahdr_rs::TransferFunction::Linear,
         data,
     }
 }
@@ -121,8 +121,8 @@ fn create_small_sdr(width: u32, height: u32) -> ultrahdr_rs::RawImage {
         height,
         stride: width * 4,
         format: ultrahdr_rs::PixelFormat::Rgba8,
-        gamut: ultrahdr_rs::ColorGamut::Bt709,
-        transfer: ultrahdr_rs::ColorTransfer::Srgb,
+        gamut: ultrahdr_rs::ColorPrimaries::Bt709,
+        transfer: ultrahdr_rs::TransferFunction::Srgb,
         data: pixels,
     }
 }
@@ -338,8 +338,8 @@ fn test_roundtrip_with_raw_jpeg_passthrough() {
         height: sdr.height,
         stride: sdr.width * 16,
         format: ultrahdr_rs::PixelFormat::Rgba32F,
-        gamut: ultrahdr_rs::ColorGamut::Bt709,
-        transfer: ultrahdr_rs::ColorTransfer::Linear,
+        gamut: ultrahdr_rs::ColorPrimaries::Bt709,
+        transfer: ultrahdr_rs::TransferFunction::Linear,
         data: hdr_data,
     };
 
