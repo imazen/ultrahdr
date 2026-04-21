@@ -21,6 +21,9 @@ jobs:
       - name: Clone sibling zentone (required by ultrahdr-core default features)
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
+      - name: Clone sibling zenjpeg (path-dep during pre-0.5 cascade coordination)
+        run: git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -78,6 +81,9 @@ jobs:
 
       - name: Clone sibling zentone (required by ultrahdr-core default features)
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
+
+      - name: Clone sibling zenjpeg (path-dep during pre-0.5 cascade coordination)
+        run: git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

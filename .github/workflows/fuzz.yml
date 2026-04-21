@@ -35,6 +35,8 @@ jobs:
       - uses: actions/checkout@v6
       - name: Clone sibling zentone (required by ultrahdr-core default features)
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
+      - name: Clone sibling zenjpeg (path-dep during pre-0.5 cascade coordination)
+        run: git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
@@ -83,6 +85,8 @@ jobs:
       - uses: actions/checkout@v6
       - name: Clone sibling zentone (required by ultrahdr-core default features)
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
+      - name: Clone sibling zenjpeg (path-dep during pre-0.5 cascade coordination)
+        run: git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build

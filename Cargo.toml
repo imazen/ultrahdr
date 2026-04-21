@@ -30,8 +30,14 @@ bytemuck = { version = "1.14", features = ["derive"] }
 # Error handling
 thiserror = "2.0"
 
-# JPEG codec
-zenjpeg = { version = "0.8", features = ["decoder"] }
+# JPEG codec — sibling path while we evolve zenjpeg main and ultrahdr in
+# lockstep toward the zentone→ultrahdr-core→zenjpeg→ultrahdr-rs release
+# cascade. CI workflows clone `imazen/zenjpeg` into `../zenjpeg` alongside
+# this repo (same pattern as zentone). Published `version` is advisory for
+# downstream tooling; the path wins locally.
+zenjpeg = { path = "../zenjpeg/zenjpeg", version = "0.8", features = [
+    "decoder",
+] }
 
 # Color management
 moxcms = "0.8.1"
