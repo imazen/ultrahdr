@@ -192,9 +192,7 @@ impl RawImage {
             height,
             format,
             gamut: ColorPrimaries::default(),
-            // `zenpixels::TransferFunction` doesn't derive Default; pick
-            // sRGB explicitly (was the `#[default]` on ultrahdr-core's
-            // old enum before the #9 fold).
+            // zenpixels::TransferFunction has no Default impl.
             transfer: TransferFunction::Srgb,
             data: vec![0u8; data_size],
             stride,
@@ -743,11 +741,10 @@ pub type Fraction = zencodec::gainmap::Fraction;
 /// continued-fraction encoding and `to_f64()` for conversion to float.
 pub type UnsignedFraction = zencodec::gainmap::UFraction;
 
-/// Construct a [`GainMapMetadata`] from per-channel arrays.
+/// Construct a [`GainMapMetadata`] from per-channel flat arrays.
 ///
-/// This is the migration bridge for code that previously constructed `GainMapMetadata`
-/// with flat `[f64; 3]` array fields. Now that `GainMapMetadata` is `GainMapParams`
-/// (which uses `channels: [GainMapChannel; 3]`), this helper does the mapping.
+/// Convenience constructor that maps `[f64; 3]` fields into the per-channel
+/// [`GainMapChannel`] records that [`GainMapMetadata`] uses internally.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn metadata_from_arrays(
     min: [f64; 3],
@@ -1000,7 +997,11 @@ mod tests {
     fn test_iso21496_format_identity() {
         // Iso21496Format is now a re-export — no conversion needed
         assert_eq!(Iso21496Format::AvifTmap, zencodec::Iso21496Format::AvifTmap);
-        assert_eq!(Iso21496Format::JpegApp2, zencodec::Iso21496Format::JpegApp2);
+        assert_eq!(Iso21496Format::JxlJhgm, zencodec::Iso21496Format::JxlJhgm);
+        assert_eq!(
+            Iso21496Format::JpegApp2BodyWithUrn,
+            zencodec::Iso21496Format::JpegApp2BodyWithUrn
+        );
     }
 
     #[test]

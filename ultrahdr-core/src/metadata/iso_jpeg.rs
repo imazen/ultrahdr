@@ -82,7 +82,7 @@ pub struct JpegIsoMarkers {
 /// // Insert markers.gain_map into the gain map JPEG after SOI.
 /// ```
 pub fn create_jpeg_iso_markers(metadata: &crate::GainMapMetadata) -> JpegIsoMarkers {
-    let iso_payload = zencodec::gainmap::serialize_iso21496_fmt(metadata, Iso21496Format::JpegApp2);
+    let iso_payload = zencodec::gainmap::serialize_iso21496_fmt(metadata, Iso21496Format::JxlJhgm);
     JpegIsoMarkers {
         primary: create_version_only_iso_app2(),
         gain_map: create_iso_app2_marker(&iso_payload),
@@ -190,8 +190,8 @@ mod tests {
     #[test]
     fn test_roundtrip_jpeg() {
         let original = test_metadata();
-        let bytes = serialize_iso21496(&original, Iso21496Format::JpegApp2);
-        let parsed = parse_iso21496(&bytes, Iso21496Format::JpegApp2).unwrap();
+        let bytes = serialize_iso21496(&original, Iso21496Format::JxlJhgm);
+        let parsed = parse_iso21496(&bytes, Iso21496Format::JxlJhgm).unwrap();
         assert!((parsed.channels[0].max - 2.0).abs() < 0.01);
         assert!((parsed.alternate_hdr_headroom - 2.0).abs() < 0.01);
     }

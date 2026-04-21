@@ -208,8 +208,12 @@ Select the wire format variant with `Iso21496Format`:
 ```rust
 use ultrahdr_core::Iso21496Format;
 
-// JPEG APP2 and JXL jhgm (no version byte prefix)
-let bytes = serialize_iso21496(&metadata, Iso21496Format::JpegApp2);
+// Bare payload — what a JXL `jhgm` gain_map_metadata field carries, or what
+// sits inside a JPEG APP2 segment once the URN prefix is stripped.
+let bytes = serialize_iso21496(&metadata, Iso21496Format::JxlJhgm);
+
+// Full JPEG APP2 body (URN + payload), ready to wrap as FF E2 + u16 length.
+let bytes = serialize_iso21496(&metadata, Iso21496Format::JpegApp2BodyWithUrn);
 
 // AVIF tmap (with version byte prefix)
 let bytes = serialize_iso21496(&metadata, Iso21496Format::AvifTmap);
