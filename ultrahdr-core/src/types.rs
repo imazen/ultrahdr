@@ -144,7 +144,16 @@ pub enum GainMapEncodingFormat {
 /// Re-exported from [`zencodec::gainmap::Iso21496Format`].
 pub use zencodec::Iso21496Format;
 
-/// A raw (uncompressed) image.
+/// A raw (uncompressed) image — ultrahdr-core's owned pixel container.
+///
+/// This is a thin structure over a `Vec<u8>` plus zenpixels-compatible metadata
+/// (`PixelFormat`, `ColorPrimaries`, `TransferFunction`). Use it when you need
+/// public-field access to width/height/stride/data for hand-written pixel loops
+/// (as the gain map and tone mapping kernels do).
+///
+/// For interop, use [`From<&zenpixels::PixelBuffer>`] to lift a zenpixels buffer
+/// in, and [`to_pixel_buffer`](Self::to_pixel_buffer) to produce a zenpixels
+/// buffer that carries the same pixel data and descriptor.
 #[derive(Debug, Clone)]
 pub struct RawImage {
     /// Image width in pixels.
@@ -626,7 +635,14 @@ pub fn validate_gainmap_metadata(metadata: &GainMapMetadata) -> Result<()> {
 
 mod zenpixels_interop {
     use super::*;
-    use zenpixels::PixelSlice;
+    use zenpixels::{PixelBuffer, PixelDescriptor, PixelSlice};
+
+    fn accepts_format(format: PixelFormat) -> bool {
+        matches!(
+            format,
+            PixelFormat::Rgba8 | PixelFormat::Rgb8 | PixelFormat::RgbaF32 | PixelFormat::Gray8
+        )
+    }
 
     /// Accept any [`zenpixels::PixelSlice`] that uses one of the pixel formats
     /// ultrahdr-core's gain map / tone mapping kernels understand (`Rgba8`,
@@ -639,10 +655,7 @@ mod zenpixels_interop {
         fn try_from(ps: &PixelSlice<'a>) -> Result<Self> {
             let desc = ps.descriptor();
             let format = desc.pixel_format();
-            if !matches!(
-                format,
-                PixelFormat::Rgba8 | PixelFormat::Rgb8 | PixelFormat::RgbaF32 | PixelFormat::Gray8
-            ) {
+            if !accepts_format(format) {
                 return Err(Error::InvalidPixelData(format!(
                     "zenpixels format {:?} not supported by ultrahdr-core kernels",
                     format
@@ -657,6 +670,63 @@ mod zenpixels_interop {
                 desc.primaries,
                 desc.transfer(),
             )
+        }
+    }
+
+    /// Lift a zenpixels [`PixelBuffer`] into a [`RawImage`] by cloning its
+    /// pixel bytes. Returns `Err` if the buffer's pixel format isn't one of the
+    /// four ultrahdr-core kernels operate on.
+    impl TryFrom<&PixelBuffer> for RawImage {
+        type Error = Error;
+
+        fn try_from(pb: &PixelBuffer) -> Result<Self> {
+            let desc = pb.descriptor();
+            let format = desc.pixel_format();
+            if !accepts_format(format) {
+                return Err(Error::InvalidPixelData(format!(
+                    "zenpixels format {:?} not supported by ultrahdr-core kernels",
+                    format
+                )));
+            }
+            let slice = pb.as_slice();
+            Ok(RawImage {
+                width: slice.width(),
+                height: slice.rows(),
+                format,
+                gamut: desc.primaries,
+                transfer: desc.transfer(),
+                data: slice.as_strided_bytes().to_vec(),
+                stride: slice.stride() as u32,
+            })
+        }
+    }
+
+    impl RawImage {
+        fn descriptor(&self) -> PixelDescriptor {
+            PixelDescriptor::from_pixel_format(self.format)
+                .with_transfer(self.transfer)
+                .with_primaries(self.gamut)
+        }
+
+        /// Borrow this image as a [`zenpixels::PixelSlice`] so it can flow into
+        /// zenpixels-native pipelines (resize, color conversion) without
+        /// copying pixel bytes.
+        pub fn as_pixel_slice(&self) -> PixelSlice<'_> {
+            PixelSlice::new(
+                &self.data,
+                self.width,
+                self.height,
+                self.stride as usize,
+                self.descriptor(),
+            )
+            .expect("RawImage invariants imply a valid PixelSlice")
+        }
+
+        /// Produce an owned [`zenpixels::PixelBuffer`] carrying a copy of this
+        /// image's pixels and descriptor.
+        pub fn to_pixel_buffer(&self) -> PixelBuffer {
+            PixelBuffer::from_vec(self.data.clone(), self.width, self.height, self.descriptor())
+                .expect("RawImage invariants imply a valid PixelBuffer")
         }
     }
 }
@@ -931,6 +1001,51 @@ mod tests {
         // Iso21496Format is now a re-export — no conversion needed
         assert_eq!(Iso21496Format::AvifTmap, zencodec::Iso21496Format::AvifTmap);
         assert_eq!(Iso21496Format::JpegApp2, zencodec::Iso21496Format::JpegApp2);
+    }
+
+    #[test]
+    fn raw_image_roundtrips_through_pixel_buffer() {
+        let mut pixels = Vec::with_capacity(4 * 4 * 4);
+        for i in 0..(4 * 4) {
+            pixels.extend_from_slice(&[(i * 4) as u8, (i * 4 + 1) as u8, (i * 4 + 2) as u8, 255]);
+        }
+        let img = RawImage::from_data(
+            4,
+            4,
+            PixelFormat::Rgba8,
+            ColorPrimaries::DisplayP3,
+            TransferFunction::Srgb,
+            pixels,
+        )
+        .expect("raw image");
+
+        let pb = img.to_pixel_buffer();
+        assert_eq!(pb.width(), 4);
+        assert_eq!(pb.height(), 4);
+        assert_eq!(pb.descriptor().pixel_format(), PixelFormat::Rgba8);
+        assert_eq!(pb.descriptor().primaries, ColorPrimaries::DisplayP3);
+
+        let back = RawImage::try_from(&pb).expect("convert back");
+        assert_eq!(back.width, 4);
+        assert_eq!(back.height, 4);
+        assert_eq!(back.format, PixelFormat::Rgba8);
+        assert_eq!(back.gamut, ColorPrimaries::DisplayP3);
+        assert_eq!(back.transfer, TransferFunction::Srgb);
+        // Pixel bytes preserved on the addressable region of each row.
+        for y in 0..4 {
+            let orig_row = &img.data[(y * img.stride as usize)..(y * img.stride as usize + 16)];
+            let back_row = &back.data[(y * back.stride as usize)..(y * back.stride as usize + 16)];
+            assert_eq!(orig_row, back_row, "row {y} pixels differ");
+        }
+    }
+
+    #[test]
+    fn raw_image_as_pixel_slice_exposes_descriptor() {
+        let img = RawImage::new(8, 8, PixelFormat::RgbaF32).expect("raw image");
+        let slice = img.as_pixel_slice();
+        assert_eq!(slice.width(), 8);
+        assert_eq!(slice.rows(), 8);
+        assert_eq!(slice.descriptor().pixel_format(), PixelFormat::RgbaF32);
     }
 
     // =========================================================================
