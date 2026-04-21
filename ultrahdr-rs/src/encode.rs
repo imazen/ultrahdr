@@ -3,20 +3,76 @@
 use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8;
 
 use ultrahdr_core::gainmap::compute::{GainMapConfig, compute_gainmap};
-use ultrahdr_core::metadata::{
-    iso_jpeg::create_version_only_iso_app2,
-    mpf::create_mpf_header,
-    xmp::{build_gainmap_metadata_markers, create_xmp_app1_marker, generate_primary_xmp},
-};
 use ultrahdr_core::{ColorPrimaries, Error, GainMapEncodingFormat, GainMapMetadata, Result};
 
 use ultrahdr_core::{TransferFunction, PixelFormat, Unstoppable};
 
 use ultrahdr_core::{GainMap, RawImage};
 
+use zencodec::Iso21496Format;
+use zencodec::gainmap::{
+    ISO_21496_1_PRIMARY_APP2_BODY, serialize_iso21496_fmt,
+};
+use zenjpeg::container::mpf::create_mpf_header;
+use zenjpeg::container::xmp::{
+    create_xmp_app1_marker, generate_gainmap_xmp, generate_primary_xmp,
+};
+
 use crate::jpeg::{
     JpegSegment, create_icc_markers, get_icc_profile_for_gamut, insert_segment_after_soi,
 };
+
+/// Wrap a body in a JPEG APP2 marker (`FF E2` + big-endian length including
+/// the length bytes themselves + body).
+///
+/// Inlined equivalent of the retired
+/// `ultrahdr_core::metadata::iso_jpeg::create_iso_app2_marker` helper.
+fn wrap_app2(body: &[u8]) -> Vec<u8> {
+    let total_length = 2 + body.len();
+    let mut marker = Vec::with_capacity(4 + body.len());
+    marker.extend_from_slice(&[
+        0xFF,
+        0xE2,
+        ((total_length >> 8) & 0xFF) as u8,
+        (total_length & 0xFF) as u8,
+    ]);
+    marker.extend_from_slice(body);
+    marker
+}
+
+/// Assemble the gain-map secondary's metadata APP markers (XMP APP1 and/or
+/// ISO 21496-1 APP2) in canonical order. Inlined equivalent of the retired
+/// `ultrahdr_core::metadata::xmp::build_gainmap_metadata_markers`.
+fn build_gainmap_metadata_markers(
+    metadata: &GainMapMetadata,
+    format: GainMapEncodingFormat,
+) -> Vec<Vec<u8>> {
+    let mut markers = Vec::with_capacity(2);
+    if matches!(
+        format,
+        GainMapEncodingFormat::Xmp | GainMapEncodingFormat::Both
+    ) {
+        let xmp = generate_gainmap_xmp(metadata);
+        markers.push(create_xmp_app1_marker(&xmp));
+    }
+    if matches!(
+        format,
+        GainMapEncodingFormat::Iso21496 | GainMapEncodingFormat::Both
+    ) {
+        // Preserves prior behavior: `JxlJhgm` and `JpegApp2` serialize the
+        // same payload (zencodec::gainmap::serialize_iso21496_fmt_into).
+        let iso_body = serialize_iso21496_fmt(metadata, Iso21496Format::JpegApp2BodyWithUrn);
+        markers.push(wrap_app2(&iso_body));
+    }
+    markers
+}
+
+/// Retired helper: version-only ISO 21496-1 APP2 for the primary JPEG.
+///
+/// Thin wrapper around `zencodec::gainmap::ISO_21496_1_PRIMARY_APP2_BODY`.
+fn create_version_only_iso_app2() -> Vec<u8> {
+    wrap_app2(ISO_21496_1_PRIMARY_APP2_BODY)
+}
 
 /// Assemble an Ultra HDR JPEG from pre-encoded components.
 ///

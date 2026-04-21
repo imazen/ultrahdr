@@ -36,15 +36,18 @@ fuzz_target!(|data: &[u8]| {
     metadata.base_hdr_headroom = (data[17] as f64 - 128.0) / 32.0;
     metadata.alternate_hdr_headroom = (data[18] as f64 - 128.0) / 32.0;
     let channels = if data[19] & 1 == 0 { 1u8 } else { 3u8 };
-    let output_format_idx = data[20] % 3;
+    let output_format_idx = data[20] & 1;
     let sdr_format_idx = data[21] % 2;
     metadata.use_base_color_space = data[22] & 1 != 0;
     metadata.backward_direction = data[22] & 2 != 0;
 
-    let output_format = match output_format_idx {
-        0 => ultrahdr_core::gainmap::apply::HdrOutputFormat::LinearFloat,
-        1 => ultrahdr_core::gainmap::apply::HdrOutputFormat::Pq1010102,
-        _ => ultrahdr_core::gainmap::apply::HdrOutputFormat::Srgb8,
+    // HdrOutputFormat previously had Pq1010102; that dormant variant was
+    // removed in the zenpixels fold (issue #9). Only LinearFloat and
+    // Srgb8 remain.
+    let output_format = if output_format_idx == 0 {
+        ultrahdr_core::gainmap::apply::HdrOutputFormat::LinearFloat
+    } else {
+        ultrahdr_core::gainmap::apply::HdrOutputFormat::Srgb8
     };
 
     let sdr_format = if sdr_format_idx == 0 {
@@ -54,7 +57,8 @@ fuzz_target!(|data: &[u8]| {
     };
 
     let pixel_data_start = 24;
-    let bpp = sdr_format.bytes_per_pixel().unwrap();
+    // PixelFormat::bytes_per_pixel now returns `usize` directly (no Result).
+    let bpp = sdr_format.bytes_per_pixel();
     let sdr_size = (width as usize) * (height as usize) * bpp;
     let gm_size = (gm_width as usize) * (gm_height as usize) * (channels as usize);
 

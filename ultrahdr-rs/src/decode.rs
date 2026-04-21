@@ -1,11 +1,12 @@
 //! Ultra HDR decoder.
 
 use ultrahdr_core::gainmap::apply::{HdrOutputFormat, apply_gainmap};
-use ultrahdr_core::metadata::{mpf::find_jpeg_boundaries, xmp::parse_xmp};
 use ultrahdr_core::{
     ColorPrimaries, TransferFunction, Error, GainMap, GainMapMetadata, PixelFormat, RawImage, Result,
     Unstoppable,
 };
+use zenjpeg::container::marker::find_jpeg_boundaries;
+use zenjpeg::container::xmp::parse_xmp;
 
 use crate::container::{self, AppSegment};
 
@@ -206,13 +207,12 @@ impl<'a> Decoder<'a> {
         if self.gainmap_jpeg.is_none() {
             let boundaries = find_jpeg_boundaries(self.data);
             if boundaries.len() >= 2 {
-                self.primary_jpeg = Some(boundaries[0]);
-                self.gainmap_jpeg = Some(boundaries[1]);
+                self.primary_jpeg = Some((boundaries[0].start, boundaries[0].end));
+                self.gainmap_jpeg = Some((boundaries[1].start, boundaries[1].end));
 
                 // Also try to find metadata in the gain map JPEG
                 if self.metadata.is_none()
-                    && let (gm_start, gm_end) = boundaries[1]
-                    && let Some(gm_data) = self.data.get(gm_start..gm_end)
+                    && let Some(gm_data) = self.data.get(boundaries[1].clone())
                 {
                     let gm_segments = container::scan_segments(gm_data);
                     if let Some(gm_xmp) = find_xmp_in_segments(&gm_segments)

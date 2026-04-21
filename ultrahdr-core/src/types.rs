@@ -1049,49 +1049,8 @@ mod tests {
         assert_eq!(slice.descriptor().pixel_format(), PixelFormat::RgbaF32);
     }
 
-    // =========================================================================
-    // XMP roundtrip parity test
-    // =========================================================================
-
-    fn reference_metadata() -> GainMapMetadata {
-        make_metadata(
-            [0.5, 0.25, 1.0],
-            [4.0, 8.0, 2.0],
-            [1.0, 0.75, 1.5],
-            [1.0 / 64.0, 1.0 / 32.0, 1.0 / 128.0],
-            [1.0 / 64.0; 3],
-            1.0,
-            8.0,
-            true,
-            false,
-        )
-    }
-
-    #[test]
-    fn xmp_roundtrip_preserves_metadata() {
-        use crate::metadata::xmp::{generate_gainmap_xmp, parse_xmp};
-
-        let original = reference_metadata();
-        let xmp_str = generate_gainmap_xmp(&original);
-        let (parsed, _) = parse_xmp(&xmp_str).expect("XMP parse failed");
-
-        for ch in 0..3 {
-            assert!((original.channels[ch].min - parsed.channels[ch].min).abs() < 1e-4);
-            assert!((original.channels[ch].max - parsed.channels[ch].max).abs() < 1e-4);
-            assert!((original.channels[ch].gamma - parsed.channels[ch].gamma).abs() < 1e-4);
-            assert!(
-                (original.channels[ch].base_offset - parsed.channels[ch].base_offset).abs() < 1e-6
-            );
-            assert!(
-                (original.channels[ch].alternate_offset - parsed.channels[ch].alternate_offset)
-                    .abs()
-                    < 1e-6
-            );
-        }
-        assert!((original.base_hdr_headroom - parsed.base_hdr_headroom).abs() < 1e-4);
-        assert!((original.alternate_hdr_headroom - parsed.alternate_hdr_headroom).abs() < 1e-4);
-        assert_eq!(original.use_base_color_space, parsed.use_base_color_space);
-    }
+    // XMP roundtrip parity now lives alongside the builders in
+    // crate::metadata::xmp::tests.
 
     #[test]
     fn raw_image_ref_new_validates_stride_and_data_size() {
@@ -1178,9 +1137,18 @@ mod tests {
 
     #[test]
     fn iso21496_roundtrip_preserves_metadata() {
-        let original = reference_metadata();
+        let original = make_metadata(
+            [0.5, 0.25, 1.0],
+            [4.0, 8.0, 2.0],
+            [1.0, 0.75, 1.5],
+            [1.0 / 64.0, 1.0 / 32.0, 1.0 / 128.0],
+            [1.0 / 64.0; 3],
+            1.0,
+            8.0,
+            true,
+            false,
+        );
 
-        // AVIF tmap variant
         let bytes = zencodec::gainmap::serialize_iso21496_fmt(&original, Iso21496Format::AvifTmap);
         let parsed = zencodec::gainmap::parse_iso21496_fmt(&bytes, Iso21496Format::AvifTmap)
             .expect("ISO parse failed");

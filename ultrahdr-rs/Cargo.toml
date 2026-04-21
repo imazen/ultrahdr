@@ -90,14 +90,17 @@ ffi-tests = ["dep:libultrahdr_rs"]  # FFI parity tests against libultrahdr (C++)
 # this in the Gain Map Interop workflow where `ultrahdr_app` is installed.
 # The caller (CI) decides whether to run these — no runtime "silent skip".
 __pixel-parity = []
-zencodec = ["dep:zencodec", "dep:zenpixels"]  # zencodec trait integration
+zencodec = ["dep:zenpixels"]  # zencodec trait integration (zencodec itself is already unconditional)
 
 [dependencies.zenjpeg]
 workspace = true
 
 [dependencies.zencodec]
+# Unconditional: zenjpeg already transitively pulls zencodec, and
+# ultrahdr-rs uses zencodec::gainmap directly (ISO 21496-1 payload
+# + ISO_21496_1_PRIMARY_APP2_BODY). Removing the `optional = true`
+# gate drops a useless feature flag, not a transitive-dep edge.
 workspace = true
-optional = true
 
 [dependencies.zenpixels]
 workspace = true

@@ -151,7 +151,7 @@ fn test_xmp_container_directory() {
 /// Test ISO metadata serialization round-trip.
 #[test]
 fn test_iso21496_roundtrip() {
-    use ultrahdr_rs::metadata::iso_jpeg::{parse_iso21496, serialize_iso21496};
+    use zencodec::gainmap::{parse_iso21496_fmt as parse_iso21496, serialize_iso21496_fmt as serialize_iso21496};
 
     let original = create_test_metadata(4.0);
 
@@ -192,7 +192,7 @@ fn test_iso21496_roundtrip() {
 /// Test ISO metadata version byte.
 #[test]
 fn test_iso21496_version() {
-    use ultrahdr_rs::metadata::iso_jpeg::serialize_iso21496;
+    use zencodec::gainmap::serialize_iso21496_fmt as serialize_iso21496;
 
     let metadata = create_test_metadata(2.0);
     let serialized = serialize_iso21496(&metadata, ultrahdr_rs::Iso21496Format::AvifTmap);
@@ -204,7 +204,7 @@ fn test_iso21496_version() {
 /// Test ISO metadata flags byte.
 #[test]
 fn test_iso21496_flags() {
-    use ultrahdr_rs::metadata::iso_jpeg::serialize_iso21496;
+    use zencodec::gainmap::serialize_iso21496_fmt as serialize_iso21496;
 
     // Single-channel, use base color space
     let mut metadata = GainMapMetadata::default();
@@ -241,7 +241,7 @@ fn test_iso21496_flags() {
 /// Test ISO metadata handles extreme values.
 #[test]
 fn test_iso21496_extreme_values() {
-    use ultrahdr_rs::metadata::iso_jpeg::{parse_iso21496, serialize_iso21496};
+    use zencodec::gainmap::{parse_iso21496_fmt as parse_iso21496, serialize_iso21496_fmt as serialize_iso21496};
 
     let mut metadata = GainMapMetadata::default();
     for ch in &mut metadata.channels {
@@ -273,7 +273,7 @@ fn test_iso21496_extreme_values() {
 /// Test ISO metadata rejects invalid data.
 #[test]
 fn test_iso21496_rejects_invalid() {
-    use ultrahdr_rs::metadata::iso_jpeg::parse_iso21496;
+    use zencodec::gainmap::parse_iso21496_fmt as parse_iso21496;
 
     // Empty data
     let result = parse_iso21496(&[], ultrahdr_rs::Iso21496Format::AvifTmap);
@@ -324,7 +324,7 @@ fn test_mpf_images_are_valid_jpegs() {
     let encoded = encoder.encode().unwrap();
 
     // Find JPEG boundaries
-    use ultrahdr_rs::metadata::mpf::find_jpeg_boundaries;
+    use zenjpeg::container::marker::find_jpeg_boundaries;
     let boundaries = find_jpeg_boundaries(&encoded);
 
     assert!(
@@ -334,18 +334,18 @@ fn test_mpf_images_are_valid_jpegs() {
     );
 
     // First image (primary) should start at 0
-    assert_eq!(boundaries[0].0, 0, "Primary should start at offset 0");
+    assert_eq!(boundaries[0].start, 0, "Primary should start at offset 0");
 
     // Each image should start with SOI and end with EOI
-    for (i, (start, end)) in boundaries.iter().enumerate() {
+    for (i, range) in boundaries.iter().enumerate() {
         assert_eq!(
-            &encoded[*start..*start + 2],
+            &encoded[range.start..range.start + 2],
             &[0xFF, 0xD8],
             "Image {} should start with SOI",
             i
         );
         assert_eq!(
-            &encoded[end - 2..*end],
+            &encoded[range.end - 2..range.end],
             &[0xFF, 0xD9],
             "Image {} should end with EOI",
             i
