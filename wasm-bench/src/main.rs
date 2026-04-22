@@ -3,12 +3,13 @@
 //! This can be compiled to WASI and run under wasmtime or wasmer.
 
 use ultrahdr_core::{
-    ColorPrimaries, TransferFunction, GainMap, GainMapChannel, GainMapMetadata, PixelFormat, RawImage,
-    Unstoppable,
+    ColorPrimaries, GainMap, GainMapChannel, GainMapMetadata, PixelBuffer, PixelFormat,
+    TransferFunction, Unstoppable,
     gainmap::{
         apply::{HdrOutputFormat, apply_gainmap},
         compute::{GainMapConfig, compute_gainmap},
     },
+    new_pixel_buffer,
 };
 
 /// Simple timer using WASI clock.
@@ -33,38 +34,54 @@ fn now_ns() -> u64 {
 }
 
 /// Create a test SDR image.
-fn create_sdr_image(width: u32, height: u32) -> RawImage {
-    let mut img = RawImage::new(width, height, PixelFormat::Rgba8).unwrap();
-    img.gamut = ColorPrimaries::Bt709;
-    img.transfer = TransferFunction::Srgb;
-
+fn create_sdr_image(width: u32, height: u32) -> PixelBuffer {
+    let mut img = new_pixel_buffer(
+        width,
+        height,
+        PixelFormat::Rgba8,
+        ColorPrimaries::Bt709,
+        TransferFunction::Srgb,
+    )
+    .unwrap();
+    let stride = img.stride();
+    let mut slice = img.as_slice_mut();
+    let data = slice.as_strided_bytes_mut();
     for y in 0..height {
         for x in 0..width {
-            let idx = ((y * img.stride + x * 4) as usize).min(img.data.len() - 4);
-            img.data[idx] = ((x * 255) / width.max(1)) as u8;
-            img.data[idx + 1] = ((y * 255) / height.max(1)) as u8;
-            img.data[idx + 2] = 128;
-            img.data[idx + 3] = 255;
+            let idx = ((y as usize) * stride + (x as usize) * 4).min(data.len() - 4);
+            data[idx] = ((x * 255) / width.max(1)) as u8;
+            data[idx + 1] = ((y * 255) / height.max(1)) as u8;
+            data[idx + 2] = 128;
+            data[idx + 3] = 255;
         }
     }
+    drop(slice);
     img
 }
 
 /// Create a test HDR image.
-fn create_hdr_image(width: u32, height: u32) -> RawImage {
-    let mut img = RawImage::new(width, height, PixelFormat::Rgba8).unwrap();
-    img.gamut = ColorPrimaries::Bt709;
-    img.transfer = TransferFunction::Srgb;
-
+fn create_hdr_image(width: u32, height: u32) -> PixelBuffer {
+    let mut img = new_pixel_buffer(
+        width,
+        height,
+        PixelFormat::Rgba8,
+        ColorPrimaries::Bt709,
+        TransferFunction::Srgb,
+    )
+    .unwrap();
+    let stride = img.stride();
+    let mut slice = img.as_slice_mut();
+    let data = slice.as_strided_bytes_mut();
     for y in 0..height {
         for x in 0..width {
-            let idx = ((y * img.stride + x * 4) as usize).min(img.data.len() - 4);
-            img.data[idx] = (((x * 255) / width.max(1)) as u16).min(255) as u8;
-            img.data[idx + 1] = (((y * 255) / height.max(1)) as u16 + 50).min(255) as u8;
-            img.data[idx + 2] = 200;
-            img.data[idx + 3] = 255;
+            let idx = ((y as usize) * stride + (x as usize) * 4).min(data.len() - 4);
+            data[idx] = (((x * 255) / width.max(1)) as u16).min(255) as u8;
+            data[idx + 1] = (((y * 255) / height.max(1)) as u16 + 50).min(255) as u8;
+            data[idx + 2] = 200;
+            data[idx + 3] = 255;
         }
     }
+    drop(slice);
     img
 }
 

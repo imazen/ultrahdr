@@ -4,7 +4,8 @@
 //! using zenjpeg for JPEG codec operations and ultrahdr for gain map math.
 
 use ultrahdr_rs::{
-    ColorPrimaries, TransferFunction, GainMap, PixelFormat, RawImage, Unstoppable as CoreUnstoppable,
+    ColorPrimaries, GainMap, PixelBuffer, PixelFormat, TransferFunction,
+    Unstoppable as CoreUnstoppable, pixel_buffer_from_vec,
     gainmap::{
         apply::{HdrOutputFormat, apply_gainmap},
         compute::{GainMapConfig, compute_gainmap},
@@ -16,8 +17,8 @@ use zenjpeg::container::xmp::{generate_xmp, parse_xmp};
 use zenjpeg::decoder::{Decoder, PreserveConfig};
 use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 
-/// Create test HDR RawImage (gradient with bright highlights).
-fn create_test_hdr_image(width: u32, height: u32) -> RawImage {
+/// Create test HDR PixelBuffer (gradient with bright highlights).
+fn create_test_hdr_image(width: u32, height: u32) -> PixelBuffer {
     let mut pixels = Vec::with_capacity((width * height * 16) as usize);
 
     for y in 0..height {
@@ -46,23 +47,23 @@ fn create_test_hdr_image(width: u32, height: u32) -> RawImage {
         }
     }
 
-    RawImage::from_data(
+    pixel_buffer_from_vec(
+        pixels,
         width,
         height,
         PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
-        pixels,
     )
     .expect("create HDR image")
 }
 
-/// Create SDR RawImage from HDR (simple tonemap by clamping).
-fn create_sdr_from_hdr(hdr: &RawImage) -> RawImage {
-    let mut pixels = Vec::with_capacity((hdr.width * hdr.height * 4) as usize);
+/// Create SDR PixelBuffer from HDR (simple tonemap by clamping).
+fn create_sdr_from_hdr(hdr: &PixelBuffer) -> PixelBuffer {
+    let mut pixels = Vec::with_capacity((hdr.width() * hdr.height() * 4) as usize);
 
-    let hdr_data = &hdr.data;
-    for i in 0..(hdr.width * hdr.height) as usize {
+    let hdr_data = &hdr.as_slice().as_strided_bytes();
+    for i in 0..(hdr.width() * hdr.height()) as usize {
         let idx = i * 16;
         let r = f32::from_le_bytes([
             hdr_data[idx],
@@ -93,13 +94,13 @@ fn create_sdr_from_hdr(hdr: &RawImage) -> RawImage {
         pixels.push(255);
     }
 
-    RawImage::from_data(
-        hdr.width,
-        hdr.height,
+    pixel_buffer_from_vec(
+        pixels,
+        hdr.width(),
+        hdr.height(),
         PixelFormat::Rgba8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
-        pixels,
     )
     .expect("create SDR image")
 }
@@ -113,20 +114,24 @@ fn linear_to_srgb_u8(linear: f32) -> u8 {
     (srgb * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
-/// Convert RGBA8 RawImage to RGB8 bytes for zenjpeg encoding.
-fn rgba8_to_rgb8(img: &RawImage) -> Vec<u8> {
-    let mut rgb = Vec::with_capacity((img.width * img.height * 3) as usize);
-    for i in 0..(img.width * img.height) as usize {
+/// Convert RGBA8 PixelBuffer to RGB8 bytes for zenjpeg encoding.
+fn rgba8_to_rgb8(img: &PixelBuffer) -> Vec<u8> {
+    let width = img.width();
+    let height = img.height();
+    let data = img.as_slice();
+    let bytes = data.as_strided_bytes();
+    let mut rgb = Vec::with_capacity((width * height * 3) as usize);
+    for i in 0..(width * height) as usize {
         let idx = i * 4;
-        rgb.push(img.data[idx]);
-        rgb.push(img.data[idx + 1]);
-        rgb.push(img.data[idx + 2]);
+        rgb.push(bytes[idx]);
+        rgb.push(bytes[idx + 1]);
+        rgb.push(bytes[idx + 2]);
     }
     rgb
 }
 
-/// Convert zenjpeg RGB output to RawImage.
-fn rgb8_to_raw_image(data: &[u8], width: u32, height: u32) -> RawImage {
+/// Convert zenjpeg RGB output to PixelBuffer.
+fn rgb8_to_raw_image(data: &[u8], width: u32, height: u32) -> PixelBuffer {
     let mut rgba = Vec::with_capacity((width * height * 4) as usize);
     for i in 0..(width * height) as usize {
         let idx = i * 3;
@@ -136,13 +141,13 @@ fn rgb8_to_raw_image(data: &[u8], width: u32, height: u32) -> RawImage {
         rgba.push(255);
     }
 
-    RawImage::from_data(
+    pixel_buffer_from_vec(
+        rgba,
         width,
         height,
         PixelFormat::Rgba8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
-        rgba,
     )
     .expect("create raw image")
 }
@@ -297,11 +302,11 @@ fn test_gainmap_apply() {
     )
     .expect("apply gainmap");
 
-    assert_eq!(reconstructed.width, width);
-    assert_eq!(reconstructed.height, height);
+    assert_eq!(reconstructed.width(), width);
+    assert_eq!(reconstructed.height(), height);
 
     // Verify HDR values exist
-    let data = &reconstructed.data;
+    let data = &reconstructed.as_slice().as_strided_bytes();
     let mut max_value = 0.0f32;
     for i in 0..(width * height) as usize {
         let idx = i * 16;
@@ -524,11 +529,11 @@ fn test_ultrahdr_roundtrip() {
     )
     .expect("apply gainmap");
 
-    assert_eq!(reconstructed.width, width);
-    assert_eq!(reconstructed.height, height);
+    assert_eq!(reconstructed.width(), width);
+    assert_eq!(reconstructed.height(), height);
 
     // Verify HDR values
-    let data = &reconstructed.data;
+    let data = &reconstructed.as_slice().as_strided_bytes();
     let mut max_value = 0.0f32;
     for i in 0..(width * height) as usize {
         let idx = i * 16;
@@ -690,7 +695,7 @@ fn test_readme_workflow_encode_decode() {
         .decode(gainmap_data, Unstoppable)
         .expect("decode gainmap jpeg");
 
-    // 4. Build RawImage and GainMap structs
+    // 4. Build PixelBuffer and GainMap structs
     let sdr_raw = rgb8_to_raw_image(
         decoded.pixels_u8().unwrap(),
         decoded.width(),
@@ -715,12 +720,12 @@ fn test_readme_workflow_encode_decode() {
     .expect("apply gainmap");
 
     // Verify HDR reconstruction
-    assert_eq!(hdr_reconstructed.width, width);
-    assert_eq!(hdr_reconstructed.height, height);
-    assert_eq!(hdr_reconstructed.format, PixelFormat::RgbaF32);
+    assert_eq!(hdr_reconstructed.width(), width);
+    assert_eq!(hdr_reconstructed.height(), height);
+    assert_eq!(hdr_reconstructed.descriptor().pixel_format(), PixelFormat::RgbaF32);
 
     // Verify HDR values exceed SDR range (> 1.0)
-    let hdr_data = &hdr_reconstructed.data;
+    let hdr_data = &hdr_reconstructed.as_slice().as_strided_bytes();
     let mut max_value = 0.0f32;
     for i in 0..(width * height) as usize {
         let idx = i * 16; // 4 floats × 4 bytes
@@ -864,8 +869,8 @@ fn test_readme_workflow_lossless_roundtrip() {
     )
     .expect("apply gainmap after round-trip");
 
-    assert_eq!(hdr.width, width);
-    assert_eq!(hdr.height, height);
+    assert_eq!(hdr.width(), width);
+    assert_eq!(hdr.height(), height);
 
     println!("README lossless round-trip test passed");
 }
@@ -899,16 +904,16 @@ fn test_set_existing_gainmap_jpeg() {
 
     // Test 1: Encode using set_existing_gainmap_jpeg()
     let result_1 = Encoder::new()
-        .set_hdr_image(hdr_image.clone())
-        .set_sdr_image(sdr_image.clone())
+        .set_hdr_image(ultrahdr_rs::clone_pixel_buffer(&hdr_image))
+        .set_sdr_image(ultrahdr_rs::clone_pixel_buffer(&sdr_image))
         .set_existing_gainmap_jpeg(gainmap_jpeg.clone(), metadata.clone())
         .encode()
         .expect("encode with raw JPEG passthrough");
 
     // Test 2: Encode using set_existing_gainmap() (normal path)
     let result_2 = Encoder::new()
-        .set_hdr_image(hdr_image.clone())
-        .set_sdr_image(sdr_image.clone())
+        .set_hdr_image(ultrahdr_rs::clone_pixel_buffer(&hdr_image))
+        .set_sdr_image(ultrahdr_rs::clone_pixel_buffer(&sdr_image))
         .set_existing_gainmap(gainmap.clone(), metadata.clone())
         .encode()
         .expect("encode with GainMap struct");

@@ -69,13 +69,13 @@ fuzz_target!(|data: &[u8]| {
     let sdr_data = data[pixel_data_start..pixel_data_start + sdr_size].to_vec();
     let gm_data = data[pixel_data_start + sdr_size..pixel_data_start + sdr_size + gm_size].to_vec();
 
-    let sdr = match ultrahdr_core::RawImage::from_data(
+    let sdr = match ultrahdr_core::pixel_buffer_from_vec(
+        sdr_data,
         width,
         height,
         sdr_format,
         ultrahdr_core::ColorPrimaries::Bt709,
         ultrahdr_core::TransferFunction::Srgb,
-        sdr_data,
     ) {
         Ok(img) => img,
         Err(_) => return,

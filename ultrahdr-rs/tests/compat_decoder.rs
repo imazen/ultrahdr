@@ -155,8 +155,8 @@ fn test_roundtrip_with_decoder() {
     let our_sdr = our_decoder.decode_sdr().unwrap();
 
     // Both should have same dimensions
-    assert_eq!(_w, our_sdr.width);
-    assert_eq!(_h, our_sdr.height);
+    assert_eq!(_w, our_sdr.width());
+    assert_eq!(_h, our_sdr.height());
 
     // Pixel values should be very similar
     // Note: our decoder outputs RGBA, zenjpeg outputs RGB
@@ -165,7 +165,7 @@ fn test_roundtrip_with_decoder() {
 
     for i in 0..pixel_count.min(zen_pixels.len() / zen_channels) {
         let zen_r = zen_pixels[i * zen_channels] as i16;
-        let our_r = our_sdr.data[i * 4] as i16;
+        let our_r = our_sdr.as_slice().as_strided_bytes()[i * 4] as i16;
 
         let diff = (zen_r - our_r).abs();
         max_diff = max_diff.max(diff);

@@ -34,9 +34,9 @@ fn test_wasm_decode_sdr() {
     setup();
     let decoder = ultrahdr_rs::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
     let sdr = decoder.decode_sdr().expect("decode SDR");
-    assert!(sdr.width > 0, "width should be positive");
-    assert!(sdr.height > 0, "height should be positive");
-    assert!(!sdr.data.is_empty(), "data should not be empty");
+    assert!(sdr.width() > 0, "width should be positive");
+    assert!(sdr.height() > 0, "height should be positive");
+    assert!(!sdr.as_slice().as_strided_bytes().is_empty(), "data should not be empty");
 }
 
 #[wasm_bindgen_test]
@@ -53,9 +53,9 @@ fn test_wasm_decode_hdr() {
     setup();
     let decoder = ultrahdr_rs::Decoder::new(TEST_ULTRAHDR).expect("create decoder");
     let hdr = decoder.decode_hdr(4.0).expect("decode HDR");
-    assert!(hdr.width > 0, "HDR width should be positive");
-    assert!(hdr.height > 0, "HDR height should be positive");
-    assert!(!hdr.data.is_empty(), "HDR data should not be empty");
+    assert!(hdr.width() > 0, "HDR width should be positive");
+    assert!(hdr.height() > 0, "HDR height should be positive");
+    assert!(!hdr.as_slice().as_strided_bytes().is_empty(), "HDR data should not be empty");
 }
 
 #[wasm_bindgen_test]
@@ -74,7 +74,7 @@ fn test_wasm_metadata() {
 // ============================================================================
 
 /// Create a small test HDR image.
-fn create_small_hdr(width: u32, height: u32) -> ultrahdr_rs::RawImage {
+fn create_small_hdr(width: u32, height: u32) -> ultrahdr_rs::PixelBuffer {
     let pixels: Vec<[f32; 4]> = (0..width * height)
         .map(|i| {
             let x = (i % width) as f32 / width as f32;
@@ -92,7 +92,7 @@ fn create_small_hdr(width: u32, height: u32) -> ultrahdr_rs::RawImage {
         .flat_map(|p| p.iter().flat_map(|f| f.to_ne_bytes()))
         .collect();
 
-    ultrahdr_rs::RawImage {
+    ultrahdr_rs::PixelBuffer {
         width,
         height,
         stride: width * 16,
@@ -104,7 +104,7 @@ fn create_small_hdr(width: u32, height: u32) -> ultrahdr_rs::RawImage {
 }
 
 /// Create a small test SDR image.
-fn create_small_sdr(width: u32, height: u32) -> ultrahdr_rs::RawImage {
+fn create_small_sdr(width: u32, height: u32) -> ultrahdr_rs::PixelBuffer {
     let pixels: Vec<u8> = (0..width * height)
         .flat_map(|i| {
             let x = (i % width) as f32 / width as f32;
@@ -116,7 +116,7 @@ fn create_small_sdr(width: u32, height: u32) -> ultrahdr_rs::RawImage {
         })
         .collect();
 
-    ultrahdr_rs::RawImage {
+    ultrahdr_rs::PixelBuffer {
         width,
         height,
         stride: width * 4,
@@ -174,8 +174,8 @@ fn test_wasm_roundtrip() {
     assert!(decoder.is_ultrahdr(), "should be Ultra HDR");
 
     let decoded_hdr = decoder.decode_hdr(4.0).expect("decode HDR");
-    assert_eq!(decoded_hdr.width, 64);
-    assert_eq!(decoded_hdr.height, 64);
+    assert_eq!(decoded_hdr.width(), 64);
+    assert_eq!(decoded_hdr.height(), 64);
 }
 
 // ============================================================================
@@ -333,10 +333,10 @@ fn test_roundtrip_with_raw_jpeg_passthrough() {
         })
         .collect();
 
-    let hdr = ultrahdr_rs::RawImage {
-        width: sdr.width,
-        height: sdr.height,
-        stride: sdr.width * 16,
+    let hdr = ultrahdr_rs::PixelBuffer {
+        width: sdr.width(),
+        height: sdr.height(),
+        stride: sdr.width() * 16,
         format: ultrahdr_rs::PixelFormat::RgbaF32,
         gamut: ultrahdr_rs::ColorPrimaries::Bt709,
         transfer: ultrahdr_rs::TransferFunction::Linear,

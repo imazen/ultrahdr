@@ -42,12 +42,12 @@ fn test_decode_sdr() {
     let decoder = Decoder::new(TEST_ULTRAHDR).unwrap();
     let sdr = decoder.decode_sdr().expect("Should decode SDR");
 
-    assert!(sdr.width > 0, "Width should be positive");
-    assert!(sdr.height > 0, "Height should be positive");
-    assert_eq!(sdr.format, PixelFormat::Rgba8, "SDR should be RGBA8");
+    assert!(sdr.width() > 0, "Width should be positive");
+    assert!(sdr.height() > 0, "Height should be positive");
+    assert_eq!(sdr.descriptor().pixel_format(), PixelFormat::Rgba8, "SDR should be RGBA8");
     assert_eq!(
-        sdr.data.len(),
-        (sdr.width * sdr.height * 4) as usize,
+        sdr.as_slice().as_strided_bytes().len(),
+        (sdr.width() * sdr.height() * 4) as usize,
         "Data size should match dimensions"
     );
 }
@@ -75,16 +75,16 @@ fn test_gainmap_scaled() {
 
     // Gain map should be smaller (typically 1/4 size)
     assert!(
-        gainmap.width <= sdr.width,
+        gainmap.width <= sdr.width(),
         "Gain map width {} should be <= SDR width {}",
         gainmap.width,
-        sdr.width
+        sdr.width()
     );
     assert!(
-        gainmap.height <= sdr.height,
+        gainmap.height <= sdr.height(),
         "Gain map height {} should be <= SDR height {}",
         gainmap.height,
-        sdr.height
+        sdr.height()
     );
 }
 
@@ -96,8 +96,8 @@ fn test_decode_hdr_sdr_boost() {
         .decode_hdr(1.0)
         .expect("Should decode HDR at 1.0 boost");
 
-    assert!(hdr.width > 0);
-    assert!(hdr.height > 0);
+    assert!(hdr.width() > 0);
+    assert!(hdr.height() > 0);
     // At 1.0 boost, should be similar to SDR
 }
 
@@ -109,13 +109,13 @@ fn test_decode_hdr_4x_boost() {
         .decode_hdr(4.0)
         .expect("Should decode HDR at 4.0 boost");
 
-    assert!(hdr.width > 0);
-    assert!(hdr.height > 0);
+    assert!(hdr.width() > 0);
+    assert!(hdr.height() > 0);
     assert_eq!(
-        hdr.format,
+        hdr.descriptor().pixel_format(),
         PixelFormat::RgbaF32,
         "HDR output should be linear float RGBA, got {:?}",
-        hdr.format
+        hdr.descriptor().pixel_format()
     );
 }
 
@@ -128,10 +128,10 @@ fn test_dimensions_consistent() {
     let sdr = decoder.decode_sdr().unwrap();
     let hdr = decoder.decode_hdr(2.0).unwrap();
 
-    assert_eq!(w, sdr.width, "dimensions() width should match SDR");
-    assert_eq!(h, sdr.height, "dimensions() height should match SDR");
-    assert_eq!(sdr.width, hdr.width, "SDR and HDR width should match");
-    assert_eq!(sdr.height, hdr.height, "SDR and HDR height should match");
+    assert_eq!(w, sdr.width(), "dimensions() width should match SDR");
+    assert_eq!(h, sdr.height(), "dimensions() height should match SDR");
+    assert_eq!(sdr.width(), hdr.width(), "SDR and HDR width should match");
+    assert_eq!(sdr.height(), hdr.height(), "SDR and HDR height should match");
 }
 
 /// Test raw gain map JPEG is accessible.
@@ -222,7 +222,7 @@ fn test_pixel_values_valid() {
     let sdr = decoder.decode_sdr().unwrap();
 
     // Check first few pixels are valid RGBA
-    for chunk in sdr.data.chunks(4).take(100) {
+    for chunk in sdr.as_slice().as_strided_bytes().chunks(4).take(100) {
         assert_eq!(chunk.len(), 4, "Each pixel should be 4 bytes");
         // Alpha should typically be 255 for opaque images
     }

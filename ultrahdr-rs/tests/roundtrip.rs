@@ -8,7 +8,7 @@ use common::{
     create_hdr_checkerboard, create_hdr_gradient, create_hdr_highlights, create_hdr_solid,
     create_sdr_checkerboard, create_sdr_gradient, create_sdr_solid,
 };
-use ultrahdr_rs::{Decoder, Encoder};
+use ultrahdr_rs::{Decoder, Encoder, clone_pixel_buffer};
 
 /// Test basic encode/decode round-trip preserves dimensions.
 #[test]
@@ -26,12 +26,12 @@ fn test_roundtrip_dimensions_preserved() {
         let decoder = Decoder::new(&encoded).unwrap();
 
         let sdr_out = decoder.decode_sdr().unwrap();
-        assert_eq!(sdr_out.width, w, "Width preserved for {}x{}", w, h);
-        assert_eq!(sdr_out.height, h, "Height preserved for {}x{}", w, h);
+        assert_eq!(sdr_out.width(), w, "Width preserved for {}x{}", w, h);
+        assert_eq!(sdr_out.height(), h, "Height preserved for {}x{}", w, h);
 
         let hdr_out = decoder.decode_hdr(2.0).unwrap();
-        assert_eq!(hdr_out.width, w, "HDR width preserved for {}x{}", w, h);
-        assert_eq!(hdr_out.height, h, "HDR height preserved for {}x{}", w, h);
+        assert_eq!(hdr_out.width(), w, "HDR width preserved for {}x{}", w, h);
+        assert_eq!(hdr_out.height(), h, "HDR height preserved for {}x{}", w, h);
     }
 }
 
@@ -44,7 +44,7 @@ fn test_roundtrip_sdr_quality() {
     let mut encoder = Encoder::new();
     encoder
         .set_hdr_image(hdr)
-        .set_sdr_image(sdr.clone())
+        .set_sdr_image(clone_pixel_buffer(&sdr))
         .set_quality(95, 90); // High quality
 
     let encoded = encoder.encode().unwrap();
@@ -53,12 +53,12 @@ fn test_roundtrip_sdr_quality() {
 
     // Check pixels are similar (JPEG is lossy)
     let mut max_diff = 0i16;
-    for (i, chunk) in sdr_out.data.chunks(4).enumerate() {
+    for (i, chunk) in sdr_out.as_slice().as_strided_bytes().chunks(4).enumerate() {
         let orig_offset = i * 4;
-        if orig_offset + 2 < sdr.data.len() {
-            let diff_r = (chunk[0] as i16 - sdr.data[orig_offset] as i16).abs();
-            let diff_g = (chunk[1] as i16 - sdr.data[orig_offset + 1] as i16).abs();
-            let diff_b = (chunk[2] as i16 - sdr.data[orig_offset + 2] as i16).abs();
+        if orig_offset + 2 < sdr.as_slice().as_strided_bytes().len() {
+            let diff_r = (chunk[0] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset] as i16).abs();
+            let diff_g = (chunk[1] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 1] as i16).abs();
+            let diff_b = (chunk[2] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 2] as i16).abs();
             max_diff = max_diff.max(diff_r).max(diff_g).max(diff_b);
         }
     }
@@ -81,7 +81,7 @@ fn test_roundtrip_gradient() {
     let mut encoder = Encoder::new();
     encoder
         .set_hdr_image(hdr)
-        .set_sdr_image(sdr.clone())
+        .set_sdr_image(clone_pixel_buffer(&sdr))
         .set_quality(90, 85);
 
     let encoded = encoder.encode().unwrap();
@@ -90,16 +90,16 @@ fn test_roundtrip_gradient() {
 
     // Calculate mean absolute error
     let mut total_error: u64 = 0;
-    let pixel_count = (sdr_out.width * sdr_out.height) as usize;
+    let pixel_count = (sdr_out.width() * sdr_out.height()) as usize;
 
-    for (i, chunk) in sdr_out.data.chunks(4).enumerate() {
+    for (i, chunk) in sdr_out.as_slice().as_strided_bytes().chunks(4).enumerate() {
         let orig_offset = i * 4;
-        if orig_offset + 2 < sdr.data.len() {
-            total_error += (chunk[0] as i16 - sdr.data[orig_offset] as i16).unsigned_abs() as u64;
+        if orig_offset + 2 < sdr.as_slice().as_strided_bytes().len() {
+            total_error += (chunk[0] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset] as i16).unsigned_abs() as u64;
             total_error +=
-                (chunk[1] as i16 - sdr.data[orig_offset + 1] as i16).unsigned_abs() as u64;
+                (chunk[1] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 1] as i16).unsigned_abs() as u64;
             total_error +=
-                (chunk[2] as i16 - sdr.data[orig_offset + 2] as i16).unsigned_abs() as u64;
+                (chunk[2] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 2] as i16).unsigned_abs() as u64;
         }
     }
 
@@ -155,16 +155,16 @@ fn test_roundtrip_hdr_brighter_than_sdr() {
 
     // Compare center pixel (highlight region)
     let center = (32 * 64 + 32) as usize;
-    let sdr_center = &sdr_out.data[center * 4..(center + 1) * 4];
+    let sdr_center = &sdr_out.as_slice().as_strided_bytes()[center * 4..(center + 1) * 4];
 
     // HDR is float, need to interpret the bytes
     let hdr_offset = center * 16; // RGBA32F
-    if hdr_offset + 4 <= hdr_out.data.len() {
+    if hdr_offset + 4 <= hdr_out.as_slice().as_strided_bytes().len() {
         let hdr_r = f32::from_le_bytes([
-            hdr_out.data[hdr_offset],
-            hdr_out.data[hdr_offset + 1],
-            hdr_out.data[hdr_offset + 2],
-            hdr_out.data[hdr_offset + 3],
+            hdr_out.as_slice().as_strided_bytes()[hdr_offset],
+            hdr_out.as_slice().as_strided_bytes()[hdr_offset + 1],
+            hdr_out.as_slice().as_strided_bytes()[hdr_offset + 2],
+            hdr_out.as_slice().as_strided_bytes()[hdr_offset + 3],
         ]);
 
         let sdr_r_linear = (sdr_center[0] as f32 / 255.0).powf(2.2); // Approximate sRGB to linear
@@ -246,7 +246,7 @@ fn test_roundtrip_multiple_cycles() {
 
     let mut encoder = Encoder::new();
     encoder
-        .set_hdr_image(hdr.clone())
+        .set_hdr_image(clone_pixel_buffer(&hdr))
         .set_sdr_image(sdr)
         .set_quality(95, 90);
 
@@ -316,8 +316,8 @@ fn test_roundtrip_quality_affects_size() {
     for (base_q, gm_q) in qualities {
         let mut encoder = Encoder::new();
         encoder
-            .set_hdr_image(hdr.clone())
-            .set_sdr_image(sdr.clone())
+            .set_hdr_image(clone_pixel_buffer(&hdr))
+            .set_sdr_image(clone_pixel_buffer(&sdr))
             .set_quality(base_q, gm_q);
 
         let encoded = encoder.encode().unwrap();

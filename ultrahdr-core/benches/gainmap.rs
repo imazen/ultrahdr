@@ -3,7 +3,8 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 use ultrahdr_core::{
-    ColorPrimaries, TransferFunction, GainMap, GainMapChannel, GainMapMetadata, PixelFormat, RawImage,
+    ColorPrimaries, GainMap, GainMapChannel, GainMapMetadata, PixelBuffer, PixelFormat,
+    TransferFunction, new_pixel_buffer,
     gainmap::{
         apply::{HdrOutputFormat, apply_gainmap},
         compute::{GainMapConfig, compute_gainmap},
@@ -11,40 +12,54 @@ use ultrahdr_core::{
 };
 
 /// Create a test SDR image of given dimensions.
-fn create_sdr_image(width: u32, height: u32) -> RawImage {
-    let mut img = RawImage::new(width, height, PixelFormat::Rgba8).unwrap();
-    img.gamut = ColorPrimaries::Bt709;
-    img.transfer = TransferFunction::Srgb;
-
-    // Fill with a gradient pattern
+fn create_sdr_image(width: u32, height: u32) -> PixelBuffer {
+    let mut img = new_pixel_buffer(
+        width,
+        height,
+        PixelFormat::Rgba8,
+        ColorPrimaries::Bt709,
+        TransferFunction::Srgb,
+    )
+    .unwrap();
+    let stride = img.stride();
+    let mut slice = img.as_slice_mut();
+    let data = slice.as_strided_bytes_mut();
     for y in 0..height {
         for x in 0..width {
-            let idx = ((y * img.stride + x * 4) as usize).min(img.data.len() - 4);
-            img.data[idx] = ((x * 255) / width.max(1)) as u8;
-            img.data[idx + 1] = ((y * 255) / height.max(1)) as u8;
-            img.data[idx + 2] = 128;
-            img.data[idx + 3] = 255;
+            let idx = ((y as usize) * stride + (x as usize) * 4).min(data.len() - 4);
+            data[idx] = ((x * 255) / width.max(1)) as u8;
+            data[idx + 1] = ((y * 255) / height.max(1)) as u8;
+            data[idx + 2] = 128;
+            data[idx + 3] = 255;
         }
     }
+    drop(slice);
     img
 }
 
 /// Create a test HDR image (brighter version of SDR).
-fn create_hdr_image(width: u32, height: u32) -> RawImage {
-    let mut img = RawImage::new(width, height, PixelFormat::Rgba8).unwrap();
-    img.gamut = ColorPrimaries::Bt709;
-    img.transfer = TransferFunction::Srgb;
-
-    // Fill with brighter gradient
+fn create_hdr_image(width: u32, height: u32) -> PixelBuffer {
+    let mut img = new_pixel_buffer(
+        width,
+        height,
+        PixelFormat::Rgba8,
+        ColorPrimaries::Bt709,
+        TransferFunction::Srgb,
+    )
+    .unwrap();
+    let stride = img.stride();
+    let mut slice = img.as_slice_mut();
+    let data = slice.as_strided_bytes_mut();
     for y in 0..height {
         for x in 0..width {
-            let idx = ((y * img.stride + x * 4) as usize).min(img.data.len() - 4);
-            img.data[idx] = (((x * 255) / width.max(1)) as u16).min(255) as u8;
-            img.data[idx + 1] = (((y * 255) / height.max(1)) as u16 + 50).min(255) as u8;
-            img.data[idx + 2] = 200;
-            img.data[idx + 3] = 255;
+            let idx = ((y as usize) * stride + (x as usize) * 4).min(data.len() - 4);
+            data[idx] = (((x * 255) / width.max(1)) as u16).min(255) as u8;
+            data[idx + 1] = (((y * 255) / height.max(1)) as u16 + 50).min(255) as u8;
+            data[idx + 2] = 200;
+            data[idx + 3] = 255;
         }
     }
+    drop(slice);
     img
 }
 

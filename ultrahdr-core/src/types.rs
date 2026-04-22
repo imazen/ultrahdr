@@ -261,6 +261,14 @@ pub fn new_pixel_buffer(
     Ok(buf)
 }
 
+/// Deep-copy a [`PixelBuffer`]. [`zenpixels::PixelBuffer`] intentionally does
+/// not implement [`Clone`] to discourage silent large-pixel copies; this helper
+/// gives ultrahdr-core callers a single owned duplicate (tightly packed, same
+/// descriptor) when they genuinely need one.
+pub fn clone_pixel_buffer(src: &PixelBuffer) -> PixelBuffer {
+    src.crop_copy(0, 0, src.width(), src.height())
+}
+
 /// Wrap an existing `Vec<u8>` as a [`PixelBuffer`], validating ultrahdr-core's
 /// dimension caps and format subset.
 pub fn pixel_buffer_from_vec(

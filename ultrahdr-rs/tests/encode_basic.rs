@@ -8,7 +8,7 @@ use common::{
     create_hdr_checkerboard, create_hdr_gradient, create_hdr_solid, create_sdr_checkerboard,
     create_sdr_gradient, create_sdr_solid,
 };
-use ultrahdr_rs::{Decoder, Encoder};
+use ultrahdr_rs::{Decoder, Encoder, clone_pixel_buffer};
 
 /// Test encoding with HDR-only input (auto-generates SDR).
 #[test]
@@ -88,8 +88,8 @@ fn test_encode_quality_settings() {
     // Low quality
     let mut encoder_low = Encoder::new();
     encoder_low
-        .set_hdr_image(hdr.clone())
-        .set_sdr_image(sdr.clone())
+        .set_hdr_image(clone_pixel_buffer(&hdr))
+        .set_sdr_image(clone_pixel_buffer(&sdr))
         .set_quality(50, 40);
     let low_result = encoder_low.encode().unwrap();
 
@@ -130,8 +130,8 @@ fn test_encode_gainmap_scale() {
     // Scale factor 4 (default)
     let mut encoder = Encoder::new();
     encoder
-        .set_hdr_image(hdr.clone())
-        .set_sdr_image(sdr.clone())
+        .set_hdr_image(clone_pixel_buffer(&hdr))
+        .set_sdr_image(clone_pixel_buffer(&sdr))
         .set_gainmap_scale(4);
     let encoded = encoder.encode().unwrap();
 
@@ -179,8 +179,8 @@ fn test_encode_target_display_peak() {
     // Lower peak (1000 nits)
     let mut encoder_low = Encoder::new();
     encoder_low
-        .set_hdr_image(hdr.clone())
-        .set_sdr_image(sdr.clone())
+        .set_hdr_image(clone_pixel_buffer(&hdr))
+        .set_sdr_image(clone_pixel_buffer(&sdr))
         .set_target_display_peak(1000.0);
     let low_encoded = encoder_low.encode().unwrap();
 
@@ -220,8 +220,8 @@ fn test_encode_iso_metadata_toggle() {
     // With ISO metadata
     let mut encoder = Encoder::new();
     encoder
-        .set_hdr_image(hdr.clone())
-        .set_sdr_image(sdr.clone())
+        .set_hdr_image(clone_pixel_buffer(&hdr))
+        .set_sdr_image(clone_pixel_buffer(&sdr))
         .set_use_iso_metadata(true);
     let with_iso = encoder.encode().unwrap();
 

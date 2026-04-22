@@ -21,13 +21,13 @@
 //! # Example
 //!
 //! ```ignore
-//! use ultrahdr::{encode_ultrahdr, Decoder, GainMapMetadata, ColorPrimaries};
+//! use ultrahdr::{encode_ultrahdr, Decoder, GainMapMetadata, ColorPrimaries, PixelBuffer};
 //! use ultrahdr::gainmap::compute::{compute_gainmap, GainMapConfig};
 //!
 //! // 1. Prepare your images (using your own JPEG codec)
 //! let sdr_jpeg = my_encoder.encode_rgb(&sdr_pixels)?;
 //!
-//! // 2. Compute gain map from HDR and SDR
+//! // 2. Compute gain map from HDR and SDR PixelBuffers
 //! let config = GainMapConfig::default();
 //! let (gainmap, metadata) = compute_gainmap(&hdr, &sdr, &config, Unstoppable)?;
 //! let gainmap_jpeg = my_encoder.encode_grayscale(&gainmap.data)?;
@@ -66,9 +66,10 @@ pub use ultrahdr_core::gainmap;
 
 // Re-export core types at crate root
 pub use ultrahdr_core::{
-    ColorPrimaries, TransferFunction, Error, Fraction, GainMap, GainMapConfig, GainMapEncodingFormat,
-    GainMapMetadata, HdrOutputFormat, Iso21496Format, PixelFormat, RawImage, Result, Stop,
-    StopReason, Unstoppable, limits, luminance,
+    ColorPrimaries, Error, Fraction, GainMap, GainMapConfig, GainMapEncodingFormat,
+    GainMapMetadata, HdrOutputFormat, Iso21496Format, PixelBuffer, PixelFormat, PixelSlice,
+    PixelSliceMut, Result, Stop, StopReason, TransferFunction, Unstoppable, clone_pixel_buffer,
+    descriptor_for, limits, luminance, new_pixel_buffer, pixel_buffer_from_vec,
 };
 
 // This crate's additional modules

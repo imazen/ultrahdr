@@ -2,8 +2,8 @@
 
 use ultrahdr_core::gainmap::apply::{HdrOutputFormat, apply_gainmap};
 use ultrahdr_core::{
-    ColorPrimaries, TransferFunction, Error, GainMap, GainMapMetadata, PixelFormat, RawImage, Result,
-    Unstoppable,
+    ColorPrimaries, Error, GainMap, GainMapMetadata, PixelBuffer, PixelFormat, Result,
+    TransferFunction, Unstoppable, pixel_buffer_from_vec,
 };
 use zenjpeg::container::marker::find_jpeg_boundaries;
 use zenjpeg::container::xmp::parse_xmp;
@@ -70,10 +70,10 @@ impl<'a> Decoder<'a> {
 
     /// Decode the SDR base image using the bundled zenjpeg codec.
     ///
-    /// Returns a linear/sRGB `Rgba8` [`RawImage`] reconstructed from the
+    /// Returns a linear/sRGB `Rgba8` [`PixelBuffer`] reconstructed from the
     /// primary JPEG codestream. If you want to decode with a different
     /// JPEG codec, call [`Decoder::primary_jpeg`] for the raw bytes.
-    pub fn decode_sdr(&self) -> Result<RawImage> {
+    pub fn decode_sdr(&self) -> Result<PixelBuffer> {
         let primary_data = self
             .primary_jpeg()
             .ok_or_else(|| Error::DecodeError("No primary image found".into()))?;
@@ -89,13 +89,13 @@ impl<'a> Decoder<'a> {
         let gainmap_data = self
             .gainmap_jpeg()
             .ok_or_else(|| Error::DecodeError("No gain map found".into()))?;
-        let decoded = decode_jpeg_to_grayscale(gainmap_data)?;
+        let (width, height, data) = decode_jpeg_to_grayscale_bytes(gainmap_data)?;
 
         Ok(GainMap {
-            width: decoded.width,
-            height: decoded.height,
+            width,
+            height,
             channels: 1,
-            data: decoded.data,
+            data,
         })
     }
 
@@ -106,7 +106,7 @@ impl<'a> Decoder<'a> {
     /// - 1.0 = SDR display (no HDR enhancement)
     /// - 4.0 = Display capable of 4x SDR brightness
     /// - ~49.0 = Full HDR10 (10000 nits / 203 SDR nits)
-    pub fn decode_hdr(&self, display_boost: f32) -> Result<RawImage> {
+    pub fn decode_hdr(&self, display_boost: f32) -> Result<PixelBuffer> {
         self.decode_hdr_with_format(display_boost, HdrOutputFormat::LinearFloat)
     }
 
@@ -115,7 +115,7 @@ impl<'a> Decoder<'a> {
         &self,
         display_boost: f32,
         format: HdrOutputFormat,
-    ) -> Result<RawImage> {
+    ) -> Result<PixelBuffer> {
         if !self.is_ultrahdr {
             return Err(Error::DecodeError("Not an Ultra HDR image".into()));
         }
@@ -241,7 +241,7 @@ impl<'a> Decoder<'a> {
     /// Get the image dimensions by decoding the primary JPEG header.
     pub fn dimensions(&self) -> Result<(u32, u32)> {
         let sdr = self.decode_sdr()?;
-        Ok((sdr.width, sdr.height))
+        Ok((sdr.width(), sdr.height()))
     }
 }
 
@@ -265,7 +265,7 @@ fn find_xmp_in_segments(segments: &[AppSegment]) -> Option<String> {
 }
 
 /// Decode JPEG to RGB.
-fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<RawImage> {
+fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<PixelBuffer> {
     use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
     let decoded = JpegDecoder::new()
         .output_format(JpegPixelFormat::Rgb)
@@ -309,19 +309,22 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<RawImage> {
         )));
     };
 
-    Ok(RawImage {
+    pixel_buffer_from_vec(
+        data,
         width,
         height,
-        stride: width * 4,
-        data,
-        format: PixelFormat::Rgba8,
-        gamut: ColorPrimaries::Bt709, // Assume sRGB for SDR
-        transfer: TransferFunction::Srgb,
-    })
+        PixelFormat::Rgba8,
+        ColorPrimaries::Bt709, // assume sRGB for SDR
+        TransferFunction::Srgb,
+    )
 }
 
-/// Decode JPEG to grayscale.
-fn decode_jpeg_to_grayscale(jpeg_data: &[u8]) -> Result<RawImage> {
+/// Decode a grayscale JPEG and return (width, height, packed bytes).
+///
+/// Used by [`Decoder::decode_gainmap`] to lift the decoded codestream into a
+/// [`GainMap`] without wrapping the byte buffer in a [`PixelBuffer`] (gain
+/// map bytes are log2-quantized gain, not color samples).
+fn decode_jpeg_to_grayscale_bytes(jpeg_data: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
     use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
     let decoded = JpegDecoder::new()
         .output_format(JpegPixelFormat::Gray)
@@ -335,18 +338,15 @@ fn decode_jpeg_to_grayscale(jpeg_data: &[u8]) -> Result<RawImage> {
         .ok_or_else(|| Error::DecodeError("No pixel data in decoded JPEG".into()))?;
     let bpp = decoded.bytes_per_pixel();
 
-    // Convert to grayscale if needed
     let data = if bpp == 1 {
         pixels.to_vec()
     } else if bpp == 3 {
-        // RGB -> Grayscale (using luminance)
         pixels
             .chunks(3)
             .map(|rgb| {
                 let r = rgb[0] as f32;
                 let g = rgb[1] as f32;
                 let b = rgb[2] as f32;
-                // BT.709 luminance
                 (0.2126_f32 * r + 0.7152 * g + 0.0722 * b).clamp(0.0, 255.0) as u8
             })
             .collect()
@@ -357,15 +357,7 @@ fn decode_jpeg_to_grayscale(jpeg_data: &[u8]) -> Result<RawImage> {
         )));
     };
 
-    Ok(RawImage {
-        width,
-        height,
-        stride: width,
-        data,
-        format: PixelFormat::Gray8,
-        gamut: ColorPrimaries::Bt709,
-        transfer: TransferFunction::Srgb,
-    })
+    Ok((width, height, data))
 }
 
 #[cfg(test)]

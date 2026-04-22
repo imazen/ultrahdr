@@ -5,46 +5,44 @@
 
 #![allow(dead_code)]
 
-use ultrahdr_rs::{ColorPrimaries, TransferFunction, GainMapMetadata, PixelFormat, RawImage};
+use ultrahdr_rs::{
+    ColorPrimaries, GainMapMetadata, PixelBuffer, PixelFormat, TransferFunction,
+    pixel_buffer_from_vec,
+};
 
 /// Create an HDR gradient image for testing.
 ///
 /// Creates a horizontal gradient from black to the specified peak brightness.
 /// Output is in linear RGB float format.
-pub fn create_hdr_gradient(width: u32, height: u32, peak_brightness: f32) -> RawImage {
+pub fn create_hdr_gradient(width: u32, height: u32, peak_brightness: f32) -> PixelBuffer {
     let mut data = Vec::with_capacity((width * height * 16) as usize);
 
     for y in 0..height {
         for x in 0..width {
-            // Horizontal gradient 0.0 to peak_brightness
             let t = x as f32 / (width - 1).max(1) as f32;
             let value = t * peak_brightness;
 
-            // RGBA32F - 4 floats per pixel
-            data.extend_from_slice(&value.to_le_bytes()); // R
-            data.extend_from_slice(&value.to_le_bytes()); // G
-            data.extend_from_slice(&value.to_le_bytes()); // B
-            data.extend_from_slice(&1.0f32.to_le_bytes()); // A
+            data.extend_from_slice(&value.to_le_bytes());
+            data.extend_from_slice(&value.to_le_bytes());
+            data.extend_from_slice(&value.to_le_bytes());
+            data.extend_from_slice(&1.0f32.to_le_bytes());
         }
-        // Add slight vertical variation
         let _ = y;
     }
 
-    RawImage::from_data(
+    pixel_buffer_from_vec(
+        data,
         width,
         height,
         PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
-        data,
     )
     .unwrap()
 }
 
 /// Create an SDR gradient image for testing.
-///
-/// Creates a horizontal gradient from black to white in sRGB.
-pub fn create_sdr_gradient(width: u32, height: u32) -> RawImage {
+pub fn create_sdr_gradient(width: u32, height: u32) -> PixelBuffer {
     let mut data = Vec::with_capacity((width * height * 4) as usize);
 
     for _y in 0..height {
@@ -52,26 +50,26 @@ pub fn create_sdr_gradient(width: u32, height: u32) -> RawImage {
             let t = x as f32 / (width - 1).max(1) as f32;
             let value = (t * 255.0) as u8;
 
-            data.push(value); // R
-            data.push(value); // G
-            data.push(value); // B
-            data.push(255); // A
+            data.push(value);
+            data.push(value);
+            data.push(value);
+            data.push(255);
         }
     }
 
-    RawImage::from_data(
+    pixel_buffer_from_vec(
+        data,
         width,
         height,
         PixelFormat::Rgba8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
-        data,
     )
     .unwrap()
 }
 
 /// Create a solid color HDR image.
-pub fn create_hdr_solid(width: u32, height: u32, r: f32, g: f32, b: f32) -> RawImage {
+pub fn create_hdr_solid(width: u32, height: u32, r: f32, g: f32, b: f32) -> PixelBuffer {
     let mut data = Vec::with_capacity((width * height * 16) as usize);
 
     for _y in 0..height {
@@ -83,19 +81,19 @@ pub fn create_hdr_solid(width: u32, height: u32, r: f32, g: f32, b: f32) -> RawI
         }
     }
 
-    RawImage::from_data(
+    pixel_buffer_from_vec(
+        data,
         width,
         height,
         PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
-        data,
     )
     .unwrap()
 }
 
 /// Create a solid color SDR image.
-pub fn create_sdr_solid(width: u32, height: u32, r: u8, g: u8, b: u8) -> RawImage {
+pub fn create_sdr_solid(width: u32, height: u32, r: u8, g: u8, b: u8) -> PixelBuffer {
     let mut data = Vec::with_capacity((width * height * 4) as usize);
 
     for _y in 0..height {
@@ -107,19 +105,19 @@ pub fn create_sdr_solid(width: u32, height: u32, r: u8, g: u8, b: u8) -> RawImag
         }
     }
 
-    RawImage::from_data(
+    pixel_buffer_from_vec(
+        data,
         width,
         height,
         PixelFormat::Rgba8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
-        data,
     )
     .unwrap()
 }
 
 /// Create a checkerboard pattern HDR image.
-pub fn create_hdr_checkerboard(width: u32, height: u32, low: f32, high: f32) -> RawImage {
+pub fn create_hdr_checkerboard(width: u32, height: u32, low: f32, high: f32) -> PixelBuffer {
     let mut data = Vec::with_capacity((width * height * 16) as usize);
     let block_size = 8u32;
 
@@ -135,19 +133,19 @@ pub fn create_hdr_checkerboard(width: u32, height: u32, low: f32, high: f32) -> 
         }
     }
 
-    RawImage::from_data(
+    pixel_buffer_from_vec(
+        data,
         width,
         height,
         PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
-        data,
     )
     .unwrap()
 }
 
 /// Create a checkerboard pattern SDR image.
-pub fn create_sdr_checkerboard(width: u32, height: u32, low: u8, high: u8) -> RawImage {
+pub fn create_sdr_checkerboard(width: u32, height: u32, low: u8, high: u8) -> PixelBuffer {
     let mut data = Vec::with_capacity((width * height * 4) as usize);
     let block_size = 8u32;
 
@@ -163,19 +161,24 @@ pub fn create_sdr_checkerboard(width: u32, height: u32, low: u8, high: u8) -> Ra
         }
     }
 
-    RawImage::from_data(
+    pixel_buffer_from_vec(
+        data,
         width,
         height,
         PixelFormat::Rgba8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
-        data,
     )
     .unwrap()
 }
 
 /// Create HDR image with bright highlights (for testing specular regions).
-pub fn create_hdr_highlights(width: u32, height: u32, background: f32, highlight: f32) -> RawImage {
+pub fn create_hdr_highlights(
+    width: u32,
+    height: u32,
+    background: f32,
+    highlight: f32,
+) -> PixelBuffer {
     let mut data = Vec::with_capacity((width * height * 16) as usize);
     let center_x = width / 2;
     let center_y = height / 2;
@@ -188,7 +191,6 @@ pub fn create_hdr_highlights(width: u32, height: u32, background: f32, highlight
             let dist = (dx * dx + dy * dy).sqrt();
 
             let value = if dist < radius {
-                // Smooth falloff from center
                 let t = 1.0 - (dist / radius);
                 background + (highlight - background) * t * t
             } else {
@@ -202,13 +204,13 @@ pub fn create_hdr_highlights(width: u32, height: u32, background: f32, highlight
         }
     }
 
-    RawImage::from_data(
+    pixel_buffer_from_vec(
+        data,
         width,
         height,
         PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
-        data,
     )
     .unwrap()
 }
