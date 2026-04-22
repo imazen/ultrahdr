@@ -29,18 +29,18 @@
 //!
 //! ```
 //! use ultrahdr_core::{
-//!     ColorPrimaries, TransferFunction, PixelFormat, RawImage, Unstoppable,
+//!     ColorPrimaries, TransferFunction, PixelFormat, new_pixel_buffer, Unstoppable,
 //!     gainmap::{apply_gainmap, compute_gainmap, GainMapConfig, HdrOutputFormat},
 //! };
 //!
 //! // Minimal 8x8 matching HDR + SDR surfaces. In practice these come from
 //! // your image decoder — this example just shows the call shape.
-//! let mut hdr = RawImage::new(8, 8, PixelFormat::Rgba8)?;
-//! hdr.gamut = ColorPrimaries::Bt709;
-//! hdr.transfer = TransferFunction::Srgb;
-//! let mut sdr = RawImage::new(8, 8, PixelFormat::Rgba8)?;
-//! sdr.gamut = ColorPrimaries::Bt709;
-//! sdr.transfer = TransferFunction::Srgb;
+//! let hdr = new_pixel_buffer(
+//!     8, 8, PixelFormat::Rgba8, ColorPrimaries::Bt709, TransferFunction::Srgb,
+//! )?;
+//! let sdr = new_pixel_buffer(
+//!     8, 8, PixelFormat::Rgba8, ColorPrimaries::Bt709, TransferFunction::Srgb,
+//! )?;
 //!
 //! // Derive gain map + metadata.
 //! let config = GainMapConfig::default();
@@ -70,8 +70,10 @@ mod types;
 
 // Re-export core types (local)
 pub use types::{
-    ColorPrimaries, TransferFunction, Error, GainMap, GainMapEncodingFormat, PixelFormat, RawImage,
-    RawImageRef, RawImageRefMut, Result, luminance, validate_gainmap_metadata,
+    ColorPrimaries, Error, GainMap, GainMapEncodingFormat, PixelBuffer, PixelFormat, PixelSlice,
+    PixelSliceMut, Result, TransferFunction, descriptor_for, luminance, new_pixel_buffer,
+    pixel_buffer_from_vec, require_supported_format, validate_gainmap_metadata,
+    validate_ultrahdr_dimensions, validate_ultrahdr_image, validate_ultrahdr_slice,
 };
 
 // Re-export from zencodec (canonical gain map metadata types)
