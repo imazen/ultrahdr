@@ -5,7 +5,10 @@
 mod common;
 
 use common::{create_hdr_solid, create_sdr_solid};
-use ultrahdr_rs::{ColorPrimaries, TransferFunction, Encoder, PixelFormat, RawImage};
+use ultrahdr_rs::{
+    ColorPrimaries, Encoder, PixelFormat, TransferFunction, clone_pixel_buffer,
+    pixel_buffer_from_vec,
+};
 
 // ============================================================================
 // Dimension Edge Cases
@@ -250,13 +253,13 @@ fn test_value_negative() {
         data.extend_from_slice(&1.0f32.to_le_bytes()); // A
     }
 
-    let hdr = RawImage::from_data(
+    let hdr = pixel_buffer_from_vec(
+        data,
         32,
         32,
         PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
-        data,
     )
     .unwrap();
 
@@ -285,13 +288,13 @@ fn test_value_nan() {
         data.extend_from_slice(&1.0f32.to_le_bytes());
     }
 
-    let hdr = RawImage::from_data(
+    let hdr = pixel_buffer_from_vec(
+        data,
         32,
         32,
         PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
-        data,
     )
     .unwrap();
 
@@ -320,13 +323,13 @@ fn test_value_infinity() {
         data.extend_from_slice(&1.0f32.to_le_bytes());
     }
 
-    let hdr = RawImage::from_data(
+    let hdr = pixel_buffer_from_vec(
+        data,
         32,
         32,
         PixelFormat::RgbaF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
-        data,
     )
     .unwrap();
 
@@ -396,8 +399,8 @@ fn test_quality_mismatched() {
     // High base, low gainmap
     let mut encoder = Encoder::new();
     encoder
-        .set_hdr_image(hdr.clone())
-        .set_sdr_image(sdr.clone())
+        .set_hdr_image(clone_pixel_buffer(&hdr))
+        .set_sdr_image(clone_pixel_buffer(&sdr))
         .set_quality(95, 20);
     assert!(encoder.encode().is_ok());
 
@@ -469,13 +472,13 @@ fn test_color_p3_gamut() {
         data.extend_from_slice(&1.0f32.to_le_bytes());
     }
 
-    let hdr = RawImage::from_data(
+    let hdr = pixel_buffer_from_vec(
+        data,
         64,
         64,
         PixelFormat::RgbaF32,
         ColorPrimaries::DisplayP3,
         TransferFunction::Linear,
-        data,
     )
     .unwrap();
 
@@ -499,13 +502,13 @@ fn test_color_bt2100_gamut() {
         data.extend_from_slice(&1.0f32.to_le_bytes());
     }
 
-    let hdr = RawImage::from_data(
+    let hdr = pixel_buffer_from_vec(
+        data,
         64,
         64,
         PixelFormat::RgbaF32,
         ColorPrimaries::Bt2020,
         TransferFunction::Linear,
-        data,
     )
     .unwrap();
 

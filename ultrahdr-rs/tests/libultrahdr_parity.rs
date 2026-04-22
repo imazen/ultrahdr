@@ -107,7 +107,7 @@ fn decode_pixel_samples() {
             meta.channels[0].max,
         );
         let hdr = dec.decode_hdr(4.0).expect("decode HDR");
-        assert!(hdr.width > 0 && hdr.height > 0);
+        assert!(hdr.width() > 0 && hdr.height() > 0);
 
         // Regression: MPF's primary_size is unreliable on Pixel HDR+ 1.0.*
         // output (truncates the last MCU row by ~300 bytes). Decoder must

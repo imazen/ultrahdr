@@ -142,8 +142,8 @@ fuzz_target!(|data: &[u8]| {
                     chunk.copy_from_slice(&clamped.to_le_bytes());
                 }
             }
-            let img = match ultrahdr_core::RawImage::from_data(
-                width, height, format, gamut, transfer, pixel_data,
+            let img = match ultrahdr_core::pixel_buffer_from_vec(
+                pixel_data, width, height, format, gamut, transfer,
             ) {
                 Ok(img) => img,
                 Err(_) => return,

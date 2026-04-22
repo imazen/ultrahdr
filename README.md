@@ -80,23 +80,26 @@ We also build on ISO/IEC 21496-1 (Gain map metadata for image conversion), the s
 ### Encoding
 
 ```rust
-use ultrahdr_rs::{Encoder, RawImage, PixelFormat, ColorGamut, ColorTransfer};
+use ultrahdr_rs::{
+    Encoder, PixelFormat, ColorPrimaries, TransferFunction, pixel_buffer_from_vec,
+};
 
-// HDR input as linear float RGB in BT.2020 / BT.2100 primaries.
-// `hdr_pixels: Vec<u8>` holds Rgba32F data (16 bytes/pixel).
-let mut hdr_image = RawImage::new(1920, 1080, PixelFormat::Rgba32F)?;
-hdr_image.gamut = ColorGamut::Bt2020;
-hdr_image.transfer = ColorTransfer::Linear;
-hdr_image.data = hdr_pixels;
+// HDR input as linear float RGBA in BT.2020 / BT.2100 primaries.
+// `hdr_pixels: Vec<u8>` holds RgbaF32 data (16 bytes/pixel).
+let hdr_image = pixel_buffer_from_vec(
+    hdr_pixels, 1920, 1080,
+    PixelFormat::RgbaF32, ColorPrimaries::Bt2020, TransferFunction::Linear,
+)?;
 
 // Encode to Ultra HDR JPEG. SDR is auto-generated via tone mapping
 // when you don't call .set_sdr_image().
-let ultrahdr_jpeg = Encoder::new()
+let mut encoder = Encoder::new();
+encoder
     .set_hdr_image(hdr_image)
-    .set_quality(90, 85)           // base quality, gainmap quality
-    .set_gainmap_scale(4)          // 1/4 resolution gain map
-    .set_target_display_peak(1000.0) // nits
-    .encode()?;
+    .set_quality(90, 85)              // base quality, gainmap quality
+    .set_gainmap_scale(4)             // 1/4 resolution gain map
+    .set_target_display_peak(1000.0); // nits
+let ultrahdr_jpeg = encoder.encode()?;
 
 std::fs::write("output.jpg", &ultrahdr_jpeg)?;
 ```
@@ -735,12 +738,12 @@ For more control, use `ultrahdr-core` (math + metadata only) with `zenjpeg` for 
 ```rust
 use ultrahdr_core::{
     gainmap::compute::{compute_gainmap, GainMapConfig},
-    metadata::xmp::generate_xmp,
-    RawImage, PixelFormat, ColorGamut, ColorTransfer, Unstoppable,
+    PixelBuffer, PixelFormat, ColorPrimaries, TransferFunction, Unstoppable,
 };
+use zenjpeg::container::xmp::generate_xmp;
 use zenjpeg::encoder::{EncoderConfig, PixelLayout, ChromaSubsampling, Unstoppable as ZenjpegStop};
 
-// 1. Compute gain map from HDR + SDR
+// 1. Compute gain map from HDR + SDR (both PixelBuffer)
 let config = GainMapConfig::default();
 let (gainmap, metadata) = compute_gainmap(&hdr_image, &sdr_image, &config, Unstoppable)?;
 
@@ -772,9 +775,10 @@ let ultrahdr = {
 ```rust
 use ultrahdr_core::{
     gainmap::apply::{apply_gainmap, HdrOutputFormat},
-    metadata::xmp::parse_xmp,
-    GainMap, RawImage, Unstoppable,
+    GainMap, PixelFormat, ColorPrimaries, TransferFunction, Unstoppable,
+    pixel_buffer_from_vec,
 };
+use zenjpeg::container::xmp::parse_xmp;
 use zenjpeg::decoder::{Decoder, PreserveConfig};
 
 // 1. Decode with metadata preservation
@@ -792,11 +796,10 @@ let (metadata, _) = parse_xmp(xmp_str)?;
 let gainmap_jpeg = extras.gainmap().expect("gainmap");
 let gainmap_decoded = Decoder::new().decode(gainmap_jpeg, Unstoppable)?;
 
-// 4. Build RawImage and GainMap structs
-let sdr = RawImage::from_data(
-    decoded.width(), decoded.height(),
-    PixelFormat::Rgba8, ColorGamut::Bt709, ColorTransfer::Srgb,
-    rgba_pixels,
+// 4. Build SDR PixelBuffer and GainMap
+let sdr = pixel_buffer_from_vec(
+    rgba_pixels, decoded.width(), decoded.height(),
+    PixelFormat::Rgba8, ColorPrimaries::Bt709, TransferFunction::Srgb,
 )?;
 let gainmap = GainMap {
     width: gainmap_decoded.width(),

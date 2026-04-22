@@ -5,9 +5,9 @@ use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8;
 use ultrahdr_core::gainmap::compute::{GainMapConfig, compute_gainmap};
 use ultrahdr_core::{ColorPrimaries, Error, GainMapEncodingFormat, GainMapMetadata, Result};
 
-use ultrahdr_core::{TransferFunction, PixelFormat, Unstoppable};
+use ultrahdr_core::{PixelFormat, TransferFunction, Unstoppable};
 
-use ultrahdr_core::{GainMap, RawImage};
+use ultrahdr_core::{GainMap, PixelBuffer, clone_pixel_buffer, pixel_buffer_from_vec};
 
 use zencodec::Iso21496Format;
 use zencodec::gainmap::{
@@ -200,9 +200,9 @@ pub fn encode_ultrahdr_with_format(
 /// `encode`) are only available in tests where zenjpeg is a dev-dependency.
 #[derive(Default)]
 pub struct Encoder {
-    hdr_image: Option<RawImage>,
+    hdr_image: Option<PixelBuffer>,
 
-    sdr_image: Option<RawImage>,
+    sdr_image: Option<PixelBuffer>,
     compressed_sdr: Option<Vec<u8>>,
 
     existing_gainmap: Option<GainMap>,
@@ -240,13 +240,13 @@ impl Encoder {
     }
 
     /// Set the HDR input image.
-    pub fn set_hdr_image(&mut self, image: RawImage) -> &mut Self {
+    pub fn set_hdr_image(&mut self, image: PixelBuffer) -> &mut Self {
         self.hdr_image = Some(image);
         self
     }
 
     /// Set the SDR input image.
-    pub fn set_sdr_image(&mut self, image: RawImage) -> &mut Self {
+    pub fn set_sdr_image(&mut self, image: PixelBuffer) -> &mut Self {
         self.sdr_image = Some(image);
         self
     }
@@ -342,19 +342,20 @@ impl Encoder {
             let (base_jpeg, gamut) = if let Some(ref compressed) = self.compressed_sdr {
                 (compressed.clone(), ColorPrimaries::Bt709)
             } else if let Some(ref sdr_img) = self.sdr_image {
-                (self.encode_base_jpeg(sdr_img)?, sdr_img.gamut)
+                let gamut = sdr_img.descriptor().primaries;
+                (self.encode_base_jpeg(sdr_img)?, gamut)
             } else if let Some(ref hdr) = self.hdr_image {
                 let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorPrimaries::Bt709)?;
-                let sdr = RawImage {
-                    width: hdr.width,
-                    height: hdr.height,
-                    stride: hdr.width * 4,
-                    data: sdr_pixels,
-                    format: PixelFormat::Rgba8,
-                    gamut: ColorPrimaries::Bt709,
-                    transfer: TransferFunction::Srgb,
-                };
-                (self.encode_base_jpeg(&sdr)?, sdr.gamut)
+                let sdr = pixel_buffer_from_vec(
+                    sdr_pixels,
+                    hdr.width(),
+                    hdr.height(),
+                    PixelFormat::Rgba8,
+                    ColorPrimaries::Bt709,
+                    TransferFunction::Srgb,
+                )?;
+                let gamut = sdr.descriptor().primaries;
+                (self.encode_base_jpeg(&sdr)?, gamut)
             } else {
                 return Err(Error::EncodeError(
                     "Either HDR image, SDR image, or compressed SDR is required".into(),
@@ -371,27 +372,26 @@ impl Encoder {
             .ok_or_else(|| Error::EncodeError("HDR image is required".into()))?;
 
         // Generate or use provided SDR
-        let sdr = if let Some(ref sdr_img) = self.sdr_image {
-            sdr_img.clone()
+        let sdr: PixelBuffer = if let Some(ref sdr_img) = self.sdr_image {
+            clone_pixel_buffer(sdr_img)
         } else {
             let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorPrimaries::Bt709)?;
-            RawImage {
-                width: hdr.width,
-                height: hdr.height,
-                stride: hdr.width * 4,
-                data: sdr_pixels,
-                format: PixelFormat::Rgba8,
-                gamut: ColorPrimaries::Bt709,
-                transfer: TransferFunction::Srgb,
-            }
+            pixel_buffer_from_vec(
+                sdr_pixels,
+                hdr.width(),
+                hdr.height(),
+                PixelFormat::Rgba8,
+                ColorPrimaries::Bt709,
+                TransferFunction::Srgb,
+            )?
         };
 
         // Use existing gain map if provided, otherwise compute a new one
         let (gainmap, metadata) =
             if let (Some(gm), Some(meta)) = (&self.existing_gainmap, &self.existing_metadata) {
                 let expected_scale = self.gainmap_scale.max(1) as u32;
-                let expected_width = sdr.width.div_ceil(expected_scale);
-                let expected_height = sdr.height.div_ceil(expected_scale);
+                let expected_width = sdr.width().div_ceil(expected_scale);
+                let expected_height = sdr.height().div_ceil(expected_scale);
 
                 let width_ok =
                     gm.width >= expected_width.saturating_sub(1) && gm.width <= expected_width + 1;
@@ -417,7 +417,8 @@ impl Encoder {
         // Encode gain map JPEG
         let gainmap_jpeg = self.encode_gainmap_jpeg(&gainmap)?;
 
-        encode_ultrahdr(&base_jpeg, &gainmap_jpeg, &metadata, sdr.gamut)
+        let gamut = sdr.descriptor().primaries;
+        encode_ultrahdr(&base_jpeg, &gainmap_jpeg, &metadata, gamut)
     }
 
     /// Encode to Ultra HDR JPEG from pre-set JPEGs (production API).
@@ -443,8 +444,8 @@ impl Encoder {
     /// Compute a new gain map.
     fn compute_new_gainmap(
         &self,
-        hdr: &RawImage,
-        sdr: &RawImage,
+        hdr: &PixelBuffer,
+        sdr: &PixelBuffer,
     ) -> Result<(GainMap, GainMapMetadata)> {
         let config = GainMapConfig {
             scale_factor: self.gainmap_scale,
@@ -462,33 +463,32 @@ impl Encoder {
     }
 
     /// Encode base SDR image to JPEG.
-    fn encode_base_jpeg(&self, sdr: &RawImage) -> Result<Vec<u8>> {
+    fn encode_base_jpeg(&self, sdr: &PixelBuffer) -> Result<Vec<u8>> {
         use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 
-        let (pixel_layout, data): (PixelLayout, std::borrow::Cow<[u8]>) = match sdr.format {
+        let format = sdr.descriptor().pixel_format();
+        let src_bytes = sdr.as_slice();
+        let src_data = src_bytes.as_strided_bytes();
+        let (pixel_layout, data): (PixelLayout, std::borrow::Cow<[u8]>) = match format {
             PixelFormat::Rgba8 => {
-                let rgb: Vec<u8> = sdr
-                    .data
+                let rgb: Vec<u8> = src_data
                     .chunks(4)
                     .flat_map(|rgba| [rgba[0], rgba[1], rgba[2]])
                     .collect();
                 (PixelLayout::Rgb8Srgb, std::borrow::Cow::Owned(rgb))
             }
-            PixelFormat::Rgb8 => (
-                PixelLayout::Rgb8Srgb,
-                std::borrow::Cow::Borrowed(&sdr.data[..]),
-            ),
+            PixelFormat::Rgb8 => (PixelLayout::Rgb8Srgb, std::borrow::Cow::Borrowed(src_data)),
             _ => {
                 return Err(Error::EncodeError(format!(
                     "Unsupported SDR pixel format: {:?}",
-                    sdr.format
+                    format
                 )));
             }
         };
 
         let config = EncoderConfig::ycbcr(self.base_quality as f32, ChromaSubsampling::Quarter);
         let mut enc = config
-            .encode_from_bytes(sdr.width, sdr.height, pixel_layout)
+            .encode_from_bytes(sdr.width(), sdr.height(), pixel_layout)
             .map_err(|e| Error::JpegEncode(e.to_string()))?;
         enc.push_packed(&data, Unstoppable)
             .map_err(|e| Error::JpegEncode(e.to_string()))?;

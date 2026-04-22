@@ -9,6 +9,7 @@ mod common;
 
 use common::{create_hdr_gradient, create_hdr_solid, create_sdr_gradient, create_sdr_solid};
 use std::io::Cursor;
+use ultrahdr_rs::clone_pixel_buffer;
 
 /// Test that zune-jpeg can decode the SDR base of our Ultra HDR.
 #[test]
@@ -58,7 +59,7 @@ fn test_zune_sdr_pixel_preservation() {
     let mut encoder = ultrahdr_rs::Encoder::new();
     encoder
         .set_hdr_image(hdr)
-        .set_sdr_image(sdr.clone())
+        .set_sdr_image(clone_pixel_buffer(&sdr))
         .set_quality(95, 90); // High quality
 
     let encoded = encoder.encode().unwrap();
@@ -210,7 +211,7 @@ fn test_roundtrip_with_zune() {
     let mut encoder = ultrahdr_rs::Encoder::new();
     encoder
         .set_hdr_image(hdr)
-        .set_sdr_image(sdr.clone())
+        .set_sdr_image(clone_pixel_buffer(&sdr))
         .set_quality(95, 90);
 
     let encoded = encoder.encode().unwrap();
@@ -226,8 +227,8 @@ fn test_roundtrip_with_zune() {
 
     // Both should have same dimensions
     let zune_info = zune_decoder.info().unwrap();
-    assert_eq!(zune_info.width as u32, our_sdr.width);
-    assert_eq!(zune_info.height as u32, our_sdr.height);
+    assert_eq!(zune_info.width as u32, our_sdr.width());
+    assert_eq!(zune_info.height as u32, our_sdr.height());
 
     // Pixel values should be very similar
     // Note: our decoder outputs RGBA, zune might output RGB
@@ -238,7 +239,7 @@ fn test_roundtrip_with_zune() {
 
     for i in 0..pixel_count.min(zune_pixels.len() / zune_channels) {
         let zune_r = zune_pixels[i * zune_channels] as i16;
-        let our_r = our_sdr.data[i * 4] as i16;
+        let our_r = our_sdr.as_slice().as_strided_bytes()[i * 4] as i16;
 
         let diff = (zune_r - our_r).abs();
         max_diff = max_diff.max(diff);

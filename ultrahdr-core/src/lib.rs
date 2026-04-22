@@ -71,8 +71,8 @@ mod types;
 // Re-export core types (local)
 pub use types::{
     ColorPrimaries, Error, GainMap, GainMapEncodingFormat, PixelBuffer, PixelFormat, PixelSlice,
-    PixelSliceMut, Result, TransferFunction, descriptor_for, luminance, new_pixel_buffer,
-    pixel_buffer_from_vec, require_supported_format, validate_gainmap_metadata,
+    PixelSliceMut, Result, TransferFunction, clone_pixel_buffer, descriptor_for, luminance,
+    new_pixel_buffer, pixel_buffer_from_vec, require_supported_format, validate_gainmap_metadata,
     validate_ultrahdr_dimensions, validate_ultrahdr_image, validate_ultrahdr_slice,
 };
 

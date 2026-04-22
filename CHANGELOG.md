@@ -21,6 +21,45 @@ own section below.
   apply/compute gain maps can depend on ultrahdr-core without pulling in
   zentone. (Breaking only for callers building with custom feature sets
   that already compiled against zentone-free configurations.)
+- Removed `RawImage`, `RawImageRef`, `RawImageRefMut`. All kernels now take
+  `zenpixels::PixelBuffer` (owning) and `zenpixels::PixelSlice` /
+  `PixelSliceMut` (borrowed) directly. Replace:
+  - `RawImage::new(w, h, fmt)` → `ultrahdr_core::new_pixel_buffer(w, h, fmt, primaries, transfer)`
+  - `RawImage::from_data(w, h, fmt, primaries, transfer, data)` →
+    `ultrahdr_core::pixel_buffer_from_vec(data, w, h, fmt, primaries, transfer)`
+    (note: `data` is now the first argument)
+  - Field access `img.data` / `img.stride` / `img.width` / `img.height` /
+    `img.format` / `img.gamut` / `img.transfer` →
+    `img.as_slice().as_strided_bytes()` / `img.stride()` / `img.width()` /
+    `img.height()` / `img.descriptor().pixel_format()` /
+    `img.descriptor().primaries` / `img.descriptor().transfer()`.
+  - `img.clone()` on a `PixelBuffer` → `ultrahdr_core::clone_pixel_buffer(&img)`
+    (zenpixels intentionally doesn't derive `Clone` on `PixelBuffer` to
+    discourage silent large-pixel copies).
+  - `RawImageRef<'_>` / `RawImageRefMut<'_>` → `PixelSlice<'_>` /
+    `PixelSliceMut<'_>`.
+
+#### Added
+- Re-export `PixelBuffer`, `PixelSlice`, `PixelSliceMut` at the crate root.
+- `new_pixel_buffer(w, h, fmt, primaries, transfer)` — allocate a
+  zero-filled `PixelBuffer` with ultrahdr-core's stricter
+  dimension/format caps applied.
+- `pixel_buffer_from_vec(data, w, h, fmt, primaries, transfer)` — wrap
+  an existing `Vec<u8>` as a `PixelBuffer` with the same validators.
+- `clone_pixel_buffer(&buf)` — deep-copy a `PixelBuffer` for callers that
+  need an owned duplicate.
+- `validate_ultrahdr_dimensions`, `validate_ultrahdr_image`,
+  `validate_ultrahdr_slice`, `require_supported_format`,
+  `descriptor_for` — the validator/descriptor helpers used internally
+  at public entry points.
+- New `apply_gainmap_slice(sdr: PixelSlice, ...)` — the borrowed
+  counterpart to `apply_gainmap(&PixelBuffer, ...)`.
+- New `compute_gainmap_slice(hdr: PixelSlice, sdr: PixelSlice, ...)` —
+  the borrowed counterpart to `compute_gainmap(&PixelBuffer, ...)`.
+
+#### Removed
+- `RawImage`, `RawImageRef`, `RawImageRefMut` — eliminated in favor of
+  zenpixels types. (~1,100 LOC removed from `types.rs`.)
 
 #### Added
 - In-core luma gain map splitter: `LumaToneMap` trait, `LumaFn` closure
@@ -102,6 +141,13 @@ own section below.
 
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release. -->
+- `Encoder::set_hdr_image` / `set_sdr_image` now take `PixelBuffer` (from
+  zenpixels) instead of the former `RawImage`. `Decoder::decode_sdr` /
+  `decode_hdr` / `decode_hdr_with_format` return `PixelBuffer`. See the
+  ultrahdr-core section for the call-site migration table. ultrahdr-rs
+  re-exports `PixelBuffer`, `PixelSlice`, `PixelSliceMut`,
+  `new_pixel_buffer`, `pixel_buffer_from_vec`, `clone_pixel_buffer`,
+  `descriptor_for` at the crate root.
 
 ### [0.3.5] - 2026-04-10
 
