@@ -35,7 +35,7 @@ use core::cmp::Ordering;
 use crate::RawImage;
 use crate::color::gamut::{convert_gamut, rgb_to_luminance, soft_clip_gamut};
 use crate::color::transfer::{hlg_eotf, pq_eotf, srgb_eotf, srgb_oetf};
-use crate::types::{ColorGamut, ColorTransfer, Error, GainMap, GainMapMetadata, Result};
+use crate::types::{ColorPrimaries, TransferFunction, Error, GainMap, GainMapMetadata, Result};
 
 // ============================================================================
 // Tone Mapping Configuration
@@ -49,9 +49,9 @@ pub struct ToneMapConfig {
     /// HDR content peak luminance in nits.
     pub hdr_peak_nits: f32,
     /// Target color gamut for SDR output.
-    pub target_gamut: ColorGamut,
+    pub target_gamut: ColorPrimaries,
     /// Source color gamut of HDR content.
-    pub source_gamut: ColorGamut,
+    pub source_gamut: ColorPrimaries,
 }
 
 impl Default for ToneMapConfig {
@@ -59,8 +59,8 @@ impl Default for ToneMapConfig {
         Self {
             target_peak_nits: 203.0, // SDR reference white
             hdr_peak_nits: 10000.0,  // PQ peak
-            target_gamut: ColorGamut::Bt709,
-            source_gamut: ColorGamut::Bt2020,
+            target_gamut: ColorPrimaries::Bt709,
+            source_gamut: ColorPrimaries::Bt2020,
         }
     }
 }
@@ -421,8 +421,8 @@ impl AdaptiveTonemapper {
         let height = hdr.height;
 
         let mut output = RawImage::new(width, height, crate::PixelFormat::Rgba8)?;
-        output.gamut = ColorGamut::Bt709;
-        output.transfer = ColorTransfer::Srgb;
+        output.gamut = ColorPrimaries::Bt709;
+        output.transfer = TransferFunction::Srgb;
 
         for y in 0..height {
             for x in 0..width {
@@ -457,8 +457,8 @@ impl AdaptiveTonemapper {
         let height = hdr.height;
 
         let mut output = RawImage::new(width, height, crate::PixelFormat::Rgba8)?;
-        output.gamut = ColorGamut::Bt709;
-        output.transfer = ColorTransfer::Srgb;
+        output.gamut = ColorPrimaries::Bt709;
+        output.transfer = TransferFunction::Srgb;
 
         for y in 0..height {
             for x in 0..width {
@@ -966,23 +966,21 @@ pub fn tonemap_hlg_to_sdr(hlg_rgb: [f32; 3], config: &ToneMapConfig) -> [f32; 3]
 /// Output: Linear SDR RGB `[0,1]` ready for sRGB OETF
 pub fn tonemap_to_sdr(
     encoded_rgb: [f32; 3],
-    transfer: ColorTransfer,
+    transfer: TransferFunction,
     config: &ToneMapConfig,
 ) -> [f32; 3] {
     match transfer {
-        ColorTransfer::Pq => tonemap_pq_to_sdr(encoded_rgb, config),
-        ColorTransfer::Hlg => tonemap_hlg_to_sdr(encoded_rgb, config),
-        ColorTransfer::Srgb | ColorTransfer::Linear => {
-            // Already SDR, just convert gamut
-            let linear = if transfer == ColorTransfer::Srgb {
-                [
-                    srgb_eotf(encoded_rgb[0]),
-                    srgb_eotf(encoded_rgb[1]),
-                    srgb_eotf(encoded_rgb[2]),
-                ]
-            } else {
-                encoded_rgb
-            };
+        TransferFunction::Pq => tonemap_pq_to_sdr(encoded_rgb, config),
+        TransferFunction::Hlg => tonemap_hlg_to_sdr(encoded_rgb, config),
+        TransferFunction::Linear => {
+            convert_gamut(encoded_rgb, config.source_gamut, config.target_gamut)
+        }
+        _ => {
+            let linear = [
+                srgb_eotf(encoded_rgb[0]),
+                srgb_eotf(encoded_rgb[1]),
+                srgb_eotf(encoded_rgb[2]),
+            ];
             convert_gamut(linear, config.source_gamut, config.target_gamut)
         }
     }
@@ -993,7 +991,7 @@ pub fn tonemap_to_sdr(
 /// Full pipeline: HDR encoded → linear SDR → sRGB encoded → 8-bit
 pub fn tonemap_to_srgb8(
     encoded_rgb: [f32; 3],
-    transfer: ColorTransfer,
+    transfer: TransferFunction,
     config: &ToneMapConfig,
 ) -> [u8; 3] {
     let linear_sdr = tonemap_to_sdr(encoded_rgb, transfer, config);
@@ -1013,7 +1011,7 @@ pub fn tonemap_to_srgb8(
 /// Tonemap an entire HDR image to SDR RGBA8.
 ///
 /// Takes an HDR image in any supported format and produces RGBA8 output.
-pub fn tonemap_image_to_srgb8(img: &RawImage, target_gamut: ColorGamut) -> Result<Vec<u8>> {
+pub fn tonemap_image_to_srgb8(img: &RawImage, target_gamut: ColorPrimaries) -> Result<Vec<u8>> {
     use crate::color::gamut::convert_gamut;
 
     // Validate pixel data is large enough for declared dimensions
@@ -1076,13 +1074,13 @@ fn get_linear_rgb(img: &RawImage, x: u32, y: u32) -> [f32; 3] {
             let r = img.data[idx] as f32 / 255.0;
             let g = img.data[idx + 1] as f32 / 255.0;
             let b = img.data[idx + 2] as f32 / 255.0;
-            if img.transfer == ColorTransfer::Srgb {
+            if img.transfer == TransferFunction::Srgb {
                 [srgb_eotf(r), srgb_eotf(g), srgb_eotf(b)]
             } else {
                 [r, g, b]
             }
         }
-        PixelFormat::Rgba32F => {
+        PixelFormat::RgbaF32 => {
             let idx = (y * img.stride + x * 16) as usize;
             let r = f32::from_le_bytes([
                 img.data[idx],
@@ -1356,7 +1354,7 @@ mod tests {
     fn test_adaptive_tonemapper_fit() {
         use crate::PixelFormat;
 
-        // Create simple HDR image in Rgba32F (the only HDR pixel format we
+        // Create simple HDR image in RgbaF32 (the only HDR pixel format we
         // carry post-narrow; #9 removed Rgba16F as dormant).
         let width = 32u32;
         let height = 32u32;
@@ -1385,9 +1383,9 @@ mod tests {
         let hdr = RawImage::from_data(
             width,
             height,
-            PixelFormat::Rgba32F,
-            ColorGamut::Bt709,
-            ColorTransfer::Linear,
+            PixelFormat::RgbaF32,
+            ColorPrimaries::Bt709,
+            TransferFunction::Linear,
             hdr_data,
         )
         .unwrap();
@@ -1396,8 +1394,8 @@ mod tests {
             width,
             height,
             PixelFormat::Rgba8,
-            ColorGamut::Bt709,
-            ColorTransfer::Srgb,
+            ColorPrimaries::Bt709,
+            TransferFunction::Srgb,
             sdr_data,
         )
         .unwrap();
@@ -1560,8 +1558,8 @@ mod tests {
         let config = ToneMapConfig {
             target_peak_nits: 203.0,
             hdr_peak_nits: 10000.0,
-            target_gamut: ColorGamut::Bt709,
-            source_gamut: ColorGamut::Bt2020,
+            target_gamut: ColorPrimaries::Bt709,
+            source_gamut: ColorPrimaries::Bt2020,
         };
         let result = tonemap_pq_to_sdr([0.58, 0.58, 0.58], &config);
         // Should produce a positive, non-trivial SDR value
@@ -1698,9 +1696,9 @@ mod tests {
         let hdr = RawImage::from_data(
             width,
             height,
-            PixelFormat::Rgba32F,
-            ColorGamut::Bt709,
-            ColorTransfer::Linear,
+            PixelFormat::RgbaF32,
+            ColorPrimaries::Bt709,
+            TransferFunction::Linear,
             hdr_data,
         )
         .unwrap();
@@ -1709,8 +1707,8 @@ mod tests {
             width,
             height,
             PixelFormat::Rgba8,
-            ColorGamut::Bt709,
-            ColorTransfer::Srgb,
+            ColorPrimaries::Bt709,
+            TransferFunction::Srgb,
             sdr_data,
         )
         .unwrap();

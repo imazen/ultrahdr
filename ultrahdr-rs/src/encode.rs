@@ -8,9 +8,9 @@ use ultrahdr_core::metadata::{
     mpf::create_mpf_header,
     xmp::{build_gainmap_metadata_markers, create_xmp_app1_marker, generate_primary_xmp},
 };
-use ultrahdr_core::{ColorGamut, Error, GainMapEncodingFormat, GainMapMetadata, Result};
+use ultrahdr_core::{ColorPrimaries, Error, GainMapEncodingFormat, GainMapMetadata, Result};
 
-use ultrahdr_core::{ColorTransfer, PixelFormat, Unstoppable};
+use ultrahdr_core::{TransferFunction, PixelFormat, Unstoppable};
 
 use ultrahdr_core::{GainMap, RawImage};
 
@@ -26,7 +26,7 @@ pub fn encode_ultrahdr(
     base_jpeg: &[u8],
     gainmap_jpeg: &[u8],
     metadata: &GainMapMetadata,
-    gamut: ColorGamut,
+    gamut: ColorPrimaries,
 ) -> Result<Vec<u8>> {
     encode_ultrahdr_with_format(
         base_jpeg,
@@ -48,7 +48,7 @@ pub fn encode_ultrahdr_with_format(
     base_jpeg: &[u8],
     gainmap_jpeg: &[u8],
     metadata: &GainMapMetadata,
-    gamut: ColorGamut,
+    gamut: ColorPrimaries,
     format: GainMapEncodingFormat,
 ) -> Result<Vec<u8>> {
     // Build metadata markers for the gain map JPEG (XMP and/or ISO 21496-1).
@@ -284,19 +284,19 @@ impl Encoder {
             (&self.existing_gainmap_jpeg, &self.existing_metadata)
         {
             let (base_jpeg, gamut) = if let Some(ref compressed) = self.compressed_sdr {
-                (compressed.clone(), ColorGamut::Bt709)
+                (compressed.clone(), ColorPrimaries::Bt709)
             } else if let Some(ref sdr_img) = self.sdr_image {
                 (self.encode_base_jpeg(sdr_img)?, sdr_img.gamut)
             } else if let Some(ref hdr) = self.hdr_image {
-                let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorGamut::Bt709)?;
+                let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorPrimaries::Bt709)?;
                 let sdr = RawImage {
                     width: hdr.width,
                     height: hdr.height,
                     stride: hdr.width * 4,
                     data: sdr_pixels,
                     format: PixelFormat::Rgba8,
-                    gamut: ColorGamut::Bt709,
-                    transfer: ColorTransfer::Srgb,
+                    gamut: ColorPrimaries::Bt709,
+                    transfer: TransferFunction::Srgb,
                 };
                 (self.encode_base_jpeg(&sdr)?, sdr.gamut)
             } else {
@@ -318,15 +318,15 @@ impl Encoder {
         let sdr = if let Some(ref sdr_img) = self.sdr_image {
             sdr_img.clone()
         } else {
-            let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorGamut::Bt709)?;
+            let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorPrimaries::Bt709)?;
             RawImage {
                 width: hdr.width,
                 height: hdr.height,
                 stride: hdr.width * 4,
                 data: sdr_pixels,
                 format: PixelFormat::Rgba8,
-                gamut: ColorGamut::Bt709,
-                transfer: ColorTransfer::Srgb,
+                gamut: ColorPrimaries::Bt709,
+                transfer: TransferFunction::Srgb,
             }
         };
 
@@ -381,7 +381,7 @@ impl Encoder {
             .as_ref()
             .ok_or_else(|| Error::EncodeError("Metadata not set".into()))?;
 
-        encode_ultrahdr(base_jpeg, gainmap_jpeg, metadata, ColorGamut::Bt709)
+        encode_ultrahdr(base_jpeg, gainmap_jpeg, metadata, ColorPrimaries::Bt709)
     }
 
     /// Compute a new gain map.

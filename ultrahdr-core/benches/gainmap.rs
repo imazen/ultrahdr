@@ -3,7 +3,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 use ultrahdr_core::{
-    ColorGamut, ColorTransfer, GainMap, GainMapChannel, GainMapMetadata, PixelFormat, RawImage,
+    ColorPrimaries, TransferFunction, GainMap, GainMapChannel, GainMapMetadata, PixelFormat, RawImage,
     gainmap::{
         apply::{HdrOutputFormat, apply_gainmap},
         compute::{GainMapConfig, compute_gainmap},
@@ -13,8 +13,8 @@ use ultrahdr_core::{
 /// Create a test SDR image of given dimensions.
 fn create_sdr_image(width: u32, height: u32) -> RawImage {
     let mut img = RawImage::new(width, height, PixelFormat::Rgba8).unwrap();
-    img.gamut = ColorGamut::Bt709;
-    img.transfer = ColorTransfer::Srgb;
+    img.gamut = ColorPrimaries::Bt709;
+    img.transfer = TransferFunction::Srgb;
 
     // Fill with a gradient pattern
     for y in 0..height {
@@ -32,8 +32,8 @@ fn create_sdr_image(width: u32, height: u32) -> RawImage {
 /// Create a test HDR image (brighter version of SDR).
 fn create_hdr_image(width: u32, height: u32) -> RawImage {
     let mut img = RawImage::new(width, height, PixelFormat::Rgba8).unwrap();
-    img.gamut = ColorGamut::Bt709;
-    img.transfer = ColorTransfer::Srgb;
+    img.gamut = ColorPrimaries::Bt709;
+    img.transfer = TransferFunction::Srgb;
 
     // Fill with brighter gradient
     for y in 0..height {
@@ -120,23 +120,6 @@ fn bench_apply_gainmap(c: &mut Criterion) {
             },
         );
 
-        group.bench_with_input(
-            BenchmarkId::new("pq1010102", format!("{}x{}", width, height)),
-            &(width, height),
-            |b, _| {
-                b.iter(|| {
-                    apply_gainmap(
-                        black_box(&sdr),
-                        black_box(&gainmap),
-                        black_box(&metadata),
-                        black_box(4.0),
-                        HdrOutputFormat::Pq1010102,
-                        enough::Unstoppable,
-                    )
-                    .unwrap()
-                });
-            },
-        );
     }
 
     group.finish();

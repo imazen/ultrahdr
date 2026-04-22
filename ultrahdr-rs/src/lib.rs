@@ -21,7 +21,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use ultrahdr::{encode_ultrahdr, Decoder, GainMapMetadata, ColorGamut};
+//! use ultrahdr::{encode_ultrahdr, Decoder, GainMapMetadata, ColorPrimaries};
 //! use ultrahdr::gainmap::compute::{compute_gainmap, GainMapConfig};
 //!
 //! // 1. Prepare your images (using your own JPEG codec)
@@ -33,7 +33,7 @@
 //! let gainmap_jpeg = my_encoder.encode_grayscale(&gainmap.data)?;
 //!
 //! // 3. Assemble Ultra HDR file
-//! let ultrahdr = encode_ultrahdr(&sdr_jpeg, &gainmap_jpeg, &metadata, ColorGamut::Bt709)?;
+//! let ultrahdr = encode_ultrahdr(&sdr_jpeg, &gainmap_jpeg, &metadata, ColorPrimaries::Bt709)?;
 //!
 //! // 4. Decode: get raw JPEG bytes and decode with your codec
 //! let decoder = Decoder::new(&ultrahdr)?;
@@ -60,7 +60,7 @@ pub use ultrahdr_core::metadata;
 
 // Re-export core types at crate root
 pub use ultrahdr_core::{
-    ColorGamut, ColorTransfer, Error, Fraction, GainMap, GainMapConfig, GainMapEncodingFormat,
+    ColorPrimaries, TransferFunction, Error, Fraction, GainMap, GainMapConfig, GainMapEncodingFormat,
     GainMapMetadata, HdrOutputFormat, Iso21496Format, PixelFormat, RawImage, Result, Stop,
     StopReason, Unstoppable, limits, luminance,
 };

@@ -4,7 +4,7 @@
 //! using zenjpeg for JPEG codec operations and ultrahdr for gain map math.
 
 use ultrahdr_rs::{
-    ColorGamut, ColorTransfer, GainMap, PixelFormat, RawImage, Unstoppable as CoreUnstoppable,
+    ColorPrimaries, TransferFunction, GainMap, PixelFormat, RawImage, Unstoppable as CoreUnstoppable,
     gainmap::{
         apply::{HdrOutputFormat, apply_gainmap},
         compute::{GainMapConfig, compute_gainmap},
@@ -18,49 +18,40 @@ use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppabl
 
 /// Create test HDR RawImage (gradient with bright highlights).
 fn create_test_hdr_image(width: u32, height: u32) -> RawImage {
-    let mut pixels = Vec::with_capacity((width * height * 8) as usize);
+    let mut pixels = Vec::with_capacity((width * height * 16) as usize);
 
     for y in 0..height {
         for x in 0..width {
             let u = x as f32 / width as f32;
             let v = y as f32 / height as f32;
 
-            // Base gradient
             let r = u;
             let g = v;
             let b = 1.0 - u;
 
-            // Add bright highlights in center
             let cx = (x as f32 - width as f32 / 2.0).abs() / (width as f32 / 2.0);
             let cy = (y as f32 - height as f32 / 2.0).abs() / (height as f32 / 2.0);
             let dist = (cx * cx + cy * cy).sqrt();
 
-            // HDR highlight up to 4x SDR white
             let highlight = if dist < 0.3 {
                 4.0 * (1.0 - dist / 0.3)
             } else {
                 0.0
             };
 
-            // Convert to half-precision bytes (f16)
-            let hr = half::f16::from_f32(r + highlight);
-            let hg = half::f16::from_f32(g + highlight);
-            let hb = half::f16::from_f32(b + highlight);
-            let ha = half::f16::from_f32(1.0);
-
-            pixels.extend_from_slice(&hr.to_le_bytes());
-            pixels.extend_from_slice(&hg.to_le_bytes());
-            pixels.extend_from_slice(&hb.to_le_bytes());
-            pixels.extend_from_slice(&ha.to_le_bytes());
+            pixels.extend_from_slice(&(r + highlight).to_le_bytes());
+            pixels.extend_from_slice(&(g + highlight).to_le_bytes());
+            pixels.extend_from_slice(&(b + highlight).to_le_bytes());
+            pixels.extend_from_slice(&1.0f32.to_le_bytes());
         }
     }
 
     RawImage::from_data(
         width,
         height,
-        PixelFormat::Rgba16F,
-        ColorGamut::Bt709,
-        ColorTransfer::Linear,
+        PixelFormat::RgbaF32,
+        ColorPrimaries::Bt709,
+        TransferFunction::Linear,
         pixels,
     )
     .expect("create HDR image")
@@ -72,10 +63,25 @@ fn create_sdr_from_hdr(hdr: &RawImage) -> RawImage {
 
     let hdr_data = &hdr.data;
     for i in 0..(hdr.width * hdr.height) as usize {
-        let idx = i * 8;
-        let r = half::f16::from_le_bytes([hdr_data[idx], hdr_data[idx + 1]]).to_f32();
-        let g = half::f16::from_le_bytes([hdr_data[idx + 2], hdr_data[idx + 3]]).to_f32();
-        let b = half::f16::from_le_bytes([hdr_data[idx + 4], hdr_data[idx + 5]]).to_f32();
+        let idx = i * 16;
+        let r = f32::from_le_bytes([
+            hdr_data[idx],
+            hdr_data[idx + 1],
+            hdr_data[idx + 2],
+            hdr_data[idx + 3],
+        ]);
+        let g = f32::from_le_bytes([
+            hdr_data[idx + 4],
+            hdr_data[idx + 5],
+            hdr_data[idx + 6],
+            hdr_data[idx + 7],
+        ]);
+        let b = f32::from_le_bytes([
+            hdr_data[idx + 8],
+            hdr_data[idx + 9],
+            hdr_data[idx + 10],
+            hdr_data[idx + 11],
+        ]);
 
         let sdr_r = linear_to_srgb_u8(r.clamp(0.0, 1.0));
         let sdr_g = linear_to_srgb_u8(g.clamp(0.0, 1.0));
@@ -91,8 +97,8 @@ fn create_sdr_from_hdr(hdr: &RawImage) -> RawImage {
         hdr.width,
         hdr.height,
         PixelFormat::Rgba8,
-        ColorGamut::Bt709,
-        ColorTransfer::Srgb,
+        ColorPrimaries::Bt709,
+        TransferFunction::Srgb,
         pixels,
     )
     .expect("create SDR image")
@@ -134,8 +140,8 @@ fn rgb8_to_raw_image(data: &[u8], width: u32, height: u32) -> RawImage {
         width,
         height,
         PixelFormat::Rgba8,
-        ColorGamut::Bt709,
-        ColorTransfer::Srgb,
+        ColorPrimaries::Bt709,
+        TransferFunction::Srgb,
         rgba,
     )
     .expect("create raw image")
@@ -711,7 +717,7 @@ fn test_readme_workflow_encode_decode() {
     // Verify HDR reconstruction
     assert_eq!(hdr_reconstructed.width, width);
     assert_eq!(hdr_reconstructed.height, height);
-    assert_eq!(hdr_reconstructed.format, PixelFormat::Rgba32F);
+    assert_eq!(hdr_reconstructed.format, PixelFormat::RgbaF32);
 
     // Verify HDR values exceed SDR range (> 1.0)
     let hdr_data = &hdr_reconstructed.data;

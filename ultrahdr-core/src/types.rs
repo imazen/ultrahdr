@@ -100,70 +100,24 @@ impl From<StopReason> for Error {
     }
 }
 
-/// Color gamut / color space primaries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
-pub enum ColorGamut {
-    /// BT.709 / sRGB primaries
-    #[default]
-    Bt709,
-    /// Display P3 primaries
-    DisplayP3,
-    /// BT.2020 primaries (also used by BT.2100 for HDR)
-    Bt2020,
-}
-
-/// Electro-optical transfer function (EOTF/OETF).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
-pub enum ColorTransfer {
-    /// sRGB transfer function (gamma ~2.2)
-    #[default]
-    Srgb,
-    /// Linear (gamma 1.0)
-    Linear,
-    /// Perceptual Quantizer (SMPTE ST 2084) - HDR
-    Pq,
-    /// Hybrid Log-Gamma (ITU-R BT.2100) - HDR
-    Hlg,
-}
-
-/// Pixel format for raw images.
+/// Color primaries. Re-exported from [`zenpixels::ColorPrimaries`].
 ///
-/// Narrowed to the variants that zenpixels already expresses, pending the
-/// eventual fold to `zenpixels::PixelFormat` (#9). Packed / half-float
-/// formats (Rgba16F, P010, Yuv420, Rgba1010102Pq, Rgba1010102Hlg) were
-/// removed as dormant — every production caller uses one of the four
-/// below; the packed variants had only test / fuzz / bench constructors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum PixelFormat {
-    /// 8-bit RGBA (SDR)
-    Rgba8,
-    /// 8-bit RGB (SDR)
-    Rgb8,
-    /// 32-bit float RGBA (HDR linear)
-    Rgba32F,
-    /// 8-bit grayscale (for gain maps)
-    Gray8,
-}
+/// ultrahdr-core used to define its own `ColorGamut` enum; #9 folded it
+/// into zenpixels so every `zen*` crate speaks the same color-metadata
+/// vocabulary.
+pub use zenpixels::ColorPrimaries;
 
-impl PixelFormat {
-    /// Returns the number of bytes per pixel.
-    pub fn bytes_per_pixel(&self) -> Option<usize> {
-        match self {
-            Self::Rgba8 => Some(4),
-            Self::Rgb8 => Some(3),
-            Self::Rgba32F => Some(16),
-            Self::Gray8 => Some(1),
-        }
-    }
+/// Electro-optical transfer function. Re-exported from
+/// [`zenpixels::TransferFunction`].
+pub use zenpixels::TransferFunction;
 
-    /// Returns true if this is an HDR format.
-    pub fn is_hdr(&self) -> bool {
-        matches!(self, Self::Rgba32F)
-    }
-}
+/// Pixel format for raw images. Re-exported from [`zenpixels::PixelFormat`].
+///
+/// ultrahdr-core uses a subset (`Rgba8`, `Rgb8`, `RgbaF32`, `Gray8`); other
+/// zenpixels variants are accepted at the type level but will fail validation
+/// in the gain map / tone mapping kernels that only accept SDR 8-bit and
+/// linear float HDR.
+pub use zenpixels::PixelFormat;
 
 /// Controls which metadata format(s) to embed in Ultra HDR output.
 ///
@@ -190,7 +144,16 @@ pub enum GainMapEncodingFormat {
 /// Re-exported from [`zencodec::gainmap::Iso21496Format`].
 pub use zencodec::Iso21496Format;
 
-/// A raw (uncompressed) image.
+/// A raw (uncompressed) image — ultrahdr-core's owned pixel container.
+///
+/// This is a thin structure over a `Vec<u8>` plus zenpixels-compatible metadata
+/// (`PixelFormat`, `ColorPrimaries`, `TransferFunction`). Use it when you need
+/// public-field access to width/height/stride/data for hand-written pixel loops
+/// (as the gain map and tone mapping kernels do).
+///
+/// For interop, use [`From<&zenpixels::PixelBuffer>`] to lift a zenpixels buffer
+/// in, and [`to_pixel_buffer`](Self::to_pixel_buffer) to produce a zenpixels
+/// buffer that carries the same pixel data and descriptor.
 #[derive(Debug, Clone)]
 pub struct RawImage {
     /// Image width in pixels.
@@ -200,9 +163,9 @@ pub struct RawImage {
     /// Pixel format.
     pub format: PixelFormat,
     /// Color gamut.
-    pub gamut: ColorGamut,
+    pub gamut: ColorPrimaries,
     /// Transfer function.
-    pub transfer: ColorTransfer,
+    pub transfer: TransferFunction,
     /// Pixel data (layout depends on format).
     pub data: Vec<u8>,
     /// Row stride in bytes (for packed formats).
@@ -217,12 +180,10 @@ impl RawImage {
     pub fn new(width: u32, height: u32, format: PixelFormat) -> Result<Self> {
         Self::validate_dimensions(width, height)?;
 
-        let stride = match format.bytes_per_pixel() {
-            Some(bpp) => width.checked_mul(bpp as u32).ok_or_else(|| {
-                Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp))
-            })?,
-            None => width, // For planar, stride is width
-        };
+        let bpp = format.bytes_per_pixel();
+        let stride = width
+            .checked_mul(bpp as u32)
+            .ok_or_else(|| Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp)))?;
 
         let data_size = Self::calculate_data_size(width, height, stride, format)?;
 
@@ -230,8 +191,9 @@ impl RawImage {
             width,
             height,
             format,
-            gamut: ColorGamut::default(),
-            transfer: ColorTransfer::default(),
+            gamut: ColorPrimaries::default(),
+            // zenpixels::TransferFunction has no Default impl.
+            transfer: TransferFunction::Srgb,
             data: vec![0u8; data_size],
             stride,
         })
@@ -242,18 +204,16 @@ impl RawImage {
         width: u32,
         height: u32,
         format: PixelFormat,
-        gamut: ColorGamut,
-        transfer: ColorTransfer,
+        gamut: ColorPrimaries,
+        transfer: TransferFunction,
         data: Vec<u8>,
     ) -> Result<Self> {
         Self::validate_dimensions(width, height)?;
 
-        let stride = match format.bytes_per_pixel() {
-            Some(bpp) => width.checked_mul(bpp as u32).ok_or_else(|| {
-                Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp))
-            })?,
-            None => width,
-        };
+        let bpp = format.bytes_per_pixel();
+        let stride = width
+            .checked_mul(bpp as u32)
+            .ok_or_else(|| Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp)))?;
 
         let expected_size = Self::calculate_data_size(width, height, stride, format)?;
         if data.len() < expected_size {
@@ -414,12 +374,10 @@ pub(crate) fn validate_dimensions(width: u32, height: u32) -> Result<()> {
 
 /// Minimum stride in bytes required for one row of the given format at `width`.
 pub(crate) fn min_stride_bytes(width: u32, format: PixelFormat) -> Result<usize> {
-    match format.bytes_per_pixel() {
-        Some(bpp) => (width as usize)
-            .checked_mul(bpp)
-            .ok_or_else(|| Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp))),
-        None => Ok(width as usize),
-    }
+    let bpp = format.bytes_per_pixel();
+    (width as usize)
+        .checked_mul(bpp)
+        .ok_or_else(|| Error::LimitExceeded(format!("stride overflow: {}x{}", width, bpp)))
 }
 
 // ============================================================================
@@ -448,9 +406,9 @@ pub struct RawImageRef<'a> {
     /// Pixel format.
     pub format: PixelFormat,
     /// Color gamut.
-    pub gamut: ColorGamut,
+    pub gamut: ColorPrimaries,
     /// Transfer function.
-    pub transfer: ColorTransfer,
+    pub transfer: TransferFunction,
     /// Borrowed pixel data (layout depends on format).
     pub data: &'a [u8],
 }
@@ -467,8 +425,8 @@ impl<'a> RawImageRef<'a> {
         height: u32,
         stride: usize,
         format: PixelFormat,
-        gamut: ColorGamut,
-        transfer: ColorTransfer,
+        gamut: ColorPrimaries,
+        transfer: TransferFunction,
     ) -> Result<Self> {
         validate_dimensions(width, height)?;
         let min_row = min_stride_bytes(width, format)?;
@@ -514,9 +472,9 @@ pub struct RawImageRefMut<'a> {
     /// Pixel format.
     pub format: PixelFormat,
     /// Color gamut.
-    pub gamut: ColorGamut,
+    pub gamut: ColorPrimaries,
     /// Transfer function.
-    pub transfer: ColorTransfer,
+    pub transfer: TransferFunction,
     /// Mutably borrowed pixel data (layout depends on format).
     pub data: &'a mut [u8],
 }
@@ -531,8 +489,8 @@ impl<'a> RawImageRefMut<'a> {
         height: u32,
         stride: usize,
         format: PixelFormat,
-        gamut: ColorGamut,
-        transfer: ColorTransfer,
+        gamut: ColorPrimaries,
+        transfer: TransferFunction,
     ) -> Result<Self> {
         validate_dimensions(width, height)?;
         let min_row = min_stride_bytes(width, format)?;
@@ -670,105 +628,103 @@ pub fn validate_gainmap_metadata(metadata: &GainMapMetadata) -> Result<()> {
 }
 
 // ============================================================================
-// zenpixels interop: From conversions for ColorGamut/ColorTransfer
+// zenpixels interop: From conversions for ColorPrimaries/TransferFunction
 // ============================================================================
 
 mod zenpixels_interop {
     use super::*;
-    use zenpixels::{ColorPrimaries, PixelSlice, TransferFunction};
+    use zenpixels::{PixelBuffer, PixelDescriptor, PixelSlice};
 
-    // --- PixelFormat ↔ zenpixels::PixelFormat ---
-
-    fn map_pixel_format(zp: zenpixels::PixelFormat) -> Option<PixelFormat> {
-        use zenpixels::PixelFormat as Zp;
-        Some(match zp {
-            Zp::Rgba8 => PixelFormat::Rgba8,
-            Zp::Rgb8 => PixelFormat::Rgb8,
-            Zp::RgbaF32 => PixelFormat::Rgba32F,
-            Zp::Gray8 => PixelFormat::Gray8,
-            // No mapping: Rgb16/Rgba16 (u16), RgbF32 (no Rgb32F variant),
-            // GrayF32, GrayA*, Bgra8, Rgbx8, Bgrx8, Oklab*.
-            _ => return None,
-        })
+    fn accepts_format(format: PixelFormat) -> bool {
+        matches!(
+            format,
+            PixelFormat::Rgba8 | PixelFormat::Rgb8 | PixelFormat::RgbaF32 | PixelFormat::Gray8
+        )
     }
 
-    /// Try to adapt a [`zenpixels::PixelSlice`] into a [`RawImageRef`].
-    ///
-    /// Returns `None` if the source pixel format, primaries, or transfer
-    /// function aren't representable in ultrahdr-core's narrower enums.
-    /// ICC color context (if any) is dropped — the caller is responsible
-    /// for ensuring the slice is already in a gamut/transfer ultrahdr-core
-    /// understands.
+    /// Accept any [`zenpixels::PixelSlice`] that uses one of the pixel formats
+    /// ultrahdr-core's gain map / tone mapping kernels understand (`Rgba8`,
+    /// `Rgb8`, `RgbaF32`, `Gray8`). ICC color context on the slice is dropped —
+    /// the caller is responsible for pre-converting to a primaries/transfer
+    /// combination that the kernels accept.
     impl<'a> TryFrom<&PixelSlice<'a>> for RawImageRef<'a> {
         type Error = Error;
 
         fn try_from(ps: &PixelSlice<'a>) -> Result<Self> {
             let desc = ps.descriptor();
-            let format = map_pixel_format(desc.pixel_format()).ok_or_else(|| {
-                Error::InvalidPixelData(format!(
-                    "zenpixels format {:?} not representable in ultrahdr PixelFormat",
-                    desc.pixel_format()
-                ))
-            })?;
-            let gamut = ColorGamut::from(desc.primaries);
-            let transfer = ColorTransfer::from(desc.transfer());
+            let format = desc.pixel_format();
+            if !accepts_format(format) {
+                return Err(Error::InvalidPixelData(format!(
+                    "zenpixels format {:?} not supported by ultrahdr-core kernels",
+                    format
+                )));
+            }
             RawImageRef::new(
                 ps.as_strided_bytes(),
                 ps.width(),
                 ps.rows(),
                 ps.stride(),
                 format,
-                gamut,
-                transfer,
+                desc.primaries,
+                desc.transfer(),
             )
         }
     }
 
-    // --- ColorGamut ↔ ColorPrimaries ---
+    /// Lift a zenpixels [`PixelBuffer`] into a [`RawImage`] by cloning its
+    /// pixel bytes. Returns `Err` if the buffer's pixel format isn't one of the
+    /// four ultrahdr-core kernels operate on.
+    impl TryFrom<&PixelBuffer> for RawImage {
+        type Error = Error;
 
-    impl From<ColorGamut> for ColorPrimaries {
-        fn from(gamut: ColorGamut) -> Self {
-            match gamut {
-                ColorGamut::Bt709 => ColorPrimaries::Bt709,
-                ColorGamut::DisplayP3 => ColorPrimaries::DisplayP3,
-                ColorGamut::Bt2020 => ColorPrimaries::Bt2020,
+        fn try_from(pb: &PixelBuffer) -> Result<Self> {
+            let desc = pb.descriptor();
+            let format = desc.pixel_format();
+            if !accepts_format(format) {
+                return Err(Error::InvalidPixelData(format!(
+                    "zenpixels format {:?} not supported by ultrahdr-core kernels",
+                    format
+                )));
             }
+            let slice = pb.as_slice();
+            Ok(RawImage {
+                width: slice.width(),
+                height: slice.rows(),
+                format,
+                gamut: desc.primaries,
+                transfer: desc.transfer(),
+                data: slice.as_strided_bytes().to_vec(),
+                stride: slice.stride() as u32,
+            })
         }
     }
 
-    impl From<ColorPrimaries> for ColorGamut {
-        fn from(primaries: ColorPrimaries) -> Self {
-            match primaries {
-                ColorPrimaries::Bt709 => ColorGamut::Bt709,
-                ColorPrimaries::DisplayP3 => ColorGamut::DisplayP3,
-                ColorPrimaries::Bt2020 => ColorGamut::Bt2020,
-                _ => ColorGamut::Bt709, // fallback
-            }
+    impl RawImage {
+        fn descriptor(&self) -> PixelDescriptor {
+            PixelDescriptor::from_pixel_format(self.format)
+                .with_transfer(self.transfer)
+                .with_primaries(self.gamut)
         }
-    }
 
-    // --- ColorTransfer ↔ TransferFunction ---
-
-    impl From<ColorTransfer> for TransferFunction {
-        fn from(transfer: ColorTransfer) -> Self {
-            match transfer {
-                ColorTransfer::Srgb => TransferFunction::Srgb,
-                ColorTransfer::Linear => TransferFunction::Linear,
-                ColorTransfer::Pq => TransferFunction::Pq,
-                ColorTransfer::Hlg => TransferFunction::Hlg,
-            }
+        /// Borrow this image as a [`zenpixels::PixelSlice`] so it can flow into
+        /// zenpixels-native pipelines (resize, color conversion) without
+        /// copying pixel bytes.
+        pub fn as_pixel_slice(&self) -> PixelSlice<'_> {
+            PixelSlice::new(
+                &self.data,
+                self.width,
+                self.height,
+                self.stride as usize,
+                self.descriptor(),
+            )
+            .expect("RawImage invariants imply a valid PixelSlice")
         }
-    }
 
-    impl From<TransferFunction> for ColorTransfer {
-        fn from(tf: TransferFunction) -> Self {
-            match tf {
-                TransferFunction::Srgb => ColorTransfer::Srgb,
-                TransferFunction::Linear => ColorTransfer::Linear,
-                TransferFunction::Pq => ColorTransfer::Pq,
-                TransferFunction::Hlg => ColorTransfer::Hlg,
-                _ => ColorTransfer::Srgb, // fallback
-            }
+        /// Produce an owned [`zenpixels::PixelBuffer`] carrying a copy of this
+        /// image's pixels and descriptor.
+        pub fn to_pixel_buffer(&self) -> PixelBuffer {
+            PixelBuffer::from_vec(self.data.clone(), self.width, self.height, self.descriptor())
+                .expect("RawImage invariants imply a valid PixelBuffer")
         }
     }
 }
@@ -785,11 +741,10 @@ pub type Fraction = zencodec::gainmap::Fraction;
 /// continued-fraction encoding and `to_f64()` for conversion to float.
 pub type UnsignedFraction = zencodec::gainmap::UFraction;
 
-/// Construct a [`GainMapMetadata`] from per-channel arrays.
+/// Construct a [`GainMapMetadata`] from per-channel flat arrays.
 ///
-/// This is the migration bridge for code that previously constructed `GainMapMetadata`
-/// with flat `[f64; 3]` array fields. Now that `GainMapMetadata` is `GainMapParams`
-/// (which uses `channels: [GainMapChannel; 3]`), this helper does the mapping.
+/// Convenience constructor that maps `[f64; 3]` fields into the per-channel
+/// [`GainMapChannel`] records that [`GainMapMetadata`] uses internally.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn metadata_from_arrays(
     min: [f64; 3],
@@ -1039,82 +994,59 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_color_gamut_to_primaries() {
-        assert_eq!(
-            ColorPrimaries::from(ColorGamut::Bt709),
-            ColorPrimaries::Bt709
-        );
-        assert_eq!(
-            ColorPrimaries::from(ColorGamut::DisplayP3),
-            ColorPrimaries::DisplayP3
-        );
-        assert_eq!(
-            ColorPrimaries::from(ColorGamut::Bt2020),
-            ColorPrimaries::Bt2020
-        );
-    }
-
-    #[test]
-    fn test_primaries_to_color_gamut() {
-        assert_eq!(ColorGamut::from(ColorPrimaries::Bt709), ColorGamut::Bt709);
-        assert_eq!(
-            ColorGamut::from(ColorPrimaries::DisplayP3),
-            ColorGamut::DisplayP3
-        );
-        assert_eq!(ColorGamut::from(ColorPrimaries::Bt2020), ColorGamut::Bt2020);
-        assert_eq!(ColorGamut::from(ColorPrimaries::Unknown), ColorGamut::Bt709);
-    }
-
-    #[test]
-    fn test_color_transfer_to_transfer_function() {
-        assert_eq!(
-            TransferFunction::from(ColorTransfer::Srgb),
-            TransferFunction::Srgb
-        );
-        assert_eq!(
-            TransferFunction::from(ColorTransfer::Linear),
-            TransferFunction::Linear
-        );
-        assert_eq!(
-            TransferFunction::from(ColorTransfer::Pq),
-            TransferFunction::Pq
-        );
-        assert_eq!(
-            TransferFunction::from(ColorTransfer::Hlg),
-            TransferFunction::Hlg
-        );
-    }
-
-    #[test]
-    fn test_transfer_function_to_color_transfer() {
-        assert_eq!(
-            ColorTransfer::from(TransferFunction::Srgb),
-            ColorTransfer::Srgb
-        );
-        assert_eq!(
-            ColorTransfer::from(TransferFunction::Linear),
-            ColorTransfer::Linear
-        );
-        assert_eq!(ColorTransfer::from(TransferFunction::Pq), ColorTransfer::Pq);
-        assert_eq!(
-            ColorTransfer::from(TransferFunction::Hlg),
-            ColorTransfer::Hlg
-        );
-        assert_eq!(
-            ColorTransfer::from(TransferFunction::Unknown),
-            ColorTransfer::Srgb
-        );
-        assert_eq!(
-            ColorTransfer::from(TransferFunction::Bt709),
-            ColorTransfer::Srgb
-        );
-    }
-
-    #[test]
     fn test_iso21496_format_identity() {
         // Iso21496Format is now a re-export — no conversion needed
         assert_eq!(Iso21496Format::AvifTmap, zencodec::Iso21496Format::AvifTmap);
-        assert_eq!(Iso21496Format::JpegApp2, zencodec::Iso21496Format::JpegApp2);
+        assert_eq!(Iso21496Format::JxlJhgm, zencodec::Iso21496Format::JxlJhgm);
+        assert_eq!(
+            Iso21496Format::JpegApp2BodyWithUrn,
+            zencodec::Iso21496Format::JpegApp2BodyWithUrn
+        );
+    }
+
+    #[test]
+    fn raw_image_roundtrips_through_pixel_buffer() {
+        let mut pixels = Vec::with_capacity(4 * 4 * 4);
+        for i in 0..(4 * 4) {
+            pixels.extend_from_slice(&[(i * 4) as u8, (i * 4 + 1) as u8, (i * 4 + 2) as u8, 255]);
+        }
+        let img = RawImage::from_data(
+            4,
+            4,
+            PixelFormat::Rgba8,
+            ColorPrimaries::DisplayP3,
+            TransferFunction::Srgb,
+            pixels,
+        )
+        .expect("raw image");
+
+        let pb = img.to_pixel_buffer();
+        assert_eq!(pb.width(), 4);
+        assert_eq!(pb.height(), 4);
+        assert_eq!(pb.descriptor().pixel_format(), PixelFormat::Rgba8);
+        assert_eq!(pb.descriptor().primaries, ColorPrimaries::DisplayP3);
+
+        let back = RawImage::try_from(&pb).expect("convert back");
+        assert_eq!(back.width, 4);
+        assert_eq!(back.height, 4);
+        assert_eq!(back.format, PixelFormat::Rgba8);
+        assert_eq!(back.gamut, ColorPrimaries::DisplayP3);
+        assert_eq!(back.transfer, TransferFunction::Srgb);
+        // Pixel bytes preserved on the addressable region of each row.
+        for y in 0..4 {
+            let orig_row = &img.data[(y * img.stride as usize)..(y * img.stride as usize + 16)];
+            let back_row = &back.data[(y * back.stride as usize)..(y * back.stride as usize + 16)];
+            assert_eq!(orig_row, back_row, "row {y} pixels differ");
+        }
+    }
+
+    #[test]
+    fn raw_image_as_pixel_slice_exposes_descriptor() {
+        let img = RawImage::new(8, 8, PixelFormat::RgbaF32).expect("raw image");
+        let slice = img.as_pixel_slice();
+        assert_eq!(slice.width(), 8);
+        assert_eq!(slice.rows(), 8);
+        assert_eq!(slice.descriptor().pixel_format(), PixelFormat::RgbaF32);
     }
 
     // =========================================================================
@@ -1171,8 +1103,8 @@ mod tests {
             4,
             16,
             PixelFormat::Rgba8,
-            ColorGamut::Bt709,
-            ColorTransfer::Srgb,
+            ColorPrimaries::Bt709,
+            TransferFunction::Srgb,
         )
         .expect("valid image should construct");
         assert_eq!(r.width, 4);
@@ -1187,8 +1119,8 @@ mod tests {
                 4,
                 8,
                 PixelFormat::Rgba8,
-                ColorGamut::Bt709,
-                ColorTransfer::Srgb,
+                ColorPrimaries::Bt709,
+                TransferFunction::Srgb,
             )
             .is_err()
         );
@@ -1202,8 +1134,8 @@ mod tests {
                 4,
                 16,
                 PixelFormat::Rgba8,
-                ColorGamut::Bt709,
-                ColorTransfer::Srgb,
+                ColorPrimaries::Bt709,
+                TransferFunction::Srgb,
             )
             .is_err()
         );

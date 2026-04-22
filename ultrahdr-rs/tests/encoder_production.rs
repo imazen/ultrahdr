@@ -3,7 +3,7 @@
 //! These work with pre-built JPEG bytes and the public `encode_ultrahdr`
 //! function; they do not use the bundled `zenjpeg` decode path.
 
-use ultrahdr_rs::{ColorGamut, Decoder, Encoder, GainMapMetadata, encode_ultrahdr};
+use ultrahdr_rs::{ColorPrimaries, Decoder, Encoder, GainMapMetadata, encode_ultrahdr};
 
 /// Minimal valid JPEG for testing (SOI + DQT + SOF + DHT + SOS + scan + EOI).
 ///
@@ -82,7 +82,7 @@ fn test_encode_ultrahdr_basic() {
     let gainmap = stub_jpeg();
     let metadata = test_metadata();
 
-    let result = encode_ultrahdr(&base, &gainmap, &metadata, ColorGamut::Bt709);
+    let result = encode_ultrahdr(&base, &gainmap, &metadata, ColorPrimaries::Bt709);
     assert!(result.is_ok(), "encode_ultrahdr failed: {:?}", result.err());
 
     let encoded = result.unwrap();
@@ -113,7 +113,7 @@ fn test_encode_ultrahdr_decoder_roundtrip() {
     let gainmap = stub_jpeg();
     let metadata = test_metadata();
 
-    let encoded = encode_ultrahdr(&base, &gainmap, &metadata, ColorGamut::Bt709).unwrap();
+    let encoded = encode_ultrahdr(&base, &gainmap, &metadata, ColorPrimaries::Bt709).unwrap();
     let decoder = Decoder::new(&encoded).unwrap();
 
     assert!(
@@ -132,7 +132,7 @@ fn test_encode_ultrahdr_gamuts() {
     let gainmap = stub_jpeg();
     let metadata = test_metadata();
 
-    for gamut in [ColorGamut::Bt709, ColorGamut::DisplayP3, ColorGamut::Bt2020] {
+    for gamut in [ColorPrimaries::Bt709, ColorPrimaries::DisplayP3, ColorPrimaries::Bt2020] {
         let result = encode_ultrahdr(&base, &gainmap, &metadata, gamut);
         assert!(
             result.is_ok(),
@@ -150,7 +150,7 @@ fn test_encode_ultrahdr_has_icc() {
     let gainmap = stub_jpeg();
     let metadata = test_metadata();
 
-    let encoded = encode_ultrahdr(&base, &gainmap, &metadata, ColorGamut::Bt709).unwrap();
+    let encoded = encode_ultrahdr(&base, &gainmap, &metadata, ColorPrimaries::Bt709).unwrap();
 
     // Should contain ICC_PROFILE marker
     assert!(
@@ -176,7 +176,7 @@ fn test_encode_ultrahdr_metadata_preserved() {
     metadata.alternate_hdr_headroom = 3.0;
     metadata.use_base_color_space = true;
 
-    let encoded = encode_ultrahdr(&base, &gainmap, &metadata, ColorGamut::Bt709).unwrap();
+    let encoded = encode_ultrahdr(&base, &gainmap, &metadata, ColorPrimaries::Bt709).unwrap();
     let decoder = Decoder::new(&encoded).unwrap();
     let parsed = decoder.metadata().unwrap();
 

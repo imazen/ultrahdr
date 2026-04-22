@@ -92,8 +92,8 @@ fuzz_target!(|data: &[u8]| {
             let config = ultrahdr_core::color::tonemap::ToneMapConfig {
                 target_peak_nits: 203.0,
                 hdr_peak_nits: 10000.0,
-                target_gamut: ultrahdr_core::ColorGamut::Bt709,
-                source_gamut: ultrahdr_core::ColorGamut::Bt2020,
+                target_gamut: ultrahdr_core::ColorPrimaries::Bt709,
+                source_gamut: ultrahdr_core::ColorPrimaries::Bt2020,
             };
             let _ = ultrahdr_core::color::tonemap::tonemap_pq_to_sdr([r, g, b], &config);
             let _ = ultrahdr_core::color::tonemap::tonemap_hlg_to_sdr([r, g, b], &config);
@@ -110,20 +110,20 @@ fuzz_target!(|data: &[u8]| {
             let transfer_idx = remaining[4] % 4;
 
             let format = if fmt_idx == 0 {
-                ultrahdr_core::PixelFormat::Rgba32F
+                ultrahdr_core::PixelFormat::RgbaF32
             } else {
                 ultrahdr_core::PixelFormat::Rgba8
             };
             let gamut = match gamut_idx {
-                0 => ultrahdr_core::ColorGamut::Bt709,
-                1 => ultrahdr_core::ColorGamut::DisplayP3,
-                _ => ultrahdr_core::ColorGamut::Bt2020,
+                0 => ultrahdr_core::ColorPrimaries::Bt709,
+                1 => ultrahdr_core::ColorPrimaries::DisplayP3,
+                _ => ultrahdr_core::ColorPrimaries::Bt2020,
             };
             let transfer = match transfer_idx {
-                0 => ultrahdr_core::ColorTransfer::Srgb,
-                1 => ultrahdr_core::ColorTransfer::Linear,
-                2 => ultrahdr_core::ColorTransfer::Pq,
-                _ => ultrahdr_core::ColorTransfer::Hlg,
+                0 => ultrahdr_core::TransferFunction::Srgb,
+                1 => ultrahdr_core::TransferFunction::Linear,
+                2 => ultrahdr_core::TransferFunction::Pq,
+                _ => ultrahdr_core::TransferFunction::Hlg,
             };
 
             let pixel_start = 5;
@@ -134,8 +134,8 @@ fuzz_target!(|data: &[u8]| {
             }
 
             let mut pixel_data = remaining[pixel_start..pixel_start + needed].to_vec();
-            // For Rgba32F, clamp f32 values to avoid upstream linear-srgb panic
-            if format == ultrahdr_core::PixelFormat::Rgba32F {
+            // For RgbaF32, clamp f32 values to avoid upstream linear-srgb panic
+            if format == ultrahdr_core::PixelFormat::RgbaF32 {
                 for chunk in pixel_data.chunks_exact_mut(4) {
                     let val = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                     let clamped = if val.is_finite() { val.clamp(0.0, 10.0) } else { 0.5 };
@@ -151,7 +151,7 @@ fuzz_target!(|data: &[u8]| {
 
             let _ = ultrahdr_core::color::tonemap::tonemap_image_to_srgb8(
                 &img,
-                ultrahdr_core::ColorGamut::Bt709,
+                ultrahdr_core::ColorPrimaries::Bt709,
             );
         }
         _ => {

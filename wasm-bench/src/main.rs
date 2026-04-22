@@ -3,7 +3,7 @@
 //! This can be compiled to WASI and run under wasmtime or wasmer.
 
 use ultrahdr_core::{
-    ColorGamut, ColorTransfer, GainMap, GainMapChannel, GainMapMetadata, PixelFormat, RawImage,
+    ColorPrimaries, TransferFunction, GainMap, GainMapChannel, GainMapMetadata, PixelFormat, RawImage,
     Unstoppable,
     gainmap::{
         apply::{HdrOutputFormat, apply_gainmap},
@@ -35,8 +35,8 @@ fn now_ns() -> u64 {
 /// Create a test SDR image.
 fn create_sdr_image(width: u32, height: u32) -> RawImage {
     let mut img = RawImage::new(width, height, PixelFormat::Rgba8).unwrap();
-    img.gamut = ColorGamut::Bt709;
-    img.transfer = ColorTransfer::Srgb;
+    img.gamut = ColorPrimaries::Bt709;
+    img.transfer = TransferFunction::Srgb;
 
     for y in 0..height {
         for x in 0..width {
@@ -53,8 +53,8 @@ fn create_sdr_image(width: u32, height: u32) -> RawImage {
 /// Create a test HDR image.
 fn create_hdr_image(width: u32, height: u32) -> RawImage {
     let mut img = RawImage::new(width, height, PixelFormat::Rgba8).unwrap();
-    img.gamut = ColorGamut::Bt709;
-    img.transfer = ColorTransfer::Srgb;
+    img.gamut = ColorPrimaries::Bt709;
+    img.transfer = TransferFunction::Srgb;
 
     for y in 0..height {
         for x in 0..width {

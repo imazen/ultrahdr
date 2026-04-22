@@ -50,7 +50,7 @@
 
 use alloc::boxed::Box;
 
-use crate::types::ColorGamut;
+use crate::types::ColorPrimaries;
 
 /// A scalar luma tone curve: `Y_HDR` (linear, ≥0) → `Y_SDR` (linear, `[0, 1]`).
 ///
@@ -216,7 +216,7 @@ impl SplitConfig {
     /// Construct a default config for the given gamut (populates
     /// [`luma_weights`](Self::luma_weights) from the gamut's BT-standard
     /// coefficients).
-    pub fn for_gamut(gamut: ColorGamut) -> Self {
+    pub fn for_gamut(gamut: ColorPrimaries) -> Self {
         Self {
             luma_weights: crate::color::gamut::luma_coefficients(gamut),
             ..Self::default()

@@ -34,7 +34,7 @@
 //!
 //! ```
 //! use ultrahdr_core::{
-//!     ColorGamut, GainMap, GainMapMetadata,
+//!     ColorPrimaries, GainMap, GainMapMetadata,
 //!     gainmap::streaming::RowDecoder,
 //! };
 //!
@@ -46,7 +46,7 @@
 //! let metadata = GainMapMetadata::default();
 //!
 //! let mut decoder =
-//!     RowDecoder::new(gainmap, metadata, width, height, 4.0, ColorGamut::Bt709)?;
+//!     RowDecoder::new(gainmap, metadata, width, height, 4.0, ColorPrimaries::Bt709)?;
 //!
 //! // Caller converts sRGB JPEG output to linear f32 via their own CMS; here
 //! // we just pass zeros at the right row stride (3 floats per pixel).
@@ -62,7 +62,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::color::gamut::rgb_to_luminance;
-use crate::types::{ColorGamut, Error, GainMap, GainMapMetadata, Result};
+use crate::types::{ColorPrimaries, Error, GainMap, GainMapMetadata, Result};
 
 use super::compute::GainMapConfig;
 
@@ -99,7 +99,7 @@ pub struct RowDecoder {
     base_offset: [f32; 3],
     alternate_offset: [f32; 3],
     current_row: u32,
-    gamut: ColorGamut,
+    gamut: ColorPrimaries,
     // Row-reusable scratch buffers
     sdr_row: Vec<[f32; 3]>,
     gains_row: Vec<[f32; 3]>,
@@ -122,7 +122,7 @@ impl RowDecoder {
         width: u32,
         height: u32,
         display_boost: f32,
-        gamut: ColorGamut,
+        gamut: ColorPrimaries,
     ) -> Result<Self> {
         let weight = super::apply::calculate_weight(display_boost, &metadata);
         let lut = super::apply::GainMapLut::new(&metadata, weight);
@@ -154,7 +154,7 @@ impl RowDecoder {
     }
 
     /// Get the source color gamut.
-    pub fn gamut(&self) -> ColorGamut {
+    pub fn gamut(&self) -> ColorPrimaries {
         self.gamut
     }
 
@@ -296,7 +296,7 @@ pub struct StreamDecoder {
     alternate_offset: [f32; 3],
     current_sdr_row: u32,
     current_gm_row: u32,
-    gamut: ColorGamut,
+    gamut: ColorPrimaries,
     gm_buffer: GainMapRingBuffer,
     // Row-reusable scratch buffers
     sdr_row: Vec<[f32; 3]>,
@@ -369,7 +369,7 @@ impl StreamDecoder {
         gm_height: u32,
         gm_channels: u8,
         display_boost: f32,
-        gamut: ColorGamut,
+        gamut: ColorPrimaries,
     ) -> Result<Self> {
         let weight = super::apply::calculate_weight(display_boost, &metadata);
         let lut = super::apply::GainMapLut::new(&metadata, weight);
@@ -406,7 +406,7 @@ impl StreamDecoder {
     }
 
     /// Get the source color gamut.
-    pub fn gamut(&self) -> ColorGamut {
+    pub fn gamut(&self) -> ColorPrimaries {
         self.gamut
     }
 
@@ -587,8 +587,8 @@ pub struct RowEncoder {
     actual_min_boost: f32,
     actual_max_boost: f32,
     gainmap_rows: Vec<Vec<u8>>,
-    hdr_gamut: ColorGamut,
-    sdr_gamut: ColorGamut,
+    hdr_gamut: ColorPrimaries,
+    sdr_gamut: ColorPrimaries,
 }
 
 /// Buffer for storing a sliding window of linear f32 rows.
@@ -662,8 +662,8 @@ impl RowEncoder {
         width: u32,
         height: u32,
         config: GainMapConfig,
-        hdr_gamut: ColorGamut,
-        sdr_gamut: ColorGamut,
+        hdr_gamut: ColorPrimaries,
+        sdr_gamut: ColorPrimaries,
     ) -> Result<Self> {
         let scale = config.scale_factor.max(1) as u32;
         let gm_width = width.div_ceil(scale);
@@ -869,8 +869,8 @@ pub struct StreamEncoder {
     actual_min_boost: f32,
     actual_max_boost: f32,
     pending_gm_rows: Vec<Vec<u8>>,
-    hdr_gamut: ColorGamut,
-    sdr_gamut: ColorGamut,
+    hdr_gamut: ColorPrimaries,
+    sdr_gamut: ColorPrimaries,
 }
 
 /// Ring buffer for linear f32 input rows.
@@ -929,8 +929,8 @@ impl StreamEncoder {
         width: u32,
         height: u32,
         config: GainMapConfig,
-        hdr_gamut: ColorGamut,
-        sdr_gamut: ColorGamut,
+        hdr_gamut: ColorPrimaries,
+        sdr_gamut: ColorPrimaries,
     ) -> Result<Self> {
         let scale = config.scale_factor.max(1) as u32;
         let gm_width = width.div_ceil(scale);
@@ -1290,7 +1290,7 @@ mod tests {
             false,
         );
 
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
 
         // Linear f32 RGB input (mid-gray = 0.18)
         let sdr_linear = vec![0.18f32; 4 * 3]; // One row, 4 pixels, RGB
@@ -1309,7 +1309,7 @@ mod tests {
         };
 
         let mut encoder =
-            RowEncoder::new(4, 4, config, ColorGamut::Bt709, ColorGamut::Bt709).unwrap();
+            RowEncoder::new(4, 4, config, ColorPrimaries::Bt709, ColorPrimaries::Bt709).unwrap();
 
         // HDR brighter than SDR (both linear f32)
         let hdr_linear = vec![0.5f32; 4 * 3]; // Brighter
@@ -1333,7 +1333,7 @@ mod tests {
         };
 
         let mut encoder =
-            StreamEncoder::new(4, 4, config, ColorGamut::Bt709, ColorGamut::Bt709).unwrap();
+            StreamEncoder::new(4, 4, config, ColorPrimaries::Bt709, ColorPrimaries::Bt709).unwrap();
 
         let hdr_linear = vec![0.5f32; 4 * 3];
         let sdr_linear = vec![0.18f32; 4 * 3];
@@ -1379,7 +1379,7 @@ mod tests {
         let gainmap = test_gainmap(128);
         let metadata = test_metadata();
 
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
 
         assert!(!decoder.is_complete());
         assert_eq!(decoder.rows_remaining(), 4);
@@ -1403,7 +1403,7 @@ mod tests {
         let gainmap = test_gainmap(128);
         let metadata = test_metadata();
 
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
 
         let sdr_row = vec![0.18f32; 4 * 3];
 
@@ -1430,7 +1430,7 @@ mod tests {
         let gainmap = test_gainmap(128);
         let metadata = test_metadata();
 
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
 
         // Only 2 pixels worth of data (6 floats) instead of 4 pixels (12 floats)
         let short_input = vec![0.18f32; 2 * 3];
@@ -1448,7 +1448,7 @@ mod tests {
         let gainmap = test_gainmap(128);
         let metadata = test_metadata();
 
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorGamut::Bt709).unwrap();
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
 
         let sdr_row = vec![0.18f32; 4 * 3];
         for _ in 0..4 {
@@ -1472,7 +1472,7 @@ mod tests {
 
         // SDR: 4x4, gainmap: 2x2, 1 channel
         let mut decoder =
-            StreamDecoder::new(metadata.clone(), 4, 4, 2, 2, 1, 4.0, ColorGamut::Bt709).unwrap();
+            StreamDecoder::new(metadata.clone(), 4, 4, 2, 2, 1, 4.0, ColorPrimaries::Bt709).unwrap();
 
         assert!(!decoder.is_complete());
         assert_eq!(decoder.sdr_rows_remaining(), 4);
@@ -1508,7 +1508,7 @@ mod tests {
         };
 
         let mut encoder =
-            RowEncoder::new(4, 4, config, ColorGamut::Bt709, ColorGamut::Bt709).unwrap();
+            RowEncoder::new(4, 4, config, ColorPrimaries::Bt709, ColorPrimaries::Bt709).unwrap();
 
         // Provide all 4 rows at once
         let hdr_linear = vec![0.5f32; 4 * 4 * 3]; // 4 rows × 4 pixels × RGB
@@ -1539,7 +1539,7 @@ mod tests {
         };
 
         let mut encoder =
-            StreamEncoder::new(4, 4, config, ColorGamut::Bt709, ColorGamut::Bt709).unwrap();
+            StreamEncoder::new(4, 4, config, ColorPrimaries::Bt709, ColorPrimaries::Bt709).unwrap();
 
         // Initial state
         assert_eq!(encoder.hdr_rows_remaining(), 4);
@@ -1584,7 +1584,7 @@ mod tests {
         };
 
         let mut encoder =
-            StreamEncoder::new(4, 4, config, ColorGamut::Bt709, ColorGamut::Bt709).unwrap();
+            StreamEncoder::new(4, 4, config, ColorPrimaries::Bt709, ColorPrimaries::Bt709).unwrap();
 
         let hdr_row = vec![0.5f32; 4 * 3];
         let sdr_row = vec![0.18f32; 4 * 3];
@@ -1615,7 +1615,7 @@ mod tests {
         };
 
         let mut encoder =
-            StreamEncoder::new(4, 4, config, ColorGamut::Bt709, ColorGamut::Bt709).unwrap();
+            StreamEncoder::new(4, 4, config, ColorPrimaries::Bt709, ColorPrimaries::Bt709).unwrap();
 
         let hdr_row = vec![0.5f32; 4 * 3];
         let sdr_row = vec![0.18f32; 4 * 3];
@@ -1649,7 +1649,7 @@ mod tests {
         let metadata = test_metadata();
 
         // display_boost=1.0 means weight=0 → gain should be exp(0)=1.0 for all pixels
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 1.0, ColorGamut::Bt709).unwrap();
+        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 1.0, ColorPrimaries::Bt709).unwrap();
 
         let sdr_val = 0.5f32;
         let sdr_row = vec![sdr_val; 4 * 3];
