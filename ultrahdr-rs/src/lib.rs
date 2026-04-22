@@ -56,7 +56,13 @@
 // Re-export everything from ultrahdr-core
 pub use ultrahdr_core::color;
 pub use ultrahdr_core::gainmap;
-pub use ultrahdr_core::metadata;
+// NOTE: `ultrahdr_core::metadata` is being retired as part of issue #8
+// — the canonical XMP / MPF / ISO-21496-1 APP2 container parsers live
+// in `zenjpeg::container::*` and `zencodec::gainmap::*`. Consumers of
+// `ultrahdr_rs::metadata::xmp::parse_xmp` should migrate to
+// `zenjpeg::container::xmp::parse_xmp`; `ultrahdr_rs::metadata::iso_jpeg::*`
+// helpers are superseded by `zencodec::gainmap::ISO_21496_1_PRIMARY_APP2_BODY`
+// + a trivial `[FF E2, len_hi, len_lo]` wrap.
 
 // Re-export core types at crate root
 pub use ultrahdr_core::{

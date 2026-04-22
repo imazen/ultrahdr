@@ -127,7 +127,7 @@ fuzz_target!(|data: &[u8]| {
             };
 
             let pixel_start = 5;
-            let bpp = format.bytes_per_pixel().unwrap();
+            let bpp = format.bytes_per_pixel();
             let needed = (width as usize) * (height as usize) * bpp;
             if remaining.len() < pixel_start + needed {
                 return;
