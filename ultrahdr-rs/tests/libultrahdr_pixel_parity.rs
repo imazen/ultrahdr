@@ -89,12 +89,12 @@ fn corpus() -> Corpus {
 
 /// Pick a deterministic fixture from the pixel-ultrahdr corpus.
 ///
-/// Previously this returned whatever `read_dir` handed back first, which is
-/// filesystem-dependent. CI runs saw different fixtures between runs — one
-/// fixture (`05`) happens to pass the HDR MAE <= 0.1 bound, the others
-/// diverge further. Pinning to a specific file keeps the parity signal
-/// stable. See issue tracker for the HDR decode accuracy gap on
-/// `_01.jpg` / `_02.jpg`.
+/// CI runs used to see different fixtures between runs because `read_dir`
+/// is filesystem-order dependent. We pin to `_05.jpg` here for single-fixture
+/// probe/MPF/SDR tests — it's a stable, conformant sample.
+///
+/// The HDR parity test (`hdr_decode_matches_libultrahdr`) sweeps all three
+/// corpus fixtures rather than relying on this pinned pick.
 fn first_pixel_sample(corpus: &Corpus) -> PathBuf {
     let dir = corpus
         .get("ultrahdr-conformance/valid/jpeg/pixel-ultrahdr")
@@ -119,6 +119,29 @@ fn first_pixel_sample(corpus: &Corpus) -> PathBuf {
     jpgs.into_iter()
         .next()
         .expect("at least one .jpg in pixel-ultrahdr")
+}
+
+/// Every `.jpg` in `ultrahdr-conformance/valid/jpeg/pixel-ultrahdr`, sorted.
+///
+/// Used by [`hdr_decode_matches_libultrahdr`] — every fixture must come under
+/// the MAE threshold against libultrahdr, not just one representative sample.
+fn all_pixel_samples(corpus: &Corpus) -> Vec<PathBuf> {
+    let dir = corpus
+        .get("ultrahdr-conformance/valid/jpeg/pixel-ultrahdr")
+        .expect("ultrahdr-conformance/valid/jpeg/pixel-ultrahdr must exist in codec-corpus");
+    let mut jpgs: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .expect("read pixel-ultrahdr dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension()
+                .and_then(|s| s.to_str())
+                .is_some_and(|s| s.eq_ignore_ascii_case("jpg"))
+        })
+        .collect();
+    jpgs.sort();
+    assert!(!jpgs.is_empty(), "no .jpg fixtures in pixel-ultrahdr corpus");
+    jpgs
 }
 
 // ---------------------------------------------------------------------------
@@ -404,71 +427,97 @@ fn sdr_decode_matches_libultrahdr() {
 fn hdr_decode_matches_libultrahdr() {
     let bin = ultrahdr_app();
     let c = corpus();
-    let fixture = first_pixel_sample(&c);
+    let fixtures = all_pixel_samples(&c);
 
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let hdr_path = tmp.path().join("out.hdr");
+    // CRITICAL: libultrahdr's `ultrahdr_app -o 0 -O 4` (no explicit
+    // `--max_display_boost` flag) defaults `max_display_boost` to `FLT_MAX`
+    // inside `uhdr_dec_set_out_max_display_boost`. The decoder then clamps
+    // that to `gainmap_metadata->hdr_capacity_max`, so the effective
+    // `gainmap_weight` becomes `1.0` (full boost) — NOT zero. We mirror
+    // that by passing `2^alternate_hdr_headroom` as our `display_boost`,
+    // which our `calculate_weight` maps to weight=1.0 for this fixture.
+    //
+    // Passing `display_boost = 1.0` (the previous behaviour) was the root
+    // cause of the apparent "HDR divergence": every pixel with a non-zero
+    // gain-map byte produced SDR output instead of full HDR, yielding
+    // MAEs of 0.2–0.8 vs libultrahdr's full-boost output.
+    let mut failures: Vec<String> = Vec::new();
+    for fixture in &fixtures {
+        let name = fixture
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("<?>")
+            .to_string();
 
-    let status = Command::new(&bin)
-        .args(["-m", "1", "-j"])
-        .arg(&fixture)
-        .args(["-o", "0", "-O", "4", "-z"])
-        .arg(&hdr_path)
-        .status()
-        .expect("invoke ultrahdr_app hdr decode");
-    assert!(status.success(), "ultrahdr_app hdr decode failed");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let hdr_path = tmp.path().join("out.hdr");
+        let status = Command::new(&bin)
+            .args(["-m", "1", "-j"])
+            .arg(fixture)
+            .args(["-o", "0", "-O", "4", "-z"])
+            .arg(&hdr_path)
+            .status()
+            .expect("invoke ultrahdr_app hdr decode");
+        assert!(status.success(), "ultrahdr_app hdr decode failed for {name}");
 
-    let lib_raw = std::fs::read(&hdr_path).expect("read libultrahdr hdr output");
-    // 8 bytes/pixel (f16 RGBA). f16 lacks AnyBitPattern, so go via u16 bits.
-    let lib_halfs: Vec<half::f16> = bytemuck::cast_slice::<u8, u16>(&lib_raw)
-        .iter()
-        .map(|&bits| half::f16::from_bits(bits))
-        .collect();
+        let lib_raw = std::fs::read(&hdr_path).expect("read libultrahdr hdr output");
+        // 8 bytes/pixel (f16 RGBA). f16 lacks AnyBitPattern, so go via u16 bits.
+        let lib_halfs: Vec<half::f16> = bytemuck::cast_slice::<u8, u16>(&lib_raw)
+            .iter()
+            .map(|&bits| half::f16::from_bits(bits))
+            .collect();
 
-    let data = std::fs::read(&fixture).expect("read");
-    let dec = Decoder::new(&data).expect("parse");
-    let our_hdr = dec
-        .decode_hdr_with_format(
-            1.0, // libultrahdr default applies stored headroom; 1.0 = no boost from us
-            ultrahdr_rs::HdrOutputFormat::LinearFloat,
-        )
-        .expect("our decode_hdr");
+        let data = std::fs::read(fixture).expect("read");
+        let dec = Decoder::new(&data).expect("parse");
+        let meta = dec.metadata().expect("metadata present");
+        let boost = 2f32.powf(meta.alternate_hdr_headroom as f32);
+        let our_hdr = dec
+            .decode_hdr_with_format(boost, ultrahdr_rs::HdrOutputFormat::LinearFloat)
+            .expect("our decode_hdr");
 
-    assert_eq!(
-        lib_raw.len() as u32,
-        our_hdr.width() * our_hdr.height() * 8,
-        "HDR byte size mismatch (expected 8 bytes/pixel for f16 RGBA)"
-    );
+        assert_eq!(
+            lib_raw.len() as u32,
+            our_hdr.width() * our_hdr.height() * 8,
+            "{name}: HDR byte size mismatch (expected 8 bytes/pixel for f16 RGBA)"
+        );
 
-    let our_floats: &[f32] = bytemuck::cast_slice(&our_hdr.as_slice().as_strided_bytes());
-    assert_eq!(our_floats.len(), lib_halfs.len(), "pixel count mismatch");
+        let our_floats: &[f32] = bytemuck::cast_slice(&our_hdr.as_slice().as_strided_bytes());
+        assert_eq!(our_floats.len(), lib_halfs.len(), "{name}: pixel count mismatch");
 
-    let mut sum_abs: f64 = 0.0;
-    let mut count: u64 = 0;
-    let mut max_abs: f32 = 0.0;
-    for (i, (&ours_f32, &theirs_f16)) in our_floats.iter().zip(lib_halfs.iter()).enumerate() {
-        if i % 4 == 3 {
-            continue; // alpha
+        let mut sum_abs: f64 = 0.0;
+        let mut count: u64 = 0;
+        let mut max_abs: f32 = 0.0;
+        for (i, (&ours_f32, &theirs_f16)) in our_floats.iter().zip(lib_halfs.iter()).enumerate() {
+            if i % 4 == 3 {
+                continue; // alpha
+            }
+            let theirs = theirs_f16.to_f32();
+            if !(ours_f32.is_finite() && theirs.is_finite()) {
+                continue;
+            }
+            let d = (ours_f32 - theirs).abs();
+            if d > max_abs {
+                max_abs = d;
+            }
+            sum_abs += d as f64;
+            count += 1;
         }
-        let theirs = theirs_f16.to_f32();
-        if !(ours_f32.is_finite() && theirs.is_finite()) {
-            continue;
+        let mae = sum_abs / count as f64;
+        eprintln!(
+            "hdr_decode_matches_libultrahdr: {name} boost={boost:.4} MAE={mae:.6} max_abs={max_abs:.4}"
+        );
+        // Linear HDR values span ~[0, 16] for 4× boost content; 0.1 MAE is
+        // ~0.6% of dynamic range. f16 quantizes to ~10-bit mantissa so we
+        // can't go tighter than a few ULPs at large magnitudes.
+        if mae >= 0.1 {
+            failures.push(format!("{name}: MAE={mae:.6} >= 0.1 (max_abs={max_abs:.4})"));
         }
-        let d = (ours_f32 - theirs).abs();
-        if d > max_abs {
-            max_abs = d;
-        }
-        sum_abs += d as f64;
-        count += 1;
     }
-    let mae = sum_abs / count as f64;
-    eprintln!("hdr_decode_matches_libultrahdr: MAE={mae:.6}, max_abs={max_abs:.6}");
 
-    // Linear HDR values span ~[0, 16] for 4× boost content; 0.1 MAE is
-    // ~0.6% of dynamic range. f16 quantizes to ~10-bit mantissa so we
-    // can't go tighter than a few ULPs at large magnitudes.
     assert!(
-        mae < 0.1,
-        "HDR MAE {mae} too high — pixel reconstruction diverges from libultrahdr"
+        failures.is_empty(),
+        "HDR parity failed for {} fixture(s):\n  {}",
+        failures.len(),
+        failures.join("\n  ")
     );
 }
