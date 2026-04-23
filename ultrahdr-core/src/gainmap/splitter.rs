@@ -56,6 +56,7 @@ use crate::types::ColorPrimaries;
 ///
 /// Implementors must be **strictly monotonic** on the operating range and
 /// produce output in `[0, 1]`. To wrap an ad-hoc closure, use [`LumaFn`].
+#[doc(hidden)]
 pub trait LumaToneMap {
     /// Map a single linear-light luminance sample.
     fn map_luma(&self, y_hdr: f32) -> f32;
@@ -63,6 +64,7 @@ pub trait LumaToneMap {
 
 /// Adapt a closure as a [`LumaToneMap`]. Caller is responsible for
 /// monotonicity and `[0, 1]` output range.
+#[doc(hidden)]
 pub struct LumaFn<F: Fn(f32) -> f32>(pub F);
 
 impl<F: Fn(f32) -> f32> LumaToneMap for LumaFn<F> {
@@ -97,6 +99,7 @@ impl<T: LumaToneMap + ?Sized> LumaToneMap for Box<T> {
 /// metadata. For content-aware curves, enable the `zentone` feature and
 /// use BT.2408/BT.2446 or the filmic spline instead.
 #[derive(Debug, Clone, Copy, Default)]
+#[doc(hidden)]
 pub struct HableFilmic;
 
 impl HableFilmic {
@@ -187,6 +190,7 @@ mod zentone_adapters {
 /// `max` should come from [`SplitStats::observed_min_log2`] /
 /// [`SplitStats::observed_max_log2`] after a pass over the image.
 #[derive(Debug, Clone, Copy)]
+#[doc(hidden)]
 pub struct SplitConfig {
     /// RGB → Y weights. Must match the input primaries.
     pub luma_weights: [f32; 3],
@@ -244,6 +248,7 @@ impl Default for SplitConfig {
 /// [`zencodec::GainMapParams`] metadata or use to tighten `min_log2` /
 /// `max_log2` on a second pass.
 #[derive(Debug, Clone, Copy)]
+#[doc(hidden)]
 pub struct SplitStats {
     /// Smallest pre-clamp `log2` gain seen. Initialize to `f32::INFINITY`.
     pub observed_min_log2: f32,
@@ -268,6 +273,7 @@ impl Default for SplitStats {
 ///
 /// Stateless after construction. Safe to share across threads (`Sync`)
 /// when the inner curve is `Sync`.
+#[doc(hidden)]
 pub struct LumaGainMapSplitter<T: LumaToneMap> {
     curve: T,
     cfg: SplitConfig,

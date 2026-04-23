@@ -38,6 +38,42 @@ own section below.
     discourage silent large-pixel copies).
   - `RawImageRef<'_>` / `RawImageRefMut<'_>` → `PixelSlice<'_>` /
     `PixelSliceMut<'_>`.
+- **Deletions queued** (marked `#[doc(hidden)]` in the current release,
+  dropped in 0.5.0). None of these are reached from ultrahdr-rs's
+  documented decode/encode paths. If you use any of these, switch now.
+  - `color::transfer::{SrgbEotfLut, PqEotfLut, HlgOetfInvLut}` — dead LUT
+    types. Callers needing per-byte linearization should call
+    `linear_srgb::tf::*` directly (no setup cost).
+  - `color::transfer::{apply_oetf, apply_eotf}` — generic dispatchers
+    with silent sRGB fallback on unknown transfers (footgun).
+  - `color::transfer::{pq_to_nits, nits_to_pq}` — trivial `* 10000` /
+    `/ 10000`; inline at call sites.
+  - `color::transfer::hlg_oetf` (forward direction). The only useful
+    direction is `hlg_oetf_inv` (decode); use `linear_srgb::tf::linear_to_hlg`
+    directly if you need the forward path.
+  - `color::streaming_tonemap::*` — pass-through re-export of
+    `zentone::experimental::{StreamingTonemapConfig, StreamingTonemapper}`.
+    Import directly from `zentone` instead.
+  - `color::tonemap` zentone re-exports: `Bt2408Tonemapper`, `EetfSpace`,
+    `CompiledFilmicSpline`, `FilmicSplineConfig`, `AgxLook`, `ToneMap`,
+    `ToneMapCurve`, and the named curve functions (`aces_ap1`,
+    `agx_tonemap`, `bt2390_tonemap`, `bt2390_tonemap_ext`,
+    `filmic_narkowicz`, `hable_filmic`, `reinhard_extended`,
+    `reinhard_jodie`, `reinhard_simple`). Pure pass-throughs; import
+    from `zentone` / `zentone::curves` directly.
+  - `gainmap::streaming::*` — `RowEncoder`, `StreamEncoder`,
+    `RowDecoder`, `StreamDecoder` (+ their configs and stats types).
+    The per-row kernels these wrap (`sample_gainmap_row_lut`,
+    `apply_gain_row_presampled`) stay; the state-machine/ring-buffer
+    glue is Ultra-HDR-specific and doesn't generalize (no imageflow or
+    zenjpeg consumer for it).
+  - `gainmap::splitter::*` — `LumaGainMapSplitter`, `SplitConfig`,
+    `SplitStats`, `LumaToneMap`, `LumaFn`, `HableFilmic`. Only used by
+    `compute_gainmap_tonemap` (also deprecated).
+  - `gainmap::compute::compute_gainmap_tonemap` — HDR-only compute with
+    explicit tone-curve injection. Niche; callers wanting this pattern
+    should stage a `zentone` curve, apply it to produce SDR, then call
+    `compute_gainmap(hdr, sdr, …)` with the SDR they produced.
 
 #### Added
 - Re-export `PixelBuffer`, `PixelSlice`, `PixelSliceMut` at the crate root.
