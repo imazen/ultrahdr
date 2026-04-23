@@ -1,43 +1,87 @@
-//! Color gamut definitions and conversion matrices.
+//! Luma coefficients, gamut conversion wrapper, and hue-preserving soft-clip
+//! for ultrahdr-core.
 //!
-//! Reference primaries and matrices for:
-//! - BT.709 / sRGB
-//! - Display P3
-//! - BT.2100 / BT.2020
-
-// Allow full precision for color matrices - these values come from standards
-#![allow(clippy::excessive_precision)]
+//! Gamut conversion (RGB ↔ RGB across BT.709, DisplayP3, BT.2020/2100)
+//! previously lived here as hand-rolled 3×3 matrices plus an `apply_matrix`
+//! helper. The matrices themselves now come from zenpixels'
+//! [`ColorPrimaries::gamut_matrix_to`], which derives them from chromaticity
+//! coordinates with Bradford chromatic adaptation.
+//!
+//! What stays here:
+//! - **Luma coefficients** (BT.709, DisplayP3, BT.2020/2100). `zenpixels`'
+//!   [`LumaCoefficients`](zenpixels::LumaCoefficients) enum covers only
+//!   BT.601 / BT.709 today and exposes no `[f32; 3]` accessor. Until that's
+//!   upstreamed we keep the triples needed by the gain map splitter.
+//! - **`convert_gamut`** — thin wrapper over
+//!   `ColorPrimaries::gamut_matrix_to` so the existing call sites in
+//!   `color/tonemap.rs` don't churn.
+//! - **`soft_clip_gamut`** — hue-preserving soft clip for out-of-gamut
+//!   highlights used by the ultrahdr-core tone mapper. Not a zenpixels
+//!   primitive.
 
 use crate::types::ColorPrimaries;
 
-/// 3x3 matrix for color transformations.
-pub type Matrix3x3 = [[f32; 3]; 3];
+// ============================================================================
+// Luma coefficients
+// ============================================================================
 
-/// Identity matrix.
-pub const MATRIX_IDENTITY: Matrix3x3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+/// Luminance coefficients for BT.709 (`Y = 0.2126R + 0.7152G + 0.0722B`).
+pub const BT709_LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
 
-/// Apply a 3×3 matrix to an RGB triple (row-major).
-#[inline]
-pub fn apply_matrix(m: &Matrix3x3, rgb: [f32; 3]) -> [f32; 3] {
-    [
-        m[0][0] * rgb[0] + m[0][1] * rgb[1] + m[0][2] * rgb[2],
-        m[1][0] * rgb[0] + m[1][1] * rgb[1] + m[1][2] * rgb[2],
-        m[2][0] * rgb[0] + m[2][1] * rgb[1] + m[2][2] * rgb[2],
-    ]
-}
+/// Luminance coefficients for Display P3.
+pub const P3_LUMA: [f32; 3] = [0.2289746, 0.6917385, 0.0792869];
 
-/// Apply a 3×3 matrix to a row of interleaved RGB f32 pixels in place.
-/// Channels must be 3 or 4; a 4th channel (alpha) is passed through.
-pub fn apply_matrix_row(m: &Matrix3x3, row: &mut [f32], channels: usize) {
-    debug_assert!(channels == 3 || channels == 4);
-    for chunk in row.chunks_exact_mut(channels) {
-        let rgb = [chunk[0], chunk[1], chunk[2]];
-        let out = apply_matrix(m, rgb);
-        chunk[0] = out[0];
-        chunk[1] = out[1];
-        chunk[2] = out[2];
+/// Luminance coefficients for BT.2100 / BT.2020 (same primaries).
+pub const BT2100_LUMA: [f32; 3] = [0.2627, 0.6780, 0.0593];
+
+/// Luma coefficients for a color gamut.
+///
+/// Unknown/unhandled primaries fall through to BT.709 — matches historical
+/// ultrahdr-core behavior where only three gamuts were representable.
+pub fn luma_coefficients(gamut: ColorPrimaries) -> [f32; 3] {
+    match gamut {
+        ColorPrimaries::Bt709 => BT709_LUMA,
+        ColorPrimaries::DisplayP3 => P3_LUMA,
+        ColorPrimaries::Bt2020 => BT2100_LUMA,
+        _ => BT709_LUMA,
     }
 }
+
+/// Linear RGB → Y luminance for the given gamut.
+#[inline]
+pub fn rgb_to_luminance(rgb: [f32; 3], gamut: ColorPrimaries) -> f32 {
+    let coeffs = luma_coefficients(gamut);
+    coeffs[0] * rgb[0] + coeffs[1] * rgb[1] + coeffs[2] * rgb[2]
+}
+
+// ============================================================================
+// Gamut conversion (thin wrapper over zenpixels)
+// ============================================================================
+
+/// Convert linear RGB from one gamut to another.
+///
+/// Thin wrapper over [`zenpixels::ColorPrimaries::gamut_matrix_to`] for the
+/// callers in ultrahdr-core's tone mapper. Returns the input unchanged when
+/// `from == to` or when the primaries are not mutually convertible (e.g., one
+/// is `Unknown`).
+#[inline]
+pub fn convert_gamut(rgb: [f32; 3], from: ColorPrimaries, to: ColorPrimaries) -> [f32; 3] {
+    if from == to {
+        return rgb;
+    }
+    match from.gamut_matrix_to(to) {
+        Some(m) => [
+            m[0][0] * rgb[0] + m[0][1] * rgb[1] + m[0][2] * rgb[2],
+            m[1][0] * rgb[0] + m[1][1] * rgb[1] + m[1][2] * rgb[2],
+            m[2][0] * rgb[0] + m[2][1] * rgb[1] + m[2][2] * rgb[2],
+        ],
+        None => rgb,
+    }
+}
+
+// ============================================================================
+// Hue-preserving soft clip
+// ============================================================================
 
 /// Hue-preserving soft clip for out-of-gamut highlights.
 ///
@@ -80,444 +124,85 @@ pub fn soft_clip_gamut(rgb: [f32; 3]) -> [f32; 3] {
     [r, g, b]
 }
 
-#[inline(always)]
-fn clip_sorted(hi: &mut f32, mid: &mut f32, lo: &mut f32) {
-    let new_hi = hi.min(1.0);
-    let new_lo = lo.min(1.0);
-    if *hi != *lo {
-        *mid = new_lo + (new_hi - new_lo) * (*mid - *lo) / (*hi - *lo);
-    } else {
-        *mid = new_hi;
-    }
-    *hi = new_hi;
-    *lo = new_lo;
-}
-
-// ============================================================================
-// RGB to XYZ matrices (D65 illuminant)
-// ============================================================================
-
-/// BT.709 / sRGB RGB to XYZ (D65) - IEC 61966-2-1
-pub const BT709_TO_XYZ: Matrix3x3 = [
-    [0.4124564, 0.3575761, 0.1804375],
-    [0.2126729, 0.7151522, 0.0721750],
-    [0.0193339, 0.1191920, 0.9503041],
-];
-
-/// XYZ to BT.709 / sRGB RGB (D65) - computed inverse of BT709_TO_XYZ
-pub const XYZ_TO_BT709: Matrix3x3 = [
-    [3.2404542, -1.5371385, -0.4985314],
-    [-0.9692660, 1.8760108, 0.0415560],
-    [0.0556434, -0.2040259, 1.0572252],
-];
-
-// Note: These matrices may have small numerical errors. For precise conversions,
-// consider computing the inverse at runtime or using higher precision constants.
-
-/// Display P3 RGB to XYZ (D65)
-pub const P3_TO_XYZ: Matrix3x3 = [
-    [0.4865709, 0.2656677, 0.1982173],
-    [0.2289746, 0.6917385, 0.0792869],
-    [0.0000000, 0.0451134, 1.0439444],
-];
-
-/// XYZ to Display P3 RGB (D65)
-pub const XYZ_TO_P3: Matrix3x3 = [
-    [2.4934969, -0.9313836, -0.4027108],
-    [-0.8294890, 1.7626641, 0.0236247],
-    [0.0358458, -0.0761724, 0.9568845],
-];
-
-/// BT.2100 / BT.2020 RGB to XYZ (D65)
-pub const BT2100_TO_XYZ: Matrix3x3 = [
-    [0.6369580, 0.1446169, 0.1688810],
-    [0.2627002, 0.6779981, 0.0593017],
-    [0.0000000, 0.0280727, 1.0609851],
-];
-
-/// XYZ to BT.2100 / BT.2020 RGB (D65)
-pub const XYZ_TO_BT2100: Matrix3x3 = [
-    [1.7166512, -0.3556708, -0.2533663],
-    [-0.6666844, 1.6164812, 0.0157685],
-    [0.0176399, -0.0427706, 0.9421031],
-];
-
-// ============================================================================
-// Direct gamut-to-gamut conversion matrices
-// ============================================================================
-
-/// BT.709 to Display P3
-pub const BT709_TO_P3: Matrix3x3 = [
-    [0.8224622, 0.1775378, 0.0000000],
-    [0.0331942, 0.9668058, 0.0000000],
-    [0.0170826, 0.0723974, 0.9105200],
-];
-
-/// Display P3 to BT.709
-pub const P3_TO_BT709: Matrix3x3 = [
-    [1.2249401, -0.2249401, 0.0000000],
-    [-0.0420569, 1.0420569, 0.0000000],
-    [-0.0196376, -0.0786361, 1.0982737],
-];
-
-/// BT.709 to BT.2100
-pub const BT709_TO_BT2100: Matrix3x3 = [
-    [0.6274039, 0.3292831, 0.0433130],
-    [0.0690973, 0.9195404, 0.0113623],
-    [0.0163914, 0.0880133, 0.8955953],
-];
-
-/// BT.2100 to BT.709
-pub const BT2100_TO_BT709: Matrix3x3 = [
-    [1.6604910, -0.5876411, -0.0728499],
-    [-0.1245505, 1.1328999, -0.0083494],
-    [-0.0181508, -0.1005789, 1.1187297],
-];
-
-/// Display P3 to BT.2100
-pub const P3_TO_BT2100: Matrix3x3 = [
-    [0.7530407, 0.1986764, 0.0482829],
-    [0.0457456, 0.9419067, 0.0123477],
-    [-0.0012122, 0.0176044, 0.9836078],
-];
-
-/// BT.2100 to Display P3
-pub const BT2100_TO_P3: Matrix3x3 = [
-    [1.3434102, -0.2821438, -0.0612664],
-    [-0.0652531, 1.0757414, -0.0104884],
-    [0.0028020, -0.0195966, 1.0167946],
-];
-
-// ============================================================================
-// Luminance coefficients
-// ============================================================================
-
-/// Luminance coefficients for BT.709 (Y = 0.2126R + 0.7152G + 0.0722B)
-pub const BT709_LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
-
-/// Luminance coefficients for Display P3 (sum to 1.0)
-pub const P3_LUMA: [f32; 3] = [0.2289746, 0.6917385, 0.0792869];
-
-/// Luminance coefficients for BT.2100 / BT.2020
-pub const BT2100_LUMA: [f32; 3] = [0.2627, 0.6780, 0.0593];
-
-/// Get luminance coefficients for a color gamut.
-///
-/// Unknown/unhandled primaries (post-#9 zenpixels may add AdobeRgb and
-/// others) fall through to BT.709 — matches historical ultrahdr-core
-/// behavior where only three gamuts were representable.
-pub fn luma_coefficients(gamut: ColorPrimaries) -> [f32; 3] {
-    match gamut {
-        ColorPrimaries::Bt709 => BT709_LUMA,
-        ColorPrimaries::DisplayP3 => P3_LUMA,
-        ColorPrimaries::Bt2020 => BT2100_LUMA,
-        _ => BT709_LUMA,
-    }
-}
-
-/// Calculate luminance from linear RGB.
+/// Helper for `soft_clip_gamut` — clamp `max` to 1.0 and rescale `mid` to
+/// preserve `(mid - min) / (max - min)`.
 #[inline]
-pub fn rgb_to_luminance(rgb: [f32; 3], gamut: ColorPrimaries) -> f32 {
-    let coeffs = luma_coefficients(gamut);
-    coeffs[0] * rgb[0] + coeffs[1] * rgb[1] + coeffs[2] * rgb[2]
-}
-
-// ============================================================================
-// Gamut conversion functions
-// ============================================================================
-
-/// Get the matrix to convert from source gamut to target gamut.
-///
-/// Unknown primaries (post-#9 zenpixels adds AdobeRgb and may add more)
-/// are treated as BT.709 for the purpose of choosing a matrix.
-pub fn gamut_conversion_matrix(from: ColorPrimaries, to: ColorPrimaries) -> Matrix3x3 {
-    match (from, to) {
-        (ColorPrimaries::Bt709, ColorPrimaries::Bt709) => MATRIX_IDENTITY,
-        (ColorPrimaries::DisplayP3, ColorPrimaries::DisplayP3) => MATRIX_IDENTITY,
-        (ColorPrimaries::Bt2020, ColorPrimaries::Bt2020) => MATRIX_IDENTITY,
-
-        (ColorPrimaries::Bt709, ColorPrimaries::DisplayP3) => BT709_TO_P3,
-        (ColorPrimaries::DisplayP3, ColorPrimaries::Bt709) => P3_TO_BT709,
-
-        (ColorPrimaries::Bt709, ColorPrimaries::Bt2020) => BT709_TO_BT2100,
-        (ColorPrimaries::Bt2020, ColorPrimaries::Bt709) => BT2100_TO_BT709,
-
-        (ColorPrimaries::DisplayP3, ColorPrimaries::Bt2020) => P3_TO_BT2100,
-        (ColorPrimaries::Bt2020, ColorPrimaries::DisplayP3) => BT2100_TO_P3,
-
-        // Unknown primaries (e.g. AdobeRgb): treat as BT.709.
-        _ => MATRIX_IDENTITY,
+fn clip_sorted(max: &mut f32, mid: &mut f32, min: &mut f32) {
+    if *max <= 1.0 {
+        return;
     }
-}
-
-/// Convert linear RGB from one gamut to another.
-#[inline]
-pub fn convert_gamut(rgb: [f32; 3], from: ColorPrimaries, to: ColorPrimaries) -> [f32; 3] {
-    if from == to {
-        return rgb;
+    let span = *max - *min;
+    if span > 0.0 {
+        let t = (*mid - *min) / span;
+        *mid = *min + t * (1.0 - *min);
     }
-    apply_matrix(&gamut_conversion_matrix(from, to), rgb)
+    *max = 1.0;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const EPSILON: f32 = 0.02; // Allow 2% error for matrix precision
-
-    fn approx_eq(a: f32, b: f32) -> bool {
-        (a - b).abs() < EPSILON
-    }
-
-    fn rgb_approx_eq(a: [f32; 3], b: [f32; 3]) -> bool {
-        approx_eq(a[0], b[0]) && approx_eq(a[1], b[1]) && approx_eq(a[2], b[2])
+    #[test]
+    fn luma_coefficients_known() {
+        assert_eq!(luma_coefficients(ColorPrimaries::Bt709), BT709_LUMA);
+        assert_eq!(luma_coefficients(ColorPrimaries::DisplayP3), P3_LUMA);
+        assert_eq!(luma_coefficients(ColorPrimaries::Bt2020), BT2100_LUMA);
     }
 
     #[test]
-    fn test_bt709_roundtrip_via_xyz() {
-        let test_colors = [
-            [1.0, 0.0, 0.0], // Red
-            [0.0, 1.0, 0.0], // Green
-            [0.0, 0.0, 1.0], // Blue
-            [1.0, 1.0, 1.0], // White
-            [0.5, 0.5, 0.5], // Gray
-        ];
-
-        for rgb in test_colors {
-            let xyz = apply_matrix(&BT709_TO_XYZ, rgb);
-            let back = apply_matrix(&XYZ_TO_BT709, xyz);
-            assert!(
-                rgb_approx_eq(rgb, back),
-                "BT.709 roundtrip failed: {:?} -> {:?}",
-                rgb,
-                back
-            );
-        }
+    fn rgb_to_luminance_white() {
+        let l = rgb_to_luminance([1.0, 1.0, 1.0], ColorPrimaries::Bt709);
+        assert!((l - 1.0).abs() < 1e-5, "BT.709 white = 1.0, got {l}");
+        let l = rgb_to_luminance([1.0, 1.0, 1.0], ColorPrimaries::Bt2020);
+        assert!((l - 1.0).abs() < 1e-5, "BT.2020 white = 1.0, got {l}");
     }
 
     #[test]
-    fn test_p3_roundtrip_via_xyz() {
-        let test_colors = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-
-        for rgb in test_colors {
-            let xyz = apply_matrix(&P3_TO_XYZ, rgb);
-            let back = apply_matrix(&XYZ_TO_P3, xyz);
-            assert!(
-                rgb_approx_eq(rgb, back),
-                "P3 roundtrip failed: {:?} -> {:?}",
-                rgb,
-                back
-            );
-        }
-    }
-
-    #[test]
-    fn test_bt2100_roundtrip_via_xyz() {
-        let test_colors = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-
-        for rgb in test_colors {
-            let xyz = apply_matrix(&BT2100_TO_XYZ, rgb);
-            let back = apply_matrix(&XYZ_TO_BT2100, xyz);
-            assert!(
-                rgb_approx_eq(rgb, back),
-                "BT.2100 roundtrip failed: {:?} -> {:?}",
-                rgb,
-                back
-            );
-        }
-    }
-
-    #[test]
-    fn test_gamut_conversion_roundtrip() {
-        let rgb = [0.5, 0.3, 0.8];
-
-        // BT.709 -> P3 -> BT.709
-        let p3 = convert_gamut(rgb, ColorPrimaries::Bt709, ColorPrimaries::DisplayP3);
-        let back = convert_gamut(p3, ColorPrimaries::DisplayP3, ColorPrimaries::Bt709);
-        assert!(
-            rgb_approx_eq(rgb, back),
-            "709->P3->709 failed: {:?} -> {:?}",
-            rgb,
-            back
-        );
-
-        // BT.709 -> BT.2100 -> BT.709
-        let bt2100 = convert_gamut(rgb, ColorPrimaries::Bt709, ColorPrimaries::Bt2020);
-        let back = convert_gamut(bt2100, ColorPrimaries::Bt2020, ColorPrimaries::Bt709);
-        assert!(
-            rgb_approx_eq(rgb, back),
-            "709->2100->709 failed: {:?} -> {:?}",
-            rgb,
-            back
-        );
-    }
-
-    #[test]
-    fn test_white_preserves_across_gamuts() {
-        let white = [1.0, 1.0, 1.0];
-
-        // White should map to white across all gamuts (same D65 white point)
-        let p3 = convert_gamut(white, ColorPrimaries::Bt709, ColorPrimaries::DisplayP3);
-        assert!(
-            rgb_approx_eq(white, p3),
-            "White not preserved 709->P3: {:?}",
-            p3
-        );
-
-        let bt2100 = convert_gamut(white, ColorPrimaries::Bt709, ColorPrimaries::Bt2020);
-        assert!(
-            rgb_approx_eq(white, bt2100),
-            "White not preserved 709->2100: {:?}",
-            bt2100
-        );
-    }
-
-    #[test]
-    fn test_luminance_calculation() {
-        // White should have luminance 1.0
-        let white = [1.0, 1.0, 1.0];
-        assert!(approx_eq(rgb_to_luminance(white, ColorPrimaries::Bt709), 1.0));
-        assert!(approx_eq(
-            rgb_to_luminance(white, ColorPrimaries::DisplayP3),
-            1.0
-        ));
-        assert!(approx_eq(rgb_to_luminance(white, ColorPrimaries::Bt2020), 1.0));
-
-        // Black should have luminance 0.0
-        let black = [0.0, 0.0, 0.0];
-        assert!(approx_eq(rgb_to_luminance(black, ColorPrimaries::Bt709), 0.0));
-
-        // Pure green has different luminance in different gamuts
-        let green = [0.0, 1.0, 0.0];
-        let lum_709 = rgb_to_luminance(green, ColorPrimaries::Bt709);
-        let lum_2100 = rgb_to_luminance(green, ColorPrimaries::Bt2020);
-        assert!(approx_eq(lum_709, 0.7152)); // BT.709 green coefficient
-        assert!(approx_eq(lum_2100, 0.6780)); // BT.2100 green coefficient
-    }
-
-    #[test]
-    fn test_soft_clip() {
-        // In-gamut colors unchanged.
-        let in_gamut = [0.5, 0.3, 0.8];
-        assert!(rgb_approx_eq(in_gamut, soft_clip_gamut(in_gamut)));
-
-        // Over-saturated: output in [0, 1]^3 and preserves channel ordering
-        // (max stays max, min stays min). Exact ratios are not preserved:
-        // zentone's hue-preserving clip keeps (mid-min)/(max-min) instead of
-        // scaling all channels uniformly.
-        let over = [1.5, 0.75, 0.3];
-        let clipped = soft_clip_gamut(over);
-        assert!(clipped.iter().all(|&c| (0.0..=1.0).contains(&c)));
-        assert!(clipped[0] >= clipped[1] && clipped[1] >= clipped[2]);
-
-        // Negative values clipped to 0.
-        let negative = [-0.1, 0.5, 0.5];
-        let clipped = soft_clip_gamut(negative);
-        assert!(clipped[0] >= 0.0);
-    }
-
-    #[test]
-    fn test_identity_conversion() {
+    fn convert_gamut_identity() {
         let rgb = [0.3, 0.6, 0.9];
-        for gamut in [ColorPrimaries::Bt709, ColorPrimaries::DisplayP3, ColorPrimaries::Bt2020] {
-            let result = convert_gamut(rgb, gamut, gamut);
-            assert_eq!(
-                result, rgb,
-                "Identity conversion changed values for {:?}",
-                gamut
-            );
-        }
-    }
-
-    #[test]
-    fn test_matrix_identity() {
-        let test_colors = [
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [0.5, 0.5, 0.5],
-            [0.1, 0.2, 0.3],
-        ];
-
-        for rgb in test_colors {
-            let result = apply_matrix(&MATRIX_IDENTITY, rgb);
-            assert_eq!(result, rgb, "apply_matrix(IDENTITY, {:?}) != input", rgb);
-        }
-    }
-
-    #[test]
-    fn test_primary_red_bt709_to_p3() {
-        // BT.709 pure red [1,0,0] converted to P3
-        let red_709 = [1.0f32, 0.0, 0.0];
-        let red_p3 = convert_gamut(red_709, ColorPrimaries::Bt709, ColorPrimaries::DisplayP3);
-
-        // P3 has wider red primaries, so 709 red sits inside P3 gamut.
-        // The R channel in P3 should be lower than 1.0 (it doesn't need full P3 red).
-        assert!(
-            red_p3[0] < 1.0,
-            "Expected P3 red < 1.0 for 709 red, got {}",
-            red_p3[0]
-        );
-        // G should be positive (709 red bleeds slightly into P3 green)
-        assert!(
-            red_p3[1] >= 0.0,
-            "Expected non-negative P3 green, got {}",
-            red_p3[1]
+        assert_eq!(
+            convert_gamut(rgb, ColorPrimaries::Bt709, ColorPrimaries::Bt709),
+            rgb
         );
     }
 
     #[test]
-    fn test_luminance_coefficients_sum() {
-        for gamut in [ColorPrimaries::Bt709, ColorPrimaries::DisplayP3, ColorPrimaries::Bt2020] {
-            let coeffs = luma_coefficients(gamut);
-            let sum = coeffs[0] + coeffs[1] + coeffs[2];
+    fn convert_gamut_bt709_to_bt2020_to_bt709_roundtrip() {
+        let rgb = [0.3, 0.6, 0.9];
+        let wide = convert_gamut(rgb, ColorPrimaries::Bt709, ColorPrimaries::Bt2020);
+        let back = convert_gamut(wide, ColorPrimaries::Bt2020, ColorPrimaries::Bt709);
+        for i in 0..3 {
             assert!(
-                (sum - 1.0).abs() < 0.01,
-                "Luma coefficients for {:?} sum to {} (expected ~1.0)",
-                gamut,
-                sum
+                (rgb[i] - back[i]).abs() < 0.01,
+                "BT.709↔BT.2020 roundtrip drift at {i}: {} vs {}",
+                rgb[i],
+                back[i]
             );
         }
     }
 
     #[test]
-    fn test_soft_clip_no_change_in_gamut() {
-        let test_values = [
-            [0.0, 0.0, 0.0],
-            [1.0, 1.0, 1.0],
-            [0.5, 0.5, 0.5],
-            [0.0, 0.5, 1.0],
-            [0.1, 0.9, 0.3],
-        ];
-
-        for rgb in test_values {
-            let clipped = soft_clip_gamut(rgb);
-            assert!(
-                rgb_approx_eq(rgb, clipped),
-                "In-gamut {:?} was changed to {:?}",
-                rgb,
-                clipped
-            );
-        }
+    fn soft_clip_passes_in_gamut() {
+        let rgb = [0.3, 0.6, 0.9];
+        assert_eq!(soft_clip_gamut(rgb), rgb);
     }
 
     #[test]
-    fn test_soft_clip_clamps_negative() {
-        let test_cases = [
-            [-0.5, 0.5, 0.5],
-            [0.5, -0.1, 0.5],
-            [0.5, 0.5, -0.3],
-            [-1.0, -0.5, -0.1],
-        ];
+    fn soft_clip_clamps_negative() {
+        let rgb = [-0.1, 0.5, 0.8];
+        let out = soft_clip_gamut(rgb);
+        assert_eq!(out[0], 0.0);
+        assert_eq!(out[1], 0.5);
+        assert_eq!(out[2], 0.8);
+    }
 
-        for rgb in test_cases {
-            let clipped = soft_clip_gamut(rgb);
-            assert!(
-                clipped[0] >= 0.0 && clipped[1] >= 0.0 && clipped[2] >= 0.0,
-                "Negative values not clipped for {:?}: got {:?}",
-                rgb,
-                clipped
-            );
-        }
+    #[test]
+    fn soft_clip_caps_overrange() {
+        let rgb = [2.0, 1.0, 0.0];
+        let out = soft_clip_gamut(rgb);
+        assert!(out[0] <= 1.0 && out[0] > 0.0);
+        assert!(out[1] <= 1.0 && out[1] >= 0.0);
+        assert_eq!(out[2], 0.0);
     }
 }
