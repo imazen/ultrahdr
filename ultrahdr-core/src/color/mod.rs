@@ -1,6 +1,9 @@
-//! Color space handling: transfer functions, gamut matrices, conversions.
+//! Color space handling: transfer functions, gamut matrices, HDR→SDR tone mapping.
+//!
+//! YCbCr conversions live in `zenyuv` / `yuv` / `zenjpeg::color`; RGBA1010102
+//! pack/unpack lives in `garb`; f16 pixel storage is handled by `zenpixels`.
+//! This module owns only what's codec-agnostic and Ultra-HDR-specific.
 
-pub mod convert;
 pub mod gamut;
 pub mod transfer;
 
@@ -14,7 +17,6 @@ pub mod transfer;
 #[cfg(feature = "zentone")]
 pub mod tonemap;
 
-pub use convert::*;
 pub use gamut::*;
 pub use transfer::*;
 
