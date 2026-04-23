@@ -432,6 +432,12 @@ fn write_rgba32f_row(out_data: &mut [u8], stride: usize, width: u32, y: u32, row
 ///
 /// Multi-channel gain maps are not supported — returns
 /// `Err(EncodeError)` if `config.multi_channel` is `true`.
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. The
+/// splitter-based path ships with the [`HableFilmic`] default curve;
+/// callers with explicit tone-curve control needs should stage a zentone
+/// curve + call [`compute_gainmap`] with their own tonemapped SDR.
+#[doc(hidden)]
 pub fn compute_gainmap_tonemap<T: LumaToneMap>(
     hdr: PixelSlice<'_>,
     curve: &T,

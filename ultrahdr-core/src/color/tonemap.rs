@@ -81,18 +81,30 @@ impl Default for ToneMapConfig {
 // [`crate::LumaToneMap`] implementation) and none of these symbols exist.
 
 /// Re-exported from [`zentone`]. BT.2408 PQ-domain tonemapper.
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. This is a
+/// pass-through re-export; import directly from the `zentone` crate.
 #[cfg(feature = "zentone")]
+#[doc(hidden)]
 pub use zentone::{Bt2408Tonemapper, EetfSpace};
 
 /// Standard tone curves re-exported from [`zentone::curves`].
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. These are
+/// pass-through re-exports; import directly from `zentone::curves`.
 #[cfg(feature = "zentone")]
+#[doc(hidden)]
 pub use zentone::curves::{
     aces_ap1, agx_tonemap, bt2390_tonemap, bt2390_tonemap_ext, filmic_narkowicz, hable_filmic,
     reinhard_extended, reinhard_jodie, reinhard_simple,
 };
 
 /// Re-exported from [`zentone`]. Filmic spline tonemapper.
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. Pass-through
+/// re-export; import directly from `zentone`.
 #[cfg(feature = "zentone")]
+#[doc(hidden)]
 pub use zentone::{CompiledFilmicSpline, FilmicSplineConfig};
 
 // ============================================================================
@@ -251,7 +263,11 @@ impl ProfileToneCurve {
 // ============================================================================
 
 /// Re-exported from [`zentone`]. Unified tone curve enum + dispatch trait.
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. Pass-through
+/// re-export; import directly from `zentone`.
 #[cfg(feature = "zentone")]
+#[doc(hidden)]
 pub use zentone::{AgxLook, ToneMap, ToneMapCurve};
 
 // ============================================================================

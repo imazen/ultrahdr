@@ -23,16 +23,14 @@ pub use transfer::*;
 #[cfg(feature = "zentone")]
 pub use tonemap::*;
 
-/// Streaming (row-based, bounded-memory) HDR→SDR tonemapper.
-///
-/// Re-exported from `zentone::experimental::streaming` when the `zentone`
-/// feature is enabled (default). Pull-based API:
-/// [`push_row`](StreamingTonemapper::push_row), [`finish`](StreamingTonemapper::finish),
-/// [`pull_row`](StreamingTonemapper::pull_row). Channel count (3 or 4) is
-/// passed to [`StreamingTonemapper::new`], not stored in the config.
+/// **Deprecated** — slated for removal in 0.5.0. Pass-through re-export
+/// of `zentone::experimental::{StreamingTonemapConfig, StreamingTonemapper}`;
+/// no ultrahdr-core-specific logic here. Import directly from `zentone`.
 #[cfg(feature = "zentone")]
+#[doc(hidden)]
 pub mod streaming_tonemap {
     pub use zentone::experimental::{StreamingTonemapConfig, StreamingTonemapper};
 }
 #[cfg(feature = "zentone")]
+#[doc(hidden)]
 pub use streaming_tonemap::*;

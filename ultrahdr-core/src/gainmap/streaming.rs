@@ -90,6 +90,13 @@ use super::compute::GainMapConfig;
 ///
 /// - Gainmap: `gm_width × gm_height × channels` bytes
 /// - Per batch: `width × batch_rows × 16` bytes (RGBA f32)
+/// **Deprecated API surface** — slated for removal in 0.5.0.
+///
+/// No known external callers. The per-row kernels this type wraps
+/// (`sample_gainmap_row_lut`, `apply_gain_row_presampled`) are the
+/// reusable surface; this state machine is Ultra-HDR-specific glue
+/// that doesn't compose cleanly with zenjpeg's streaming model.
+#[doc(hidden)]
 #[derive(Debug)]
 pub struct RowDecoder {
     gainmap: GainMap,
@@ -284,6 +291,9 @@ impl RowDecoder {
 /// # Memory Model
 ///
 /// - Gainmap ring buffer: 16 rows × `gm_width × channels` bytes
+/// **Deprecated API surface** — slated for removal in 0.5.0. See
+/// [`RowDecoder`] for rationale.
+#[doc(hidden)]
 #[derive(Debug)]
 pub struct StreamDecoder {
     sdr_width: u32,
@@ -572,6 +582,9 @@ impl StreamDecoder {
 ///
 /// - HDR: Linear f32 RGB, 3 floats per pixel, values typically `[0, ~10]`
 /// - SDR: Linear f32 RGB, 3 floats per pixel, values in `[0, 1]`
+/// **Deprecated API surface** — slated for removal in 0.5.0. See
+/// [`RowDecoder`] for rationale.
+#[doc(hidden)]
 #[derive(Debug)]
 pub struct RowEncoder {
     config: GainMapConfig,
@@ -853,6 +866,9 @@ impl RowEncoder {
 ///
 /// - HDR: Linear f32 RGB, 3 floats per pixel
 /// - SDR: Linear f32 RGB, 3 floats per pixel
+/// **Deprecated API surface** — slated for removal in 0.5.0. See
+/// [`RowDecoder`] for rationale.
+#[doc(hidden)]
 #[derive(Debug)]
 pub struct StreamEncoder {
     config: GainMapConfig,

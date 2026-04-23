@@ -64,12 +64,20 @@ pub fn pq_eotf(encoded: f32) -> f32 {
 }
 
 /// Convert PQ-normalized linear to absolute nits.
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. Trivial
+/// `pq_linear * 10000.0`; inline at call sites.
+#[doc(hidden)]
 #[inline]
 pub fn pq_to_nits(pq_linear: f32) -> f32 {
     pq_linear * 10000.0
 }
 
 /// Convert absolute nits to PQ-normalized linear.
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. Trivial
+/// `nits / 10000.0`; inline at call sites.
+#[doc(hidden)]
 #[inline]
 pub fn nits_to_pq(nits: f32) -> f32 {
     nits / 10000.0
@@ -83,6 +91,11 @@ pub fn nits_to_pq(nits: f32) -> f32 {
 ///
 /// Input is scene-referred linear light (not display-referred).
 /// Delegates to `linear-srgb` (fast log2 approximation, ~5e-6 max error).
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. No internal
+/// caller; decode direction is [`hlg_oetf_inv`]. If you need the forward
+/// direction, import `linear_srgb::tf::linear_to_hlg` directly.
+#[doc(hidden)]
 #[inline]
 pub fn hlg_oetf(linear: f32) -> f32 {
     linear_srgb::tf::linear_to_hlg(linear)
@@ -150,6 +163,11 @@ pub fn hlg_eotf(encoded: f32, display_peak_nits: f32) -> f32 {
 ///
 /// Transfer functions outside ultrahdr's handled set (Srgb, Linear, Pq,
 /// Hlg) — for example BT.709, Gamma 2.2 — fall through to sRGB.
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. The silent
+/// sRGB fallback on unknown transfers is a correctness footgun; callers
+/// should dispatch explicitly on [`TransferFunction`].
+#[doc(hidden)]
 #[inline]
 pub fn apply_oetf(linear: f32, transfer: TransferFunction) -> f32 {
     match transfer {
@@ -165,6 +183,10 @@ pub fn apply_oetf(linear: f32, transfer: TransferFunction) -> f32 {
 ///
 /// For HLG, assumes a 1000 nit display and returns normalized linear `[0,1]`.
 /// Unhandled variants fall through to sRGB (see [`apply_oetf`]).
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. Same silent
+/// sRGB fallback footgun as [`apply_oetf`].
+#[doc(hidden)]
 #[inline]
 pub fn apply_eotf(encoded: f32, transfer: TransferFunction) -> f32 {
     match transfer {
@@ -184,6 +206,12 @@ pub fn apply_eotf(encoded: f32, transfer: TransferFunction) -> f32 {
 // ============================================================================
 
 /// Precomputed LUT for sRGB EOTF (8-bit input).
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. Not used
+/// internally; no known external callers. Callers needing per-byte
+/// linearization should call `linear_srgb::tf::srgb_to_linear` directly
+/// (which already uses a rational-polynomial fast path with zero setup cost).
+#[doc(hidden)]
 pub struct SrgbEotfLut {
     table: [f32; 256],
 }
@@ -212,6 +240,10 @@ impl Default for SrgbEotfLut {
 }
 
 /// Precomputed LUT for PQ EOTF (10-bit input, 1024 entries).
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. Not used
+/// internally; no known external callers.
+#[doc(hidden)]
 pub struct PqEotfLut {
     table: Box<[f32; 1024]>,
 }
@@ -240,6 +272,10 @@ impl Default for PqEotfLut {
 }
 
 /// Precomputed LUT for HLG inverse OETF (10-bit input).
+///
+/// **Deprecated API surface** — slated for removal in 0.5.0. Not used
+/// internally; no known external callers.
+#[doc(hidden)]
 pub struct HlgOetfInvLut {
     table: Box<[f32; 1024]>,
 }
