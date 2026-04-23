@@ -23,49 +23,42 @@ fn main() {
     let data = fs::read(&path)
         .unwrap_or_else(|e| panic!("Failed to read {}: {}. Set ZENJPEG_DIR.", path.display(), e));
 
-    // Parse using ultrahdr container functions
+    // APP segments overview.
     let segments = container::scan_segments(&data);
-    println!("Found {} segments", segments.len());
-
-    // Find MPF segment
+    println!("Found {} APP segments", segments.len());
     for (i, seg) in segments.iter().enumerate() {
         println!(
-            "Segment {}: marker={:02X}, offset={}, len={}",
-            i,
+            "  [{i}] APP{}, offset={}, payload_len={}, mpf={}, xmp={}, icc={}, exif={}",
             seg.marker_num,
             seg.offset,
-            seg.data.len()
+            seg.data.len(),
+            seg.is_mpf(),
+            seg.is_xmp(),
+            seg.is_icc(),
+            seg.is_exif(),
         );
-        if seg.is_mpf() {
-            println!("  -> MPF segment found!");
-            match container::parse_mpf_segment(&seg.data, seg.offset) {
-                Ok(mpf) => {
-                    println!("  MPF parsed successfully:");
-                    println!("    mpf_marker_offset: {}", mpf.mpf_marker_offset);
-                    for (j, entry) in mpf.entries.iter().enumerate() {
-                        println!(
-                            "    Entry {}: type={:?}, size={}, offset={}",
-                            j, entry.image_type, entry.size, entry.offset
-                        );
-                    }
+    }
 
-                    // Try to extract secondary images
-                    let secondaries = container::extract_secondary_images(&data, &mpf);
-                    println!("  Found {} secondary images", secondaries.len());
-                    for (k, sec) in secondaries.iter().enumerate() {
-                        let preview: &[u8] = &sec[..2.min(sec.len())];
-                        println!(
-                            "    Secondary {}: {} bytes, starts with {:02X?}",
-                            k,
-                            sec.len(),
-                            preview
-                        );
-                    }
-                }
-                Err(e) => {
-                    println!("  MPF parse error: {:?}", e);
+    // MPF directory.
+    match container::parse_mpf(&data) {
+        Ok(entries) if entries.is_empty() => println!("No MPF segment present."),
+        Ok(entries) => {
+            println!("\nMPF directory: {} entries", entries.len());
+            for (i, e) in entries.iter().enumerate() {
+                println!(
+                    "  [{i}] type={:?}, offset={}, size={}",
+                    e.image_type, e.offset, e.size
+                );
+            }
+            // Show the first 2 bytes of each secondary image as a sanity peek.
+            for (i, e) in entries.iter().enumerate().skip(1) {
+                let end = e.offset + e.size;
+                if end <= data.len() {
+                    let preview = &data[e.offset..e.offset + 2.min(e.size)];
+                    println!("  secondary {i}: starts with {:02X?}", preview);
                 }
             }
         }
+        Err(err) => println!("MPF parse failed: {err}"),
     }
 }
