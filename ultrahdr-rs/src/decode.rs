@@ -164,11 +164,9 @@ impl<'a> Decoder<'a> {
             }
         }
 
-        // Try to parse MPF to find gain map (reuses container module's parser)
-        if let Some(mpf_seg) = segments.iter().find(|s| s.is_mpf())
-            && let Ok(mpf_dir) = container::parse_mpf_segment(&mpf_seg.data, mpf_seg.offset)
-            && mpf_dir.entries.len() >= 2
-        {
+        // Try to parse MPF to find gain map.
+        let mpf_entries = container::parse_mpf(self.data)?;
+        if mpf_entries.len() >= 2 {
             // Primary image — locate via JPEG marker scan, NOT MPF's declared
             // size. Some encoders (notably Pixel HDR+ 1.0.*) write a too-short
             // primary_size that cuts off the last MCU row's entropy-coded data.
@@ -178,20 +176,21 @@ impl<'a> Decoder<'a> {
                 self.primary_jpeg = Some((bounds.start, bounds.end));
             } else {
                 // Fallback to MPF's size if marker scan somehow fails.
-                let primary_size = mpf_dir.entries[0].size as usize;
-                self.primary_jpeg = Some((0, primary_size));
+                self.primary_jpeg = Some((0, mpf_entries[0].size));
             }
 
-            // Secondary images (gain map)
-            let secondaries = container::extract_secondary_images(self.data, &mpf_dir);
-            if let Some(gm) = secondaries.first() {
-                let gm_start = gm.as_ptr() as usize - self.data.as_ptr() as usize;
-                self.gainmap_jpeg = Some((gm_start, gm_start + gm.len()));
+            // First secondary image = gain map.
+            let gm_entry = &mpf_entries[1];
+            let gm_start = gm_entry.offset;
+            let gm_end = gm_start + gm_entry.size;
+            if gm_end <= self.data.len() {
+                self.gainmap_jpeg = Some((gm_start, gm_end));
                 self.is_ultrahdr = true;
 
                 // Check gain map JPEG for metadata XMP (modern format:
-                // libultrahdr puts metadata in the secondary JPEG's XMP)
+                // libultrahdr puts metadata in the secondary JPEG's XMP).
                 if self.metadata.is_none() {
+                    let gm = &self.data[gm_start..gm_end];
                     let gm_segments = container::scan_segments(gm);
                     if let Some(gm_xmp) = find_xmp_in_segments(&gm_segments)
                         && gm_xmp.contains("hdrgm:")
