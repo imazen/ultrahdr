@@ -103,6 +103,7 @@ pub struct RowDecoder {
     width: u32,
     height: u32,
     lut: super::apply::GainMapLut,
+    shepards: Option<super::apply::ShepardsLut>,
     base_offset: [f32; 3],
     alternate_offset: [f32; 3],
     current_row: u32,
@@ -133,6 +134,8 @@ impl RowDecoder {
     ) -> Result<Self> {
         let weight = super::apply::calculate_weight(display_boost, &metadata);
         let lut = super::apply::GainMapLut::new(&metadata, weight);
+        let shepards =
+            super::apply::ShepardsLut::try_new(width, height, gainmap.width, gainmap.height);
         let base_offset = [
             metadata.channels[0].base_offset as f32,
             metadata.channels[1].base_offset as f32,
@@ -150,6 +153,7 @@ impl RowDecoder {
             width,
             height,
             lut,
+            shepards,
             base_offset,
             alternate_offset,
             current_row: 0,
@@ -210,10 +214,11 @@ impl RowDecoder {
                 ];
             }
 
-            // Sample per-channel gains for this row (bilinear + LUT).
+            // Sample per-channel gains for this row (Shepard's IDW + LUT).
             super::apply::sample_gainmap_row_lut(
                 &self.gainmap,
                 &self.lut,
+                self.shepards.as_ref(),
                 y,
                 self.width,
                 self.height,
@@ -1306,7 +1311,8 @@ mod tests {
             false,
         );
 
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
+        let mut decoder =
+            RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
 
         // Linear f32 RGB input (mid-gray = 0.18)
         let sdr_linear = vec![0.18f32; 4 * 3]; // One row, 4 pixels, RGB
@@ -1395,7 +1401,8 @@ mod tests {
         let gainmap = test_gainmap(128);
         let metadata = test_metadata();
 
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
+        let mut decoder =
+            RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
 
         assert!(!decoder.is_complete());
         assert_eq!(decoder.rows_remaining(), 4);
@@ -1419,7 +1426,8 @@ mod tests {
         let gainmap = test_gainmap(128);
         let metadata = test_metadata();
 
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
+        let mut decoder =
+            RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
 
         let sdr_row = vec![0.18f32; 4 * 3];
 
@@ -1446,7 +1454,8 @@ mod tests {
         let gainmap = test_gainmap(128);
         let metadata = test_metadata();
 
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
+        let mut decoder =
+            RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
 
         // Only 2 pixels worth of data (6 floats) instead of 4 pixels (12 floats)
         let short_input = vec![0.18f32; 2 * 3];
@@ -1464,7 +1473,8 @@ mod tests {
         let gainmap = test_gainmap(128);
         let metadata = test_metadata();
 
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
+        let mut decoder =
+            RowDecoder::new(gainmap, metadata, 4, 4, 4.0, ColorPrimaries::Bt709).unwrap();
 
         let sdr_row = vec![0.18f32; 4 * 3];
         for _ in 0..4 {
@@ -1488,7 +1498,8 @@ mod tests {
 
         // SDR: 4x4, gainmap: 2x2, 1 channel
         let mut decoder =
-            StreamDecoder::new(metadata.clone(), 4, 4, 2, 2, 1, 4.0, ColorPrimaries::Bt709).unwrap();
+            StreamDecoder::new(metadata.clone(), 4, 4, 2, 2, 1, 4.0, ColorPrimaries::Bt709)
+                .unwrap();
 
         assert!(!decoder.is_complete());
         assert_eq!(decoder.sdr_rows_remaining(), 4);
@@ -1665,7 +1676,8 @@ mod tests {
         let metadata = test_metadata();
 
         // display_boost=1.0 means weight=0 → gain should be exp(0)=1.0 for all pixels
-        let mut decoder = RowDecoder::new(gainmap, metadata, 4, 4, 1.0, ColorPrimaries::Bt709).unwrap();
+        let mut decoder =
+            RowDecoder::new(gainmap, metadata, 4, 4, 1.0, ColorPrimaries::Bt709).unwrap();
 
         let sdr_val = 0.5f32;
         let sdr_row = vec![sdr_val; 4 * 3];

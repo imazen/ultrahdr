@@ -114,7 +114,14 @@ pub fn apply_gainmap(
     stop: impl Stop,
 ) -> Result<PixelBuffer> {
     let sdr_slice = sdr.as_slice();
-    apply_gainmap_slice(sdr_slice, gainmap, metadata, display_boost, output_format, stop)
+    apply_gainmap_slice(
+        sdr_slice,
+        gainmap,
+        metadata,
+        display_boost,
+        output_format,
+        stop,
+    )
 }
 
 /// [`apply_gainmap`] variant that takes a borrowed [`PixelSlice`] directly.
@@ -141,6 +148,11 @@ pub fn apply_gainmap_slice(
 
     // Create precomputed LUT for fast gain decoding
     let lut = GainMapLut::new(metadata, weight);
+
+    // Build the Shepard's weight table if image-to-gainmap ratio is integer
+    // (the common case — ISO 21496-1 maps are typically 1/2, 1/4, 1/8, 1/16).
+    // `None` means we fall back to per-pixel sqrt with row-hoisted constants.
+    let shepards = ShepardsLut::try_new(width, height, gainmap.width, gainmap.height);
 
     // Create output image
     let mut output = match output_format {
@@ -189,7 +201,15 @@ pub fn apply_gainmap_slice(
         stop.check()?;
 
         read_sdr_row_linear(&sdr, y, &mut sdr_row);
-        sample_gainmap_row_lut(gainmap, &lut, y, width, height, &mut gains_row);
+        sample_gainmap_row_lut(
+            gainmap,
+            &lut,
+            shepards.as_ref(),
+            y,
+            width,
+            height,
+            &mut gains_row,
+        );
         super::apply_simd::apply_gain_row_presampled(
             &sdr_row,
             &gains_row,
@@ -216,21 +236,29 @@ fn read_sdr_row_linear(sdr: &PixelSlice<'_>, y: u32, out: &mut [[f32; 3]]) {
     }
 }
 
-/// Sample a full row of gains from the gain map (bilinear, LUT-accelerated).
+/// Sample a full row of gains from the gain map (Shepard's IDW, LUT-accelerated).
 ///
 /// `out.len()` must equal `img_width as usize`. For single-channel gain maps,
 /// the same gain is broadcast to R/G/B.
+///
+/// `shepards` MUST be `Some(_)` when `img_width % gainmap.width == 0` and
+/// `img_height % gainmap.height == 0`; the caller builds it once via
+/// [`ShepardsLut::try_new`] and passes it to every row. When `None`, the
+/// per-pixel sqrt fallback runs (still computes weights once per pixel and
+/// shares them across channels).
 pub(crate) fn sample_gainmap_row_lut(
     gainmap: &GainMap,
     lut: &GainMapLut,
+    shepards: Option<&ShepardsLut>,
     y: u32,
     img_width: u32,
     img_height: u32,
     out: &mut [[f32; 3]],
 ) {
     debug_assert_eq!(out.len(), img_width as usize);
-    for (x, gain) in out.iter_mut().enumerate() {
-        *gain = sample_gainmap_lut(gainmap, lut, x as u32, y, img_width, img_height);
+    match shepards {
+        Some(shep) => sample_row_lut_int(gainmap, lut, shep, y, out),
+        None => sample_row_lut_float(gainmap, lut, y, img_width, img_height, out),
     }
 }
 
@@ -306,18 +334,10 @@ fn get_sdr_linear(sdr: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
         PixelFormat::RgbaF32 => {
             let idx = (y as usize) * stride + (x as usize) * 16;
             let r = f32::from_le_bytes([data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]);
-            let g = f32::from_le_bytes([
-                data[idx + 4],
-                data[idx + 5],
-                data[idx + 6],
-                data[idx + 7],
-            ]);
-            let b = f32::from_le_bytes([
-                data[idx + 8],
-                data[idx + 9],
-                data[idx + 10],
-                data[idx + 11],
-            ]);
+            let g =
+                f32::from_le_bytes([data[idx + 4], data[idx + 5], data[idx + 6], data[idx + 7]]);
+            let b =
+                f32::from_le_bytes([data[idx + 8], data[idx + 9], data[idx + 10], data[idx + 11]]);
             [r, g, b]
         }
         PixelFormat::Gray8 => {
@@ -329,70 +349,316 @@ fn get_sdr_linear(sdr: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
     }
 }
 
-/// Bilinear interpolation.
-#[inline(always)]
-fn bilinear(v00: f32, v10: f32, v01: f32, v11: f32, fx: f32, fy: f32) -> f32 {
-    let top = v00 * (1.0 - fx) + v10 * fx;
-    let bottom = v01 * (1.0 - fx) + v11 * fx;
-    top * (1.0 - fy) + bottom * fy
+/// Precomputed Shepard's IDW weight tables for integer-scale gain map upsample.
+///
+/// Mirrors libultrahdr's `ShepardsIDW` struct (see `gainmapmath.h:228`,
+/// `gainmapmath.cpp:49`). Per-pixel sample-time work drops from "4 sqrt
+/// plus 4 div" to "4 mul plus 3 add" by precomputing weights for every
+/// distinct sub-pixel position in the unit cell. Holds four tables
+/// (interior, no-right edge, no-bottom edge, corner) to handle gain-map
+/// boundary clamping without per-pixel branches on bounds.
+///
+/// Only valid when image dimensions are an integer multiple of gain-map
+/// dimensions. Storage is `4 * scale_x * scale_y * 4` floats (≤ 16 KB
+/// for any sane scale).
+#[derive(Debug)]
+pub struct ShepardsLut {
+    scale_x: u32,
+    scale_y: u32,
+    /// Indexed `[oy * scale_x + ox] * 4 + corner` where corner is
+    /// 0=TL, 1=BL, 2=TR, 3=BR. Same memory layout in all four tables.
+    full: Box<[f32]>,
+    no_right: Box<[f32]>,
+    no_bottom: Box<[f32]>,
+    corner: Box<[f32]>,
 }
 
-/// Sample gain map with bilinear interpolation using precomputed LUT.
-///
-/// This is significantly faster than `sample_gainmap` because it uses LUT lookups
-/// instead of expensive `powf()` and `exp()` calls per pixel.
-#[inline]
-#[allow(clippy::needless_range_loop)] // c is used as both index and channel parameter
-fn sample_gainmap_lut(
-    gainmap: &GainMap,
-    lut: &GainMapLut,
-    x: u32,
-    y: u32,
-    img_width: u32,
-    img_height: u32,
-) -> [f32; 3] {
-    // Map image coordinates to gain map coordinates
-    let gm_x = (x as f32 / img_width as f32) * gainmap.width as f32;
-    let gm_y = (y as f32 / img_height as f32) * gainmap.height as f32;
-
-    // Bilinear interpolation coordinates
-    let x0 = (gm_x.floor() as u32).min(gainmap.width - 1);
-    let y0 = (gm_y.floor() as u32).min(gainmap.height - 1);
-    let x1 = (x0 + 1).min(gainmap.width - 1);
-    let y1 = (y0 + 1).min(gainmap.height - 1);
-
-    let fx = gm_x - gm_x.floor();
-    let fy = gm_y - gm_y.floor();
-
-    if gainmap.channels == 1 {
-        // Single channel - look up gains from LUT, then interpolate
-        let g00 = lut.lookup(gainmap.data[(y0 * gainmap.width + x0) as usize], 0);
-        let g10 = lut.lookup(gainmap.data[(y0 * gainmap.width + x1) as usize], 0);
-        let g01 = lut.lookup(gainmap.data[(y1 * gainmap.width + x0) as usize], 0);
-        let g11 = lut.lookup(gainmap.data[(y1 * gainmap.width + x1) as usize], 0);
-
-        let gain = bilinear(g00, g10, g01, g11, fx, fy);
-        [gain, gain, gain]
-    } else {
-        // Multi-channel - look up and interpolate each channel
-        let mut gains = [0.0f32; 3];
-        for c in 0..3 {
-            let idx00 = (y0 * gainmap.width + x0) as usize * 3 + c;
-            let idx10 = (y0 * gainmap.width + x1) as usize * 3 + c;
-            let idx01 = (y1 * gainmap.width + x0) as usize * 3 + c;
-            let idx11 = (y1 * gainmap.width + x1) as usize * 3 + c;
-
-            let g00 = lut.lookup(gainmap.data[idx00], c);
-            let g10 = lut.lookup(gainmap.data[idx10], c);
-            let g01 = lut.lookup(gainmap.data[idx01], c);
-            let g11 = lut.lookup(gainmap.data[idx11], c);
-
-            gains[c] = bilinear(g00, g10, g01, g11, fx, fy);
+impl ShepardsLut {
+    /// Build weight tables for an arbitrary integer scale (`scale_x`, `scale_y`).
+    /// Most callers should use [`Self::try_new`] which infers the scale from
+    /// image and gain-map dimensions.
+    pub fn new(scale_x: u32, scale_y: u32) -> Self {
+        debug_assert!(scale_x >= 1 && scale_y >= 1);
+        let n = (scale_x * scale_y * 4) as usize;
+        let mut full = vec![0.0f32; n].into_boxed_slice();
+        let mut no_right = vec![0.0f32; n].into_boxed_slice();
+        let mut no_bottom = vec![0.0f32; n].into_boxed_slice();
+        let mut corner = vec![0.0f32; n].into_boxed_slice();
+        fill_shepards(&mut full, scale_x, scale_y, 1, 1);
+        fill_shepards(&mut no_right, scale_x, scale_y, 0, 1);
+        fill_shepards(&mut no_bottom, scale_x, scale_y, 1, 0);
+        fill_shepards(&mut corner, scale_x, scale_y, 0, 0);
+        Self {
+            scale_x,
+            scale_y,
+            full,
+            no_right,
+            no_bottom,
+            corner,
         }
-        gains
+    }
+
+    /// Build a LUT iff image dims are an exact integer multiple of gain-map
+    /// dims. `None` means the caller must take the per-pixel sqrt fallback.
+    pub fn try_new(img_width: u32, img_height: u32, gm_width: u32, gm_height: u32) -> Option<Self> {
+        if gm_width == 0 || gm_height == 0 {
+            return None;
+        }
+        if !img_width.is_multiple_of(gm_width) || !img_height.is_multiple_of(gm_height) {
+            return None;
+        }
+        let sx = img_width / gm_width;
+        let sy = img_height / gm_height;
+        if sx == 0 || sy == 0 {
+            return None;
+        }
+        Some(Self::new(sx, sy))
+    }
+
+    #[inline(always)]
+    fn pick(&self, no_right: bool, no_bottom: bool) -> &[f32] {
+        match (no_right, no_bottom) {
+            (false, false) => &self.full,
+            (true, false) => &self.no_right,
+            (false, true) => &self.no_bottom,
+            (true, true) => &self.corner,
+        }
     }
 }
 
+fn fill_shepards(weights: &mut [f32], sx: u32, sy: u32, inc_r: u32, inc_b: u32) {
+    let sx_f = sx as f32;
+    let sy_f = sy as f32;
+    for y in 0..sy {
+        for x in 0..sx {
+            let pos_x = x as f32 / sx_f;
+            let pos_y = y as f32 / sy_f;
+            let next_x = inc_r as f32;
+            let next_y = inc_b as f32;
+            let idx = ((y * sx + x) * 4) as usize;
+            let d_tl = (pos_x * pos_x + pos_y * pos_y).sqrt();
+            if d_tl == 0.0 {
+                weights[idx] = 1.0;
+                weights[idx + 1] = 0.0;
+                weights[idx + 2] = 0.0;
+                weights[idx + 3] = 0.0;
+                continue;
+            }
+            let dy_b = pos_y - next_y;
+            let dx_r = pos_x - next_x;
+            let d_bl = (pos_x * pos_x + dy_b * dy_b).sqrt();
+            let d_tr = (dx_r * dx_r + pos_y * pos_y).sqrt();
+            let d_br = (dx_r * dx_r + dy_b * dy_b).sqrt();
+            let w_tl = 1.0 / d_tl;
+            let w_bl = 1.0 / d_bl;
+            let w_tr = 1.0 / d_tr;
+            let w_br = 1.0 / d_br;
+            let inv_total = 1.0 / (w_tl + w_bl + w_tr + w_br);
+            weights[idx] = w_tl * inv_total;
+            weights[idx + 1] = w_bl * inv_total;
+            weights[idx + 2] = w_tr * inv_total;
+            weights[idx + 3] = w_br * inv_total;
+        }
+    }
+}
+
+/// Shepard's IDW on 4 corners with weights computed in-place.
+///
+/// Used as the per-pixel fallback when the image-to-gain-map ratio is
+/// non-integer (so the precomputed LUT can't be used). Weights are
+/// computed once and reused across channels by callers.
+#[inline(always)]
+fn shepards_weights(fx: f32, fy: f32) -> [f32; 4] {
+    let dx_r = 1.0 - fx;
+    let dy_b = 1.0 - fy;
+    let d_tl = (fx * fx + fy * fy).sqrt();
+    if d_tl == 0.0 {
+        return [1.0, 0.0, 0.0, 0.0];
+    }
+    let d_bl = (fx * fx + dy_b * dy_b).sqrt();
+    if d_bl == 0.0 {
+        return [0.0, 1.0, 0.0, 0.0];
+    }
+    let d_tr = (dx_r * dx_r + fy * fy).sqrt();
+    if d_tr == 0.0 {
+        return [0.0, 0.0, 1.0, 0.0];
+    }
+    let d_br = (dx_r * dx_r + dy_b * dy_b).sqrt();
+    if d_br == 0.0 {
+        return [0.0, 0.0, 0.0, 1.0];
+    }
+    let w_tl = 1.0 / d_tl;
+    let w_bl = 1.0 / d_bl;
+    let w_tr = 1.0 / d_tr;
+    let w_br = 1.0 / d_br;
+    let inv_total = 1.0 / (w_tl + w_bl + w_tr + w_br);
+    [
+        w_tl * inv_total,
+        w_bl * inv_total,
+        w_tr * inv_total,
+        w_br * inv_total,
+    ]
+}
+
+#[inline(always)]
+fn dot4(c: [f32; 4], w: [f32; 4]) -> f32 {
+    c[0] * w[0] + c[1] * w[1] + c[2] * w[2] + c[3] * w[3]
+}
+
+/// Fast integer-scale row sampler. Picks weights from `shepards`
+/// (no per-pixel sqrt/div) and shares them across channels.
+fn sample_row_lut_int(
+    gainmap: &GainMap,
+    lut: &GainMapLut,
+    shepards: &ShepardsLut,
+    y: u32,
+    out: &mut [[f32; 3]],
+) {
+    let sx = shepards.scale_x;
+    let sy = shepards.scale_y;
+    let gw = gainmap.width;
+    let gh = gainmap.height;
+    debug_assert!(gw > 0 && gh > 0);
+
+    // Row-constant pieces: y0/y1 = enclosing gainmap rows; oy = sub-pixel
+    // offset; no_bottom = row sits at the gainmap's bottom edge so y1 was
+    // clamped back to y0.
+    let y0 = (y / sy).min(gh - 1);
+    let y1 = (y0 + 1).min(gh - 1);
+    let oy = y % sy;
+    let no_bottom = y0 == y1;
+
+    let row0_off = (y0 * gw) as usize;
+    let row1_off = (y1 * gw) as usize;
+
+    if gainmap.channels == 1 {
+        for (x_out, gain) in out.iter_mut().enumerate() {
+            let x = x_out as u32;
+            let x0 = (x / sx).min(gw - 1);
+            let x1 = (x0 + 1).min(gw - 1);
+            let ox = x % sx;
+            let no_right = x0 == x1;
+
+            let table = shepards.pick(no_right, no_bottom);
+            let base = ((oy * sx + ox) * 4) as usize;
+            let w = [
+                table[base],
+                table[base + 1],
+                table[base + 2],
+                table[base + 3],
+            ];
+
+            let g_tl = lut.lookup(gainmap.data[row0_off + x0 as usize], 0);
+            let g_bl = lut.lookup(gainmap.data[row1_off + x0 as usize], 0);
+            let g_tr = lut.lookup(gainmap.data[row0_off + x1 as usize], 0);
+            let g_br = lut.lookup(gainmap.data[row1_off + x1 as usize], 0);
+            let g = dot4([g_tl, g_bl, g_tr, g_br], w);
+            *gain = [g, g, g];
+        }
+    } else {
+        for (x_out, gain) in out.iter_mut().enumerate() {
+            let x = x_out as u32;
+            let x0 = (x / sx).min(gw - 1);
+            let x1 = (x0 + 1).min(gw - 1);
+            let ox = x % sx;
+            let no_right = x0 == x1;
+
+            let table = shepards.pick(no_right, no_bottom);
+            let base = ((oy * sx + ox) * 4) as usize;
+            let w = [
+                table[base],
+                table[base + 1],
+                table[base + 2],
+                table[base + 3],
+            ];
+
+            let tl = (row0_off + x0 as usize) * 3;
+            let bl = (row1_off + x0 as usize) * 3;
+            let tr = (row0_off + x1 as usize) * 3;
+            let br = (row1_off + x1 as usize) * 3;
+            for (c, dst) in gain.iter_mut().enumerate() {
+                let corners = [
+                    lut.lookup(gainmap.data[tl + c], c),
+                    lut.lookup(gainmap.data[bl + c], c),
+                    lut.lookup(gainmap.data[tr + c], c),
+                    lut.lookup(gainmap.data[br + c], c),
+                ];
+                *dst = dot4(corners, w);
+            }
+        }
+    }
+}
+
+/// Non-integer scale fallback. Computes weights once per pixel (4 sqrt
+/// plus 1 reciprocal-divide) and shares them across channels. Hoists
+/// `gm_y`/`y0`/`y1`/`fy` to row constants.
+fn sample_row_lut_float(
+    gainmap: &GainMap,
+    lut: &GainMapLut,
+    y: u32,
+    img_width: u32,
+    img_height: u32,
+    out: &mut [[f32; 3]],
+) {
+    let gw = gainmap.width;
+    let gh = gainmap.height;
+    debug_assert!(gw > 0 && gh > 0);
+    debug_assert!(img_width > 0 && img_height > 0);
+
+    let inv_iw = 1.0 / img_width as f32;
+    let inv_ih = 1.0 / img_height as f32;
+    let gw_f = gw as f32;
+    let gh_f = gh as f32;
+
+    let gm_y = (y as f32 * inv_ih) * gh_f;
+    let gm_y_floor = gm_y.floor();
+    let y0 = (gm_y_floor as u32).min(gh - 1);
+    let y1 = (y0 + 1).min(gh - 1);
+    let fy = gm_y - gm_y_floor;
+    let row0_off = (y0 * gw) as usize;
+    let row1_off = (y1 * gw) as usize;
+
+    if gainmap.channels == 1 {
+        for (x_out, gain) in out.iter_mut().enumerate() {
+            let gm_x = (x_out as f32 * inv_iw) * gw_f;
+            let gm_x_floor = gm_x.floor();
+            let x0 = (gm_x_floor as u32).min(gw - 1);
+            let x1 = (x0 + 1).min(gw - 1);
+            let fx = gm_x - gm_x_floor;
+            let w = shepards_weights(fx, fy);
+
+            let g_tl = lut.lookup(gainmap.data[row0_off + x0 as usize], 0);
+            let g_bl = lut.lookup(gainmap.data[row1_off + x0 as usize], 0);
+            let g_tr = lut.lookup(gainmap.data[row0_off + x1 as usize], 0);
+            let g_br = lut.lookup(gainmap.data[row1_off + x1 as usize], 0);
+            let g = dot4([g_tl, g_bl, g_tr, g_br], w);
+            *gain = [g, g, g];
+        }
+    } else {
+        for (x_out, gain) in out.iter_mut().enumerate() {
+            let gm_x = (x_out as f32 * inv_iw) * gw_f;
+            let gm_x_floor = gm_x.floor();
+            let x0 = (gm_x_floor as u32).min(gw - 1);
+            let x1 = (x0 + 1).min(gw - 1);
+            let fx = gm_x - gm_x_floor;
+            let w = shepards_weights(fx, fy);
+
+            let tl = (row0_off + x0 as usize) * 3;
+            let bl = (row1_off + x0 as usize) * 3;
+            let tr = (row0_off + x1 as usize) * 3;
+            let br = (row1_off + x1 as usize) * 3;
+            for (c, dst) in gain.iter_mut().enumerate() {
+                let corners = [
+                    lut.lookup(gainmap.data[tl + c], c),
+                    lut.lookup(gainmap.data[bl + c], c),
+                    lut.lookup(gainmap.data[tr + c], c),
+                    lut.lookup(gainmap.data[br + c], c),
+                ];
+                *dst = dot4(corners, w);
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -855,10 +1121,8 @@ mod tests {
         // Read first pixel from each
         let max_bytes = result_max.as_slice().as_strided_bytes();
         let sdr_bytes = result_sdr.as_slice().as_strided_bytes();
-        let hdr_r =
-            f32::from_le_bytes([max_bytes[0], max_bytes[1], max_bytes[2], max_bytes[3]]);
-        let sdr_r =
-            f32::from_le_bytes([sdr_bytes[0], sdr_bytes[1], sdr_bytes[2], sdr_bytes[3]]);
+        let hdr_r = f32::from_le_bytes([max_bytes[0], max_bytes[1], max_bytes[2], max_bytes[3]]);
+        let sdr_r = f32::from_le_bytes([sdr_bytes[0], sdr_bytes[1], sdr_bytes[2], sdr_bytes[3]]);
 
         // Full boost should produce significantly brighter output than no boost
         assert!(
@@ -1022,5 +1286,107 @@ mod tests {
             result,
             Err(crate::Error::Stopped(enough::StopReason::Cancelled))
         ));
+    }
+
+    #[test]
+    fn shepards_lut_try_new_rejects_non_integer_ratio() {
+        // 5x5 image with 2x2 gainmap → no exact integer scale.
+        assert!(ShepardsLut::try_new(5, 5, 2, 2).is_none());
+        // 0-dim gainmap is rejected.
+        assert!(ShepardsLut::try_new(8, 8, 0, 2).is_none());
+        // Exact 4x scale on both axes.
+        assert!(ShepardsLut::try_new(8, 8, 2, 2).is_some());
+        // Asymmetric integer scales are still valid.
+        assert!(ShepardsLut::try_new(8, 12, 2, 3).is_some());
+    }
+
+    #[test]
+    fn shepards_lut_weights_at_sample_center_collapse_to_nearest() {
+        // Sub-pixel offset (0, 0) sits exactly on the top-left sample.
+        // C++ libultrahdr short-circuits to weights = [1, 0, 0, 0]; we mirror
+        // that so the LUT and per-pixel paths agree at sample centers.
+        let lut = ShepardsLut::new(4, 4);
+        let table = lut.pick(false, false);
+        assert_eq!(table[0], 1.0);
+        assert_eq!(table[1], 0.0);
+        assert_eq!(table[2], 0.0);
+        assert_eq!(table[3], 0.0);
+    }
+
+    #[test]
+    fn shepards_weights_normalize_to_one() {
+        // For any non-degenerate (fx, fy) the four weights must sum to 1.0
+        // (within f32 rounding). This is what makes the result independent
+        // of the underlying gain values.
+        for &fx in &[0.1f32, 0.25, 0.5, 0.75, 0.9] {
+            for &fy in &[0.1f32, 0.25, 0.5, 0.75, 0.9] {
+                let w = shepards_weights(fx, fy);
+                let total: f32 = w.iter().sum();
+                assert!(
+                    (total - 1.0).abs() < 1e-5,
+                    "weights at ({fx}, {fy}) sum to {total}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shepards_int_lut_matches_float_path_at_sample_centers() {
+        // Walk a 4x4 image over a 2x2 gainmap (scale=2). At every output
+        // pixel that lands on a gainmap sample (offsets 0 in both axes —
+        // here that's every other pixel), both paths must agree.
+        let mut gainmap = GainMap::new(2, 2).unwrap();
+        gainmap.data = vec![10, 200, 50, 150];
+        let metadata = GainMapMetadata::default();
+        let lut = GainMapLut::new(&metadata, 1.0);
+        let shepards = ShepardsLut::try_new(4, 4, 2, 2).unwrap();
+
+        let mut row_int = vec![[0.0f32; 3]; 4];
+        let mut row_float = vec![[0.0f32; 3]; 4];
+
+        for y in [0u32, 2u32] {
+            sample_row_lut_int(&gainmap, &lut, &shepards, y, &mut row_int);
+            sample_row_lut_float(&gainmap, &lut, y, 4, 4, &mut row_float);
+            for x in [0usize, 2usize] {
+                // Sample-center pixels: weights collapse to nearest, both
+                // paths must produce identical output (no f32 drift).
+                assert_eq!(
+                    row_int[x], row_float[x],
+                    "mismatch at ({x}, {y}): int={:?} float={:?}",
+                    row_int[x], row_float[x]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shepards_int_lut_matches_float_path_within_rounding() {
+        // Same setup, full-row comparison. Off-center pixels use precomputed
+        // vs per-pixel weights; the operations differ in associativity so
+        // bit-equality is not guaranteed, but values must agree to 1e-6.
+        let mut gainmap = GainMap::new(2, 2).unwrap();
+        gainmap.data = vec![10, 200, 50, 150];
+        let metadata = GainMapMetadata::default();
+        let lut = GainMapLut::new(&metadata, 1.0);
+        let shepards = ShepardsLut::try_new(8, 8, 2, 2).unwrap();
+
+        for y in 0..8 {
+            let mut row_int = vec![[0.0f32; 3]; 8];
+            let mut row_float = vec![[0.0f32; 3]; 8];
+            sample_row_lut_int(&gainmap, &lut, &shepards, y, &mut row_int);
+            sample_row_lut_float(&gainmap, &lut, y, 8, 8, &mut row_float);
+            for x in 0..8 {
+                for c in 0..3 {
+                    let diff = (row_int[x][c] - row_float[x][c]).abs();
+                    assert!(
+                        diff < 1e-6,
+                        "({x}, {y})[{c}]: int={} float={} diff={}",
+                        row_int[x][c],
+                        row_float[x][c],
+                        diff,
+                    );
+                }
+            }
+        }
     }
 }
