@@ -1137,8 +1137,7 @@ mod tests {
                     let dst_offset = (y as usize) * dst_stride + (x as usize) * 4;
                     for (c, &lin) in px.iter().take(3).enumerate() {
                         let srgb = linear_srgb::tf::linear_to_srgb(lin.clamp(0.0, 1.0));
-                        dst_data[dst_offset + c] =
-                            (srgb * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+                        dst_data[dst_offset + c] = (srgb * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
                     }
                     dst_data[dst_offset + 3] = 255;
                 }
@@ -1169,8 +1168,7 @@ mod tests {
                     let v = (x as f32 + 1.0) / width as f32 * 2.0; // 0.125 .. 2.0
                     let offset = (y as usize) * stride + (x as usize) * 16;
                     for c in 0..3 {
-                        data[offset + c * 4..offset + c * 4 + 4]
-                            .copy_from_slice(&v.to_le_bytes());
+                        data[offset + c * 4..offset + c * 4 + 4].copy_from_slice(&v.to_le_bytes());
                     }
                     data[offset + 12..offset + 16].copy_from_slice(&1.0_f32.to_le_bytes());
                 }

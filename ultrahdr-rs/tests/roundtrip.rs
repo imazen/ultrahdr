@@ -56,9 +56,12 @@ fn test_roundtrip_sdr_quality() {
     for (i, chunk) in sdr_out.as_slice().as_strided_bytes().chunks(4).enumerate() {
         let orig_offset = i * 4;
         if orig_offset + 2 < sdr.as_slice().as_strided_bytes().len() {
-            let diff_r = (chunk[0] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset] as i16).abs();
-            let diff_g = (chunk[1] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 1] as i16).abs();
-            let diff_b = (chunk[2] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 2] as i16).abs();
+            let diff_r =
+                (chunk[0] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset] as i16).abs();
+            let diff_g =
+                (chunk[1] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 1] as i16).abs();
+            let diff_b =
+                (chunk[2] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 2] as i16).abs();
             max_diff = max_diff.max(diff_r).max(diff_g).max(diff_b);
         }
     }
@@ -95,11 +98,14 @@ fn test_roundtrip_gradient() {
     for (i, chunk) in sdr_out.as_slice().as_strided_bytes().chunks(4).enumerate() {
         let orig_offset = i * 4;
         if orig_offset + 2 < sdr.as_slice().as_strided_bytes().len() {
-            total_error += (chunk[0] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset] as i16).unsigned_abs() as u64;
-            total_error +=
-                (chunk[1] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 1] as i16).unsigned_abs() as u64;
-            total_error +=
-                (chunk[2] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 2] as i16).unsigned_abs() as u64;
+            total_error += (chunk[0] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset] as i16)
+                .unsigned_abs() as u64;
+            total_error += (chunk[1] as i16
+                - sdr.as_slice().as_strided_bytes()[orig_offset + 1] as i16)
+                .unsigned_abs() as u64;
+            total_error += (chunk[2] as i16
+                - sdr.as_slice().as_strided_bytes()[orig_offset + 2] as i16)
+                .unsigned_abs() as u64;
         }
     }
 

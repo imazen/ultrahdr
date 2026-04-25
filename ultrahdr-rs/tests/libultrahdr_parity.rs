@@ -92,7 +92,10 @@ fn decode_pixel_samples() {
             path.display()
         );
         let meta = dec.metadata().unwrap_or_else(|| {
-            panic!("{}: metadata() is None on a Pixel-produced UltraHDR file", path.display())
+            panic!(
+                "{}: metadata() is None on a Pixel-produced UltraHDR file",
+                path.display()
+            )
         });
         assert!(
             meta.alternate_hdr_headroom > 0.0,
@@ -191,7 +194,10 @@ fn awesome_gain_maps_variety() {
         }
         panic!("{} awesome-gain-maps files failed to parse", failures.len());
     }
-    assert!(ok >= 10, "expected at least 10 real gain-map files, got {ok}");
+    assert!(
+        ok >= 10,
+        "expected at least 10 real gain-map files, got {ok}"
+    );
     eprintln!("awesome_gain_maps_variety: {ok} files parsed clean");
 }
 
@@ -210,7 +216,9 @@ fn icc_profile_preserved_in_libultrahdr_testdata() {
     // This is a plain JPEG (not Ultra HDR), but we should still expose its
     // ICC profile. libultrahdr writes an `iccHelper` that surfaces ICC too;
     // our Decoder::icc_profile is the counterpart.
-    let icc = dec.icc_profile().expect("ICC profile present on yuv-icc JPEG");
+    let icc = dec
+        .icc_profile()
+        .expect("ICC profile present on yuv-icc JPEG");
     assert!(
         icc.len() >= 128,
         "ICC profile too short ({} bytes); ICC v2/v4 headers are ≥ 128 B",

@@ -5,11 +5,12 @@
 
 use ultrahdr_rs::{
     ColorPrimaries, GainMap, PixelBuffer, PixelFormat, TransferFunction,
-    Unstoppable as CoreUnstoppable, pixel_buffer_from_vec,
+    Unstoppable as CoreUnstoppable,
     gainmap::{
         apply::{HdrOutputFormat, apply_gainmap},
         compute::{GainMapConfig, compute_gainmap},
     },
+    pixel_buffer_from_vec,
 };
 
 // Re-export zenjpeg types for tests
@@ -722,7 +723,10 @@ fn test_readme_workflow_encode_decode() {
     // Verify HDR reconstruction
     assert_eq!(hdr_reconstructed.width(), width);
     assert_eq!(hdr_reconstructed.height(), height);
-    assert_eq!(hdr_reconstructed.descriptor().pixel_format(), PixelFormat::RgbaF32);
+    assert_eq!(
+        hdr_reconstructed.descriptor().pixel_format(),
+        PixelFormat::RgbaF32
+    );
 
     // Verify HDR values exceed SDR range (> 1.0)
     let hdr_data = &hdr_reconstructed.as_slice().as_strided_bytes();

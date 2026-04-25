@@ -151,7 +151,9 @@ fn test_xmp_container_directory() {
 /// Test ISO metadata serialization round-trip.
 #[test]
 fn test_iso21496_roundtrip() {
-    use zencodec::gainmap::{parse_iso21496_fmt as parse_iso21496, serialize_iso21496_fmt as serialize_iso21496};
+    use zencodec::gainmap::{
+        parse_iso21496_fmt as parse_iso21496, serialize_iso21496_fmt as serialize_iso21496,
+    };
 
     let original = create_test_metadata(4.0);
 
@@ -241,7 +243,9 @@ fn test_iso21496_flags() {
 /// Test ISO metadata handles extreme values.
 #[test]
 fn test_iso21496_extreme_values() {
-    use zencodec::gainmap::{parse_iso21496_fmt as parse_iso21496, serialize_iso21496_fmt as serialize_iso21496};
+    use zencodec::gainmap::{
+        parse_iso21496_fmt as parse_iso21496, serialize_iso21496_fmt as serialize_iso21496,
+    };
 
     let mut metadata = GainMapMetadata::default();
     for ch in &mut metadata.channels {

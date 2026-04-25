@@ -10,13 +10,9 @@ use ultrahdr_core::{PixelFormat, TransferFunction, Unstoppable};
 use ultrahdr_core::{GainMap, PixelBuffer, clone_pixel_buffer, pixel_buffer_from_vec};
 
 use zencodec::Iso21496Format;
-use zencodec::gainmap::{
-    ISO_21496_1_PRIMARY_APP2_BODY, serialize_iso21496_fmt,
-};
+use zencodec::gainmap::{ISO_21496_1_PRIMARY_APP2_BODY, serialize_iso21496_fmt};
 use zenjpeg::container::mpf::create_mpf_header;
-use zenjpeg::container::xmp::{
-    create_xmp_app1_marker, generate_gainmap_xmp, generate_primary_xmp,
-};
+use zenjpeg::container::xmp::{create_xmp_app1_marker, generate_gainmap_xmp, generate_primary_xmp};
 
 use crate::jpeg::{
     JpegSegment, create_icc_markers, get_icc_profile_for_gamut, insert_segment_after_soi,

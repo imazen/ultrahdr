@@ -44,7 +44,11 @@ fn test_decode_sdr() {
 
     assert!(sdr.width() > 0, "Width should be positive");
     assert!(sdr.height() > 0, "Height should be positive");
-    assert_eq!(sdr.descriptor().pixel_format(), PixelFormat::Rgba8, "SDR should be RGBA8");
+    assert_eq!(
+        sdr.descriptor().pixel_format(),
+        PixelFormat::Rgba8,
+        "SDR should be RGBA8"
+    );
     assert_eq!(
         sdr.as_slice().as_strided_bytes().len(),
         (sdr.width() * sdr.height() * 4) as usize,
@@ -131,7 +135,11 @@ fn test_dimensions_consistent() {
     assert_eq!(w, sdr.width(), "dimensions() width should match SDR");
     assert_eq!(h, sdr.height(), "dimensions() height should match SDR");
     assert_eq!(sdr.width(), hdr.width(), "SDR and HDR width should match");
-    assert_eq!(sdr.height(), hdr.height(), "SDR and HDR height should match");
+    assert_eq!(
+        sdr.height(),
+        hdr.height(),
+        "SDR and HDR height should match"
+    );
 }
 
 /// Test raw gain map JPEG is accessible.

@@ -140,7 +140,10 @@ fn all_pixel_samples(corpus: &Corpus) -> Vec<PathBuf> {
         })
         .collect();
     jpgs.sort();
-    assert!(!jpgs.is_empty(), "no .jpg fixtures in pixel-ultrahdr corpus");
+    assert!(
+        !jpgs.is_empty(),
+        "no .jpg fixtures in pixel-ultrahdr corpus"
+    );
     jpgs
 }
 
@@ -216,7 +219,10 @@ fn probe_metadata_matches_libultrahdr() {
 
     eprintln!(
         "probe_metadata_matches_libultrahdr: {} — all 7 fields within tolerance",
-        fixture.file_name().and_then(|s| s.to_str()).unwrap_or("<?>")
+        fixture
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("<?>")
     );
 }
 
@@ -378,10 +384,20 @@ fn sdr_decode_matches_libultrahdr() {
     // or MCU-row top (y % 16 == 0).
     eprintln!("  per-16-row max delta (first 8 + last 4):");
     for rb in 0..n_buckets.min(8) {
-        eprintln!("    rows {:>5}..{:>5}: max={}", rb * 16, rb * 16 + 15, row_max[rb]);
+        eprintln!(
+            "    rows {:>5}..{:>5}: max={}",
+            rb * 16,
+            rb * 16 + 15,
+            row_max[rb]
+        );
     }
     for rb in n_buckets.saturating_sub(4)..n_buckets {
-        eprintln!("    rows {:>5}..{:>5}: max={}", rb * 16, rb * 16 + 15, row_max[rb]);
+        eprintln!(
+            "    rows {:>5}..{:>5}: max={}",
+            rb * 16,
+            rb * 16 + 15,
+            row_max[rb]
+        );
     }
     // Column bucket max — should be roughly flat unless there's a horizontal edge issue.
     let col_max_overall = *col_max.iter().max().unwrap_or(&0);
@@ -458,7 +474,10 @@ fn hdr_decode_matches_libultrahdr() {
             .arg(&hdr_path)
             .status()
             .expect("invoke ultrahdr_app hdr decode");
-        assert!(status.success(), "ultrahdr_app hdr decode failed for {name}");
+        assert!(
+            status.success(),
+            "ultrahdr_app hdr decode failed for {name}"
+        );
 
         let lib_raw = std::fs::read(&hdr_path).expect("read libultrahdr hdr output");
         // 8 bytes/pixel (f16 RGBA). f16 lacks AnyBitPattern, so go via u16 bits.
@@ -482,7 +501,11 @@ fn hdr_decode_matches_libultrahdr() {
         );
 
         let our_floats: &[f32] = bytemuck::cast_slice(&our_hdr.as_slice().as_strided_bytes());
-        assert_eq!(our_floats.len(), lib_halfs.len(), "{name}: pixel count mismatch");
+        assert_eq!(
+            our_floats.len(),
+            lib_halfs.len(),
+            "{name}: pixel count mismatch"
+        );
 
         let mut sum_abs: f64 = 0.0;
         let mut count: u64 = 0;
@@ -510,7 +533,9 @@ fn hdr_decode_matches_libultrahdr() {
         // ~0.6% of dynamic range. f16 quantizes to ~10-bit mantissa so we
         // can't go tighter than a few ULPs at large magnitudes.
         if mae >= 0.1 {
-            failures.push(format!("{name}: MAE={mae:.6} >= 0.1 (max_abs={max_abs:.4})"));
+            failures.push(format!(
+                "{name}: MAE={mae:.6} >= 0.1 (max_abs={max_abs:.4})"
+            ));
         }
     }
 

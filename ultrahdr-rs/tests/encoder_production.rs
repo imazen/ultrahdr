@@ -132,7 +132,11 @@ fn test_encode_ultrahdr_gamuts() {
     let gainmap = stub_jpeg();
     let metadata = test_metadata();
 
-    for gamut in [ColorPrimaries::Bt709, ColorPrimaries::DisplayP3, ColorPrimaries::Bt2020] {
+    for gamut in [
+        ColorPrimaries::Bt709,
+        ColorPrimaries::DisplayP3,
+        ColorPrimaries::Bt2020,
+    ] {
         let result = encode_ultrahdr(&base, &gainmap, &metadata, gamut);
         assert!(
             result.is_ok(),

@@ -1055,10 +1055,7 @@ pub fn tonemap_to_srgb8(
 /// Tonemap an entire HDR image to SDR RGBA8.
 ///
 /// Takes an HDR image in any supported format and produces RGBA8 output.
-pub fn tonemap_image_to_srgb8(
-    img: &PixelBuffer,
-    target_gamut: ColorPrimaries,
-) -> Result<Vec<u8>> {
+pub fn tonemap_image_to_srgb8(img: &PixelBuffer, target_gamut: ColorPrimaries) -> Result<Vec<u8>> {
     use crate::color::gamut::convert_gamut;
 
     let slice = img.as_slice();
@@ -1129,18 +1126,10 @@ fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
         PixelFormat::RgbaF32 => {
             let idx = (y as usize) * stride + (x as usize) * 16;
             let r = f32::from_le_bytes([data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]);
-            let g = f32::from_le_bytes([
-                data[idx + 4],
-                data[idx + 5],
-                data[idx + 6],
-                data[idx + 7],
-            ]);
-            let b = f32::from_le_bytes([
-                data[idx + 8],
-                data[idx + 9],
-                data[idx + 10],
-                data[idx + 11],
-            ]);
+            let g =
+                f32::from_le_bytes([data[idx + 4], data[idx + 5], data[idx + 6], data[idx + 7]]);
+            let b =
+                f32::from_le_bytes([data[idx + 8], data[idx + 9], data[idx + 10], data[idx + 11]]);
             [r, g, b]
         }
         _ => [0.5, 0.5, 0.5],
