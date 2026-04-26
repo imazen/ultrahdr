@@ -76,6 +76,21 @@ own section below.
     `compute_gainmap(hdr, sdr, …)` with the SDR they produced.
 
 #### Added
+- Reference parity tests against libultrahdr and libavif goldens
+  (`tests/reference_parity.rs`). 5 tests: bit-exact agreement on
+  `applyGain` (105 rows from libultrahdr), `applyGainCore` (35 rows
+  from libavif), `avifGetGainMapWeight` (6 rows), a 35-point cross-check
+  proving libultrahdr/libavif/ours all agree on shared inputs, and a
+  documented-divergence test for libultrahdr's `computeGain` near-black
+  clamp (we don't replicate it; ours uses configurable `min_boost`/
+  `max_boost` from `GainMapConfig`).
+- `gainmap::apply::calculate_weight` is now `pub` (was `pub(crate)`).
+  Mirrors `avifGetGainMapWeight`; useful for callers that want to
+  precompute the apply weight without going through `apply_gainmap`.
+- Shepard's Inverse Distance Weighting upsample for gain map apply
+  with integer-scale precomputed weight LUT, plus shared weights across
+  channels and row-hoisted constants in the float fallback. Bit-exact
+  parity with libultrahdr's CPU `sampleMap` (see f425292).
 - Re-export `PixelBuffer`, `PixelSlice`, `PixelSliceMut` at the crate root.
 - `new_pixel_buffer(w, h, fmt, primaries, transfer)` — allocate a
   zero-filled `PixelBuffer` with ultrahdr-core's stricter

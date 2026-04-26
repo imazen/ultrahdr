@@ -305,7 +305,12 @@ fn write_hdr_row(
 /// Calculate the weight factor for gain map application.
 ///
 /// Headroom values are in log2 domain. `display_boost` is linear.
-pub(crate) fn calculate_weight(display_boost: f32, metadata: &GainMapMetadata) -> f32 {
+///
+/// Mirrors `avifGetGainMapWeight` in libavif and the equivalent in
+/// libultrahdr. The output is `clamp((log2(display_boost) - base) /
+/// (alt - base), 0, 1)` where `base` and `alt` are the metadata's
+/// HDR-headroom log2 values.
+pub fn calculate_weight(display_boost: f32, metadata: &GainMapMetadata) -> f32 {
     let log_display = display_boost.max(1.0).log2() as f64;
     let log_min = metadata.base_hdr_headroom.max(0.0);
     let log_max = metadata.alternate_hdr_headroom.max(0.0);
