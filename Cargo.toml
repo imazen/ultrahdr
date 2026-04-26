@@ -15,7 +15,7 @@ repository = "https://github.com/imazen/ultrahdr"
 
 [workspace.dependencies]
 # Core crate
-ultrahdr-core = { path = "ultrahdr-core", version = "0.4.1" }
+ultrahdr-core = { path = "ultrahdr-core", version = "0.5.0" }
 
 # Cooperative cancellation
 enough = "0.4"

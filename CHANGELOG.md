@@ -15,6 +15,10 @@ own section below.
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release.
      Batch them here instead of shipping piecemeal. -->
+
+### [0.5.0] - 2026-04-26
+
+#### Breaking changes
 - Removed `RawImage`, `RawImageRef`, `RawImageRefMut`. All kernels now take
   `zenpixels::PixelBuffer` (owning) and `zenpixels::PixelSlice` /
   `PixelSliceMut` (borrowed) directly. Replace:
@@ -124,19 +128,31 @@ own section below.
   sdr_out, gain_out, channels, &mut stats)` per row, then call
   `compute_gainmap(hdr, sdr, …)` (or pack the gain map themselves) on
   the resulting SDR.
-- The `zentone` Cargo feature flag — `zentone` is now a hard dependency;
-  `color::tonemap` and the splitter re-exports are always available.
 
 #### Changed
-- `zentone` is a hard dependency (was an optional default-on feature).
-  The luma gain map splitter API + curve catalog comes from there;
-  ultrahdr-core re-exports `LumaGainMapSplitter`, `SplitConfig`,
-  `SplitStats`, `LumaToneMap`, `LumaFn`, `HableFilmic`, `Bt2408Yrgb`,
-  and `ExtendedReinhardLuma` at the crate root for back-compat.
-  Building with `--no-default-features` no longer drops zentone — that
-  configuration is gone.
+- The `zentone` dependency is gated behind the new `tonemap` feature
+  (default-on). The luma gain map splitter API + curve catalog comes
+  from zentone; ultrahdr-core re-exports `LumaGainMapSplitter`,
+  `SplitConfig`, `SplitStats`, `LumaToneMap`, `LumaFn`, `HableFilmic`,
+  `Bt2408Yrgb`, and `ExtendedReinhardLuma` at the crate root when the
+  feature is on. Decoder-only consumers can build with
+  `--no-default-features --features std` to drop the transitive
+  zentone dep. (Replaces the old `zentone` Cargo feature; same shape,
+  renamed and rewired.)
 - `color::gamut` owns `apply_matrix` / `apply_matrix_row` /
   `soft_clip_gamut` directly rather than re-exporting from zentone.
+
+#### Fixed
+- `gainmap::compute` now imports `alloc::vec` so the
+  `--no-default-features` (no_std + alloc) build of `cargo build -p
+  ultrahdr-core` compiles. Was a regression from earlier refactor work.
+- `gainmap::streaming::RowEncoder` no longer keeps an internal
+  `Vec<Vec<u8>>` of per-row gainmap bytes alongside the rows it returns
+  for streaming output. Replaced with a single preallocated
+  `gainmap_data: Vec<u8>` written in place by `compute_gainmap_row`;
+  saves one full per-row `Vec` allocation per gainmap row (~50% fewer
+  allocs in the streaming encode path; ~3 MB churn per 4K multi-channel
+  encode).
 
 ### [0.4.1] - 2026-04-10
 
