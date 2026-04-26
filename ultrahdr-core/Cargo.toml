@@ -58,7 +58,7 @@ zencodec = { workspace = true }
 # behind the `tonemap` feature (default-on) so decoder-only consumers can
 # build with `--no-default-features --features std` and drop the transitive
 # zentone dependency.
-zentone = { path = "../../zentone", version = "0.2.0", default-features = false, features = ["experimental"], optional = true }
+zentone = { path = "../../zentone", version = "0.1.0", default-features = false, features = ["experimental"], optional = true }
 
 # High-quality gain map resampling (optional)
 zenresize = { workspace = true, optional = true }
