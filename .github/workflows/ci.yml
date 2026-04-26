@@ -35,10 +35,6 @@ jobs:
         shell: bash
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
-      - name: Clone sibling zenpixels (required by ultrahdr-core 0.5 [patch.crates-io])
-        shell: bash
-        run: git clone --depth 1 https://github.com/imazen/zenpixels.git ../zenpixels
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -84,10 +80,6 @@ jobs:
         shell: bash
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
-      - name: Clone sibling zenpixels (required by ultrahdr-core 0.5 [patch.crates-io])
-        shell: bash
-        run: git clone --depth 1 https://github.com/imazen/zenpixels.git ../zenpixels
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -109,10 +101,6 @@ jobs:
       - name: Clone sibling zentone (required by ultrahdr-core default features)
         shell: bash
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
-
-      - name: Clone sibling zenpixels (required by ultrahdr-core 0.5 [patch.crates-io])
-        shell: bash
-        run: git clone --depth 1 https://github.com/imazen/zenpixels.git ../zenpixels
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -158,10 +146,6 @@ jobs:
         shell: bash
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
-      - name: Clone sibling zenpixels (required by ultrahdr-core 0.5 [patch.crates-io])
-        shell: bash
-        run: git clone --depth 1 https://github.com/imazen/zenpixels.git ../zenpixels
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -193,10 +177,6 @@ jobs:
         shell: bash
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
-      - name: Clone sibling zenpixels (required by ultrahdr-core 0.5 [patch.crates-io])
-        shell: bash
-        run: git clone --depth 1 https://github.com/imazen/zenpixels.git ../zenpixels
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -218,10 +198,6 @@ jobs:
       - name: Clone sibling zentone (required by ultrahdr-core default features)
         shell: bash
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
-
-      - name: Clone sibling zenpixels (required by ultrahdr-core 0.5 [patch.crates-io])
-        shell: bash
-        run: git clone --depth 1 https://github.com/imazen/zenpixels.git ../zenpixels
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -258,10 +234,6 @@ jobs:
       - name: Clone sibling zentone (required by ultrahdr-core default features)
         shell: bash
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
-
-      - name: Clone sibling zenpixels (required by ultrahdr-core 0.5 [patch.crates-io])
-        shell: bash
-        run: git clone --depth 1 https://github.com/imazen/zenpixels.git ../zenpixels
 
       - name: Install Rust 1.92
         uses: dtolnay/rust-toolchain@1.92
