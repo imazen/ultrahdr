@@ -7,7 +7,7 @@
 //! HDR_i = (SDR_i + base_offset_i) · 2^g − alternate_offset_i      (per channel i)
 //! ```
 //!
-//! Mirrors the gain form consumed by [`super::apply`]. Round-trip is exact
+//! Mirrors the gain form consumed by [`crate::gainmap::apply`]. Round-trip is exact
 //! within float precision when (a) the curve is strictly monotonic, (b) the
 //! observed gain fits in `[min_log2, max_log2]`, and (c) the SDR rescale
 //! stays in `[0, 1]`. Out-of-gamut highlights clamp on the SDR side and

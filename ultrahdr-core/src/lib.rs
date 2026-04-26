@@ -7,8 +7,8 @@
 //!
 //! JPEG-container metadata (MPF, XMP, ISO 21496-1 APP2 envelope) previously
 //! lived here in `ultrahdr_core::metadata`; it has moved to
-//! [`zenjpeg::container`] (JPEG-specific parsing) and
-//! [`zencodec::gainmap`] (codec-agnostic payload). See issue #8.
+//! `zenjpeg::container` (JPEG-specific parsing) and `zencodec::gainmap`
+//! (codec-agnostic payload). See issue #8.
 //!
 //! This crate has **no JPEG codec dependency**. For full Ultra HDR encode/decode,
 //! use the `ultrahdr` crate which provides codec integration.

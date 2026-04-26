@@ -36,7 +36,10 @@ fn test_wasm_decode_sdr() {
     let sdr = decoder.decode_sdr().expect("decode SDR");
     assert!(sdr.width() > 0, "width should be positive");
     assert!(sdr.height() > 0, "height should be positive");
-    assert!(!sdr.as_slice().as_strided_bytes().is_empty(), "data should not be empty");
+    assert!(
+        !sdr.as_slice().as_strided_bytes().is_empty(),
+        "data should not be empty"
+    );
 }
 
 #[wasm_bindgen_test]
@@ -55,7 +58,10 @@ fn test_wasm_decode_hdr() {
     let hdr = decoder.decode_hdr(4.0).expect("decode HDR");
     assert!(hdr.width() > 0, "HDR width should be positive");
     assert!(hdr.height() > 0, "HDR height should be positive");
-    assert!(!hdr.as_slice().as_strided_bytes().is_empty(), "HDR data should not be empty");
+    assert!(
+        !hdr.as_slice().as_strided_bytes().is_empty(),
+        "HDR data should not be empty"
+    );
 }
 
 #[wasm_bindgen_test]
