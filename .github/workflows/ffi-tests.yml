@@ -21,6 +21,9 @@ jobs:
       - name: Clone sibling zentone (required by ultrahdr-core default features)
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
 
+      - name: Clone sibling zenpixels (required by ultrahdr-core 0.5 [patch.crates-io])
+        run: git clone --depth 1 https://github.com/imazen/zenpixels.git ../zenpixels
+
       - name: Clone sibling zenjpeg (path-dep during pre-0.5 cascade coordination)
         run: git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
 
@@ -81,6 +84,9 @@ jobs:
 
       - name: Clone sibling zentone (required by ultrahdr-core default features)
         run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
+
+      - name: Clone sibling zenpixels (required by ultrahdr-core 0.5 [patch.crates-io])
+        run: git clone --depth 1 https://github.com/imazen/zenpixels.git ../zenpixels
 
       - name: Clone sibling zenjpeg (path-dep during pre-0.5 cascade coordination)
         run: git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
