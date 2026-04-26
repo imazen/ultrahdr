@@ -4,10 +4,10 @@
 //! allowing reconstruction of HDR content from the SDR base image.
 //!
 //! The luma gain map splitter (HDR ↔ (SDR, log2 gain) round-trip) lives
-//! in the [`zentone`] crate; ultrahdr-core re-exports `LumaGainMapSplitter`,
-//! `SplitConfig`, `SplitStats`, `LumaToneMap`, `LumaFn`, `HableFilmic`,
-//! `Bt2408Yrgb`, and `ExtendedReinhardLuma` at the crate root for
-//! back-compat.
+//! in the `zentone` crate; with the `tonemap` feature (default-on)
+//! ultrahdr-core re-exports `LumaGainMapSplitter`, `SplitConfig`,
+//! `SplitStats`, `LumaToneMap`, `LumaFn`, `HableFilmic`, `Bt2408Yrgb`,
+//! and `ExtendedReinhardLuma` at the crate root for back-compat.
 
 pub mod apply;
 pub mod apply_simd;

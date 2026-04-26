@@ -51,11 +51,14 @@ linear-srgb = { version = "0.6.7", default-features = false, features = ["transf
 zenpixels = { workspace = true }
 zencodec = { workspace = true }
 
-# Advanced tone mapping curves + the luma gain map splitter. Mandatory:
+# Advanced tone mapping curves + the luma gain map splitter. Optional:
 # the splitter API (LumaGainMapSplitter + curves) lives here, and ultrahdr-core
 # re-exports it for back-compat. ultrahdr-core also re-exports BT.2408 /
-# BT.2446 / filmic spline / AdaptiveTonemapper / StreamingTonemapper.
-zentone = { path = "../../zentone", default-features = false, features = ["experimental"] }
+# BT.2446 / filmic spline / AdaptiveTonemapper / StreamingTonemapper. Gated
+# behind the `tonemap` feature (default-on) so decoder-only consumers can
+# build with `--no-default-features --features std` and drop the transitive
+# zentone dependency.
+zentone = { path = "../../zentone", default-features = false, features = ["experimental"], optional = true }
 
 # High-quality gain map resampling (optional)
 zenresize = { workspace = true, optional = true }
@@ -77,8 +80,14 @@ harness = false
 required-features = ["simd"]
 
 [features]
-default = ["std"]
-std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone/std"]
+default = ["std", "tonemap"]
+std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone?/std"]
+# Gates the zentone-backed re-exports (LumaToneMap, LumaGainMapSplitter,
+# Bt2408Yrgb, HableFilmic, ExtendedReinhardLuma, LumaFn, SplitConfig,
+# SplitStats) at the crate root, plus the `color::tonemap` and
+# `color::streaming_tonemap` modules. Default-on; turn off with
+# `--no-default-features --features std` to drop the transitive zentone dep.
+tonemap = ["dep:zentone"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
 resize = ["dep:zenresize"]  # High-quality gain map downsampling via zenresize.
 # Future: alloc-only support

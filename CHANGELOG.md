@@ -62,6 +62,15 @@ own section below.
     glue is Ultra-HDR-specific and doesn't generalize (no imageflow or
     zenjpeg consumer for it).
 
+#### Changed
+- Re-introduced the `tonemap` feature flag (default-on) gating the
+  zentone re-exports at the crate root (`LumaToneMap`,
+  `LumaGainMapSplitter`, etc.). Decoder-only consumers can build with
+  `--no-default-features --features std` to drop the transitive zentone
+  dependency. Replaces the prior `zentone` feature that was removed in
+  the splitter consolidation; this version gates only the re-exports
+  (no in-core splitter to fall back on when off).
+
 #### Added
 - `HdrOutputFormat::LinearF16` — linear f16 RGBA HDR output.
   Mirrors libultrahdr's `UHDR_IMG_FMT_64bppRGBAHalfFloat`. 8 bytes/pixel

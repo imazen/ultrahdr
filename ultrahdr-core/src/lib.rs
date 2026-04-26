@@ -87,8 +87,10 @@ pub use enough::{Stop, StopReason, Unstoppable};
 // Re-export gain map types
 pub use gainmap::{apply::HdrOutputFormat, compute::GainMapConfig, compute::compute_gain_row};
 
-// Splitter API lives in zentone now — re-export for back-compat with
-// `ultrahdr_core::LumaToneMap` and friends.
+// Splitter API lives in zentone — re-export at crate root for back-compat
+// with `ultrahdr_core::LumaToneMap` etc. Gated behind the `tonemap` feature
+// (default-on) so decoder-only consumers can build without pulling in zentone.
+#[cfg(feature = "tonemap")]
 pub use zentone::{
     Bt2408Yrgb, ExtendedReinhardLuma, HableFilmic, LumaFn, LumaGainMapSplitter, LumaToneMap,
     SplitConfig, SplitStats,
