@@ -1,5 +1,7 @@
 //! Gain map computation from HDR and SDR images.
 
+use alloc::vec;
+
 use crate::color::gamut::rgb_to_luminance;
 
 use crate::color::transfer::{hlg_eotf, pq_eotf, srgb_eotf};

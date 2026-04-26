@@ -604,7 +604,8 @@ pub struct RowEncoder {
     sdr_buffer: LinearRowBuffer,
     actual_min_boost: f32,
     actual_max_boost: f32,
-    gainmap_rows: Vec<Vec<u8>>,
+    gainmap_data: Vec<u8>,
+    gm_row_stride: usize,
     hdr_gamut: ColorPrimaries,
     sdr_gamut: ColorPrimaries,
 }
@@ -688,6 +689,9 @@ impl RowEncoder {
         let gm_height = height.div_ceil(scale);
 
         let buffer_size = (scale as usize + 16).max(32);
+        let channels = if config.multi_channel { 3 } else { 1 };
+        let gm_row_stride = gm_width as usize * channels;
+        let gainmap_data = vec![0u8; gm_row_stride * gm_height as usize];
 
         Ok(Self {
             config,
@@ -702,7 +706,8 @@ impl RowEncoder {
             sdr_buffer: LinearRowBuffer::new(buffer_size, width),
             actual_min_boost: f32::MAX,
             actual_max_boost: f32::MIN,
-            gainmap_rows: Vec::new(),
+            gainmap_data,
+            gm_row_stride,
             hdr_gamut,
             sdr_gamut,
         })
@@ -744,9 +749,11 @@ impl RowEncoder {
             let target_y = target_y.min(self.height - 1);
 
             if self.current_input_row > target_y {
-                let gm_row = self.compute_gainmap_row()?;
-                self.gainmap_rows.push(gm_row.clone());
-                output_rows.push(gm_row);
+                let gy = self.current_gm_row as usize;
+                let start = gy * self.gm_row_stride;
+                let end = start + self.gm_row_stride;
+                self.compute_gainmap_row_into_buffer();
+                output_rows.push(self.gainmap_data[start..end].to_vec());
                 self.current_gm_row += 1;
             } else {
                 break;
@@ -769,23 +776,17 @@ impl RowEncoder {
     /// Finish and return the complete gainmap with metadata.
     pub fn finish(mut self) -> Result<(GainMap, GainMapMetadata)> {
         while self.current_gm_row < self.gm_height {
-            let gm_row = self.compute_gainmap_row()?;
-            self.gainmap_rows.push(gm_row);
+            self.compute_gainmap_row_into_buffer();
             self.current_gm_row += 1;
         }
 
-        let channels = if self.config.multi_channel { 3 } else { 1 };
         let mut gainmap = if self.config.multi_channel {
             GainMap::new_multichannel(self.gm_width, self.gm_height)?
         } else {
             GainMap::new(self.gm_width, self.gm_height)?
         };
 
-        for (gy, row) in self.gainmap_rows.iter().enumerate() {
-            let start = gy * self.gm_width as usize * channels;
-            let end = start + row.len();
-            gainmap.data[start..end].copy_from_slice(row);
-        }
+        gainmap.data = self.gainmap_data;
 
         let actual_min = self.actual_min_boost.max(self.config.min_boost);
         let actual_max = self.actual_max_boost.min(self.config.max_boost);
@@ -810,51 +811,65 @@ impl RowEncoder {
         (self.current_input_row, self.height)
     }
 
-    /// Compute a single gainmap row.
-    fn compute_gainmap_row(&mut self) -> Result<Vec<u8>> {
+    /// Compute the next gainmap row directly into `self.gainmap_data`
+    /// at offset `self.current_gm_row * self.gm_row_stride`.
+    fn compute_gainmap_row_into_buffer(&mut self) {
         let gy = self.current_gm_row;
-        let channels = if self.config.multi_channel { 3 } else { 1 };
-        let mut row = vec![0u8; self.gm_width as usize * channels];
+        let start = gy as usize * self.gm_row_stride;
+        let end = start + self.gm_row_stride;
 
         let log_min = self.config.min_boost.ln();
         let log_max = self.config.max_boost.ln();
         let log_range = log_max - log_min;
 
-        for gx in 0..self.gm_width {
-            let x = (gx * self.scale + self.scale / 2).min(self.width - 1);
-            let y = (gy * self.scale + self.scale / 2).min(self.height - 1);
+        let mut min_boost = self.actual_min_boost;
+        let mut max_boost = self.actual_max_boost;
+        let multi = self.config.multi_channel;
+        let scale = self.scale;
+        let width = self.width;
+        let height = self.height;
+        let gm_width = self.gm_width;
+        let hdr_gamut = self.hdr_gamut;
+        let sdr_gamut = self.sdr_gamut;
+        let config = &self.config;
+
+        let row = &mut self.gainmap_data[start..end];
+        for gx in 0..gm_width {
+            let x = (gx * scale + scale / 2).min(width - 1);
+            let y = (gy * scale + scale / 2).min(height - 1);
 
             let hdr_rgb = self.hdr_buffer.get_pixel(y, x).unwrap_or([0.5, 0.5, 0.5]);
             let sdr_rgb = self.sdr_buffer.get_pixel(y, x).unwrap_or([0.5, 0.5, 0.5]);
 
-            if self.config.multi_channel {
+            if multi {
                 for c in 0..3 {
                     row[gx as usize * 3 + c] = super::compute::compute_and_encode_gain(
                         hdr_rgb[c],
                         sdr_rgb[c],
-                        &self.config,
+                        config,
                         log_min,
                         log_range,
-                        &mut self.actual_min_boost,
-                        &mut self.actual_max_boost,
+                        &mut min_boost,
+                        &mut max_boost,
                     );
                 }
             } else {
-                let hdr_lum = rgb_to_luminance(hdr_rgb, self.hdr_gamut);
-                let sdr_lum = rgb_to_luminance(sdr_rgb, self.sdr_gamut);
+                let hdr_lum = rgb_to_luminance(hdr_rgb, hdr_gamut);
+                let sdr_lum = rgb_to_luminance(sdr_rgb, sdr_gamut);
                 row[gx as usize] = super::compute::compute_and_encode_gain(
                     hdr_lum,
                     sdr_lum,
-                    &self.config,
+                    config,
                     log_min,
                     log_range,
-                    &mut self.actual_min_boost,
-                    &mut self.actual_max_boost,
+                    &mut min_boost,
+                    &mut max_boost,
                 );
             }
         }
 
-        Ok(row)
+        self.actual_min_boost = min_boost;
+        self.actual_max_boost = max_boost;
     }
 }
 
