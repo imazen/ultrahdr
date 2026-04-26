@@ -68,23 +68,18 @@ impl Default for ToneMapConfig {
 }
 
 // ============================================================================
-// zentone re-exports (feature-gated)
+// zentone re-exports
 // ============================================================================
 //
-// When the `zentone` feature is enabled (default), ultrahdr-core re-exports
-// the full suite of tone-mapping primitives from the `zentone` crate:
-// BT.2408 PQ-domain tonemapper, standard curves (Reinhard variants, Hable,
-// ACES, AgX, BT.2390, filmic Narkowicz), and the filmic spline compiler.
-//
-// When the feature is disabled, callers compute gain maps via the in-core
-// [`crate::gainmap::splitter::HableFilmic`] curve (or any custom
-// [`crate::LumaToneMap`] implementation) and none of these symbols exist.
+// ultrahdr-core re-exports the full suite of tone-mapping primitives from the
+// `zentone` crate: BT.2408 PQ-domain tonemapper, standard curves (Reinhard
+// variants, Hable, ACES, AgX, BT.2390, filmic Narkowicz), and the filmic
+// spline compiler. zentone is a hard dependency.
 
 /// Re-exported from [`zentone`]. BT.2408 PQ-domain tonemapper.
 ///
 /// **Deprecated API surface** — slated for removal in 0.5.0. This is a
 /// pass-through re-export; import directly from the `zentone` crate.
-#[cfg(feature = "zentone")]
 #[doc(hidden)]
 pub use zentone::{Bt2408Tonemapper, EetfSpace};
 
@@ -92,7 +87,6 @@ pub use zentone::{Bt2408Tonemapper, EetfSpace};
 ///
 /// **Deprecated API surface** — slated for removal in 0.5.0. These are
 /// pass-through re-exports; import directly from `zentone::curves`.
-#[cfg(feature = "zentone")]
 #[doc(hidden)]
 pub use zentone::curves::{
     aces_ap1, agx_tonemap, bt2390_tonemap, bt2390_tonemap_ext, filmic_narkowicz, hable_filmic,
@@ -103,7 +97,6 @@ pub use zentone::curves::{
 ///
 /// **Deprecated API surface** — slated for removal in 0.5.0. Pass-through
 /// re-export; import directly from `zentone`.
-#[cfg(feature = "zentone")]
 #[doc(hidden)]
 pub use zentone::{CompiledFilmicSpline, FilmicSplineConfig};
 
@@ -266,7 +259,6 @@ impl ProfileToneCurve {
 ///
 /// **Deprecated API surface** — slated for removal in 0.5.0. Pass-through
 /// re-export; import directly from `zentone`.
-#[cfg(feature = "zentone")]
 #[doc(hidden)]
 pub use zentone::{AgxLook, ToneMap, ToneMapCurve};
 

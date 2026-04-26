@@ -85,10 +85,13 @@ pub use zencodec::gainmap::{parse_iso21496_fmt, serialize_iso21496_fmt};
 pub use enough::{Stop, StopReason, Unstoppable};
 
 // Re-export gain map types
-pub use gainmap::{
-    apply::HdrOutputFormat,
-    compute::{GainMapConfig, compute_gainmap_tonemap},
-    splitter::{HableFilmic, LumaFn, LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats},
+pub use gainmap::{apply::HdrOutputFormat, compute::GainMapConfig};
+
+// Splitter API lives in zentone now — re-export for back-compat with
+// `ultrahdr_core::LumaToneMap` and friends.
+pub use zentone::{
+    Bt2408Yrgb, ExtendedReinhardLuma, HableFilmic, LumaFn, LumaGainMapSplitter, LumaToneMap,
+    SplitConfig, SplitStats,
 };
 
 /// Safety limits for parsing and allocation.

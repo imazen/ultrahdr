@@ -51,12 +51,11 @@ linear-srgb = { version = "0.6.7", default-features = false, features = ["transf
 zenpixels = { workspace = true }
 zencodec = { workspace = true }
 
-# Advanced tone mapping curves (optional, default-on via the `zentone` feature).
-# Without this feature ultrahdr-core still provides a built-in Hable filmic
-# splitter, which is enough to reduce HDR to (SDR, luma gain) and apply gain
-# maps. With the feature, callers get BT.2408 / BT.2446 / filmic spline /
-# AdaptiveTonemapper / StreamingTonemapper re-exported from zentone.
-zentone = { path = "../../zentone", default-features = false, features = ["experimental"], optional = true }
+# Advanced tone mapping curves + the luma gain map splitter. Mandatory:
+# the splitter API (LumaGainMapSplitter + curves) lives here, and ultrahdr-core
+# re-exports it for back-compat. ultrahdr-core also re-exports BT.2408 /
+# BT.2446 / filmic spline / AdaptiveTonemapper / StreamingTonemapper.
+zentone = { path = "../../zentone", default-features = false, features = ["experimental"] }
 
 # High-quality gain map resampling (optional)
 zenresize = { workspace = true, optional = true }
@@ -78,13 +77,9 @@ harness = false
 required-features = ["simd"]
 
 [features]
-default = ["std", "zentone"]
-std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone?/std"]
+default = ["std"]
+std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone/std"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
 resize = ["dep:zenresize"]  # High-quality gain map downsampling via zenresize.
-# Advanced tone mapping curves + streaming tonemapper via the zentone crate.
-# Default-on; disable for a leaner build when only the in-core Hable filmic
-# splitter is needed (decoders integrating ultrahdr-core often want this).
-zentone = ["dep:zentone"]
 # Future: alloc-only support
 # alloc = ["enough/alloc"]

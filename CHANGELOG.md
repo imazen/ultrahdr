@@ -15,12 +15,6 @@ own section below.
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release.
      Batch them here instead of shipping piecemeal. -->
-- `zentone` is now an optional default-on feature rather than a hard
-  dependency. With `--no-default-features`, `color::tonemap` and the
-  `StreamingTonemapper` re-exports disappear; decoders that only need to
-  apply/compute gain maps can depend on ultrahdr-core without pulling in
-  zentone. (Breaking only for callers building with custom feature sets
-  that already compiled against zentone-free configurations.)
 - Removed `RawImage`, `RawImageRef`, `RawImageRefMut`. All kernels now take
   `zenpixels::PixelBuffer` (owning) and `zenpixels::PixelSlice` /
   `PixelSliceMut` (borrowed) directly. Replace:
@@ -67,13 +61,6 @@ own section below.
     `apply_gain_row_presampled`) stay; the state-machine/ring-buffer
     glue is Ultra-HDR-specific and doesn't generalize (no imageflow or
     zenjpeg consumer for it).
-  - `gainmap::splitter::*` — `LumaGainMapSplitter`, `SplitConfig`,
-    `SplitStats`, `LumaToneMap`, `LumaFn`, `HableFilmic`. Only used by
-    `compute_gainmap_tonemap` (also deprecated).
-  - `gainmap::compute::compute_gainmap_tonemap` — HDR-only compute with
-    explicit tone-curve injection. Niche; callers wanting this pattern
-    should stage a `zentone` curve, apply it to produce SDR, then call
-    `compute_gainmap(hdr, sdr, …)` with the SDR they produced.
 
 #### Added
 - `HdrOutputFormat::LinearF16` — linear f16 RGBA HDR output.
@@ -118,25 +105,29 @@ own section below.
 #### Removed
 - `RawImage`, `RawImageRef`, `RawImageRefMut` — eliminated in favor of
   zenpixels types. (~1,100 LOC removed from `types.rs`.)
-
-#### Added
-- In-core luma gain map splitter: `LumaToneMap` trait, `LumaFn` closure
-  adapter, `SplitConfig`, `SplitStats`, `LumaGainMapSplitter`, and a
-  built-in `HableFilmic` (Uncharted 2) tone curve. Makes it possible to
-  reduce HDR to (SDR, luma gain) and roundtrip back without depending on
-  zentone. Re-exported at the crate root as `ultrahdr_core::HableFilmic`,
-  `LumaToneMap`, `LumaGainMapSplitter`, `SplitConfig`, `SplitStats`.
-- `impl LumaToneMap` for zentone's BT.2408 / BT.2446 A/B/C /
-  `CompiledFilmicSpline` when the `zentone` feature is enabled, so
-  callers can pass those curves directly to `LumaGainMapSplitter`.
+- `gainmap::splitter::*` (`LumaGainMapSplitter`, `SplitConfig`,
+  `SplitStats`, `LumaToneMap`, `LumaFn`, `HableFilmic`) — moved to
+  `zentone`; ultrahdr-core re-exports them at the crate root for
+  back-compat. Use `zentone::LumaGainMapSplitter` etc. directly.
+- `gainmap::compute::compute_gainmap_tonemap` — niche HDR-only compute
+  with explicit tone-curve injection. Callers should drive
+  `zentone::LumaGainMapSplitter::new(curve, config).split_row(hdr,
+  sdr_out, gain_out, channels, &mut stats)` per row, then call
+  `compute_gainmap(hdr, sdr, …)` (or pack the gain map themselves) on
+  the resulting SDR.
+- The `zentone` Cargo feature flag — `zentone` is now a hard dependency;
+  `color::tonemap` and the splitter re-exports are always available.
 
 #### Changed
-- `zentone` moved from hard dep to optional default-on feature. With
-  zentone off, `color::tonemap` is unavailable; `color::gamut` now owns
-  `apply_matrix` / `apply_matrix_row` / `soft_clip_gamut` directly rather
-  than re-exporting them.
-- `compute_gainmap_tonemap` now dispatches through the in-core
-  `LumaGainMapSplitter` rather than zentone's.
+- `zentone` is a hard dependency (was an optional default-on feature).
+  The luma gain map splitter API + curve catalog comes from there;
+  ultrahdr-core re-exports `LumaGainMapSplitter`, `SplitConfig`,
+  `SplitStats`, `LumaToneMap`, `LumaFn`, `HableFilmic`, `Bt2408Yrgb`,
+  and `ExtendedReinhardLuma` at the crate root for back-compat.
+  Building with `--no-default-features` no longer drops zentone — that
+  configuration is gone.
+- `color::gamut` owns `apply_matrix` / `apply_matrix_row` /
+  `soft_clip_gamut` directly rather than re-exporting from zentone.
 
 ### [0.4.1] - 2026-04-10
 
