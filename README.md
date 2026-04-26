@@ -148,22 +148,29 @@ let new_sdr = tonemapper.apply(&edited_hdr)?;
 ## Supported Formats
 
 ### Input (HDR)
-- `Rgba32F` - Linear float RGBA
+- `RgbaF32` / `RgbF32` — linear / PQ / HLG / sRGB float RGBA (transfer
+  honored via `descriptor().transfer()`)
+- `RgbaF16` / `RgbF16` — half-precision float, same transfer dispatch
 
 ### Input (SDR)
-- `Rgba8` - 8-bit sRGB RGBA
-- `Rgb8` - 8-bit sRGB RGB
+- `Rgba8` / `Rgb8` — 8-bit sRGB
+- `RgbaF32` / `RgbaF16` / `RgbF16` — float SDR (rare; useful for
+  pre-linearized buffers from a CMS)
+- `Gray8` — single-channel sRGB
 
-### Output (HDR)
-- `LinearFloat` - Linear RGB float
-- `Srgb8` - Clipped to SDR range
+### Output (HDR / SDR)
+- `LinearFloat` — linear f32 RGBA, 16 bytes/pixel
+- `LinearF16` — linear f16 RGBA, 8 bytes/pixel (mirrors libultrahdr's
+  `UHDR_IMG_FMT_64bppRGBAHalfFloat`)
+- `Srgb8` — sRGB 8-bit RGBA, clipped to SDR range
 
-Platform-specific packed/half-float HDR formats (`Rgba16F`, `P010`, `Rgba1010102Pq`,
-`Rgba1010102Hlg`) are tracked as a follow-up in
-[#10](https://github.com/imazen/ultrahdr/issues/10) — when an integration with iOS
-AVFoundation / Android Camera2 / HEIC-decoded HDR materialises, these adapters
-belong in `ultrahdr-rs` as an I/O layer over zenpixels, not in `ultrahdr-core`
-math.
+Platform-specific 10/10/10/2 packed formats (`Rgba1010102Pq`,
+`Rgba1010102Hlg` — libultrahdr's `UHDR_IMG_FMT_32bppRGBA1010102` paired
+with `UHDR_CT_PQ` / `UHDR_CT_HLG`) and YCbCr P010 input are tracked in
+[#10](https://github.com/imazen/ultrahdr/issues/10). Both need a packed
+`PixelFormat::Rgba1010102{Pq,Hlg}` variant in zenpixels first; the math
+kernel here is ready to take a new `HdrOutputFormat` arm once that
+lands.
 
 ## Metadata Formats
 
