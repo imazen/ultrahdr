@@ -85,7 +85,7 @@ pub use zencodec::gainmap::{parse_iso21496_fmt, serialize_iso21496_fmt};
 pub use enough::{Stop, StopReason, Unstoppable};
 
 // Re-export gain map types
-pub use gainmap::{apply::HdrOutputFormat, compute::GainMapConfig};
+pub use gainmap::{apply::HdrOutputFormat, compute::GainMapConfig, compute::compute_gain_row};
 
 // Splitter API lives in zentone now — re-export for back-compat with
 // `ultrahdr_core::LumaToneMap` and friends.

@@ -4,7 +4,9 @@ use crate::color::gamut::rgb_to_luminance;
 
 use crate::color::transfer::{hlg_eotf, pq_eotf, srgb_eotf};
 use crate::types::TransferFunction;
-use crate::types::{GainMap, GainMapMetadata, PixelBuffer, PixelFormat, PixelSlice, Result};
+use crate::types::{
+    ColorPrimaries, GainMap, GainMapMetadata, PixelBuffer, PixelFormat, PixelSlice, Result,
+};
 use enough::Stop;
 
 /// Configuration for gain map computation.
@@ -164,41 +166,107 @@ fn compute_luminance_gainmap(
     let hdr_gamut = hdr.descriptor().primaries;
     let sdr_gamut = sdr.descriptor().primaries;
 
-    let log_min = config.min_boost.ln();
-    let log_max = config.max_boost.ln();
-    let log_range = log_max - log_min;
+    // Materialize one gain-map row's worth of subsampled HDR + SDR linear RGB,
+    // then delegate quantization to `compute_gain_row`. Three channels —
+    // luminance is gamut-derived from RGB inside the row kernel.
+    let row_len = gm_width as usize * 3;
+    let mut hdr_row_rgb = vec![0.0f32; row_len];
+    let mut sdr_row_rgb = vec![0.0f32; row_len];
+    let mut min_max = (*actual_min_boost, *actual_max_boost);
 
     for gy in 0..gm_height {
         // Check for cancellation once per row
         stop.check()?;
 
+        // Sample center pixel of each block on this row.
+        let y = (gy * scale + scale / 2).min(hdr_h - 1);
         for gx in 0..gm_width {
-            // Sample center pixel of the block
             let x = (gx * scale + scale / 2).min(hdr_w - 1);
-            let y = (gy * scale + scale / 2).min(hdr_h - 1);
-
-            // Get linear RGB values
             let hdr_rgb = get_linear_rgb(hdr, x, y);
             let sdr_rgb = get_linear_rgb(sdr, x, y);
-
-            // Compute luminance
-            let hdr_lum = rgb_to_luminance(hdr_rgb, hdr_gamut);
-            let sdr_lum = rgb_to_luminance(sdr_rgb, sdr_gamut);
-
-            let encoded = compute_and_encode_gain(
-                hdr_lum,
-                sdr_lum,
-                config,
-                log_min,
-                log_range,
-                actual_min_boost,
-                actual_max_boost,
-            );
-            gainmap.data[(gy * gm_width + gx) as usize] = encoded;
+            let off = gx as usize * 3;
+            hdr_row_rgb[off] = hdr_rgb[0];
+            hdr_row_rgb[off + 1] = hdr_rgb[1];
+            hdr_row_rgb[off + 2] = hdr_rgb[2];
+            sdr_row_rgb[off] = sdr_rgb[0];
+            sdr_row_rgb[off + 1] = sdr_rgb[1];
+            sdr_row_rgb[off + 2] = sdr_rgb[2];
         }
+
+        let row_start = (gy * gm_width) as usize;
+        let row_end = row_start + gm_width as usize;
+        compute_gain_row(
+            &hdr_row_rgb,
+            &sdr_row_rgb,
+            3,
+            hdr_gamut,
+            sdr_gamut,
+            &mut gainmap.data[row_start..row_end],
+            config,
+            &mut min_max,
+        );
     }
 
+    *actual_min_boost = min_max.0;
+    *actual_max_boost = min_max.1;
     Ok(gainmap)
+}
+
+/// Compute and quantize gain-map bytes for one row, given paired HDR + SDR
+/// linear-RGB rows.
+///
+/// Inputs:
+/// - `hdr_row` and `sdr_row`: interleaved linear f32 RGB(A) of equal length.
+///   `channels` is 3 or 4 (alpha is read but doesn't affect the gain
+///   computation — only the first three channels are used).
+/// - `hdr_primaries` / `sdr_primaries`: color primaries used to weight RGB
+///   into luminance. Pass the same value for both when the inputs already
+///   share a gamut.
+/// - `gainmap_byte_out`: u8 output, one byte per pixel for single-channel
+///   (luminance) gain maps; `len = hdr_row.len() / channels`.
+/// - `config`: the gain-map configuration (offsets, min/max boost, gamma).
+/// - `observed_min_max`: `(min, max)` f32 accumulator for metadata bounds —
+///   updated in place across calls so callers can stitch row-level invocations
+///   into a whole-image min/max.
+///
+/// Used by `compute_gainmap` internally and by zenjpeg's encode flow to fuse
+/// splitter + gain quantization in a single row pass. Bit-identical to the
+/// per-cell math in `compute_and_encode_gain`.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_gain_row(
+    hdr_row: &[f32],
+    sdr_row: &[f32],
+    channels: u8,
+    hdr_primaries: ColorPrimaries,
+    sdr_primaries: ColorPrimaries,
+    gainmap_byte_out: &mut [u8],
+    config: &GainMapConfig,
+    observed_min_max: &mut (f32, f32),
+) {
+    debug_assert!(channels == 3 || channels == 4);
+    let chan = channels as usize;
+    debug_assert_eq!(hdr_row.len(), sdr_row.len());
+    debug_assert_eq!(gainmap_byte_out.len(), hdr_row.len() / chan);
+
+    let log_min = config.min_boost.ln();
+    let log_range = config.max_boost.ln() - log_min;
+
+    for (i, byte_out) in gainmap_byte_out.iter_mut().enumerate() {
+        let off = i * chan;
+        let hdr_rgb = [hdr_row[off], hdr_row[off + 1], hdr_row[off + 2]];
+        let sdr_rgb = [sdr_row[off], sdr_row[off + 1], sdr_row[off + 2]];
+        let hdr_lum = rgb_to_luminance(hdr_rgb, hdr_primaries);
+        let sdr_lum = rgb_to_luminance(sdr_rgb, sdr_primaries);
+        *byte_out = compute_and_encode_gain(
+            hdr_lum,
+            sdr_lum,
+            config,
+            log_min,
+            log_range,
+            &mut observed_min_max.0,
+            &mut observed_min_max.1,
+        );
+    }
 }
 
 /// Compute the gain for one channel of one cell, track min/max, and quantize
@@ -695,6 +763,55 @@ mod tests {
             result.unwrap_err(),
             crate::types::Error::DimensionMismatch { .. }
         ));
+    }
+
+    #[test]
+    fn compute_gain_row_matches_compute_gainmap() {
+        // Regression gate: feeding `compute_gain_row` the same per-row inputs
+        // that `compute_gainmap` would internally must produce the same bytes
+        // and the same observed min/max. If this test diverges from
+        // `compute_gainmap`'s output, the row kernel and the batch path are
+        // out of sync — that's a contract break.
+        let hdr = make_hdr_8x8(0.6, 0.4, 0.2);
+        let sdr = make_sdr_8x8(160, 110, 70);
+        let config = GainMapConfig {
+            scale_factor: 1,
+            ..Default::default()
+        };
+        let (gainmap_batch, _meta) =
+            compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
+
+        // Build the same linear RGB rows that compute_luminance_gainmap feeds
+        // into compute_gain_row, and verify byte-for-byte parity.
+        let hdr_slice = hdr.as_slice();
+        let sdr_slice = sdr.as_slice();
+        let w = hdr_slice.width() as usize;
+        let h = hdr_slice.rows() as usize;
+        let mut min_max = (f32::MAX, f32::MIN);
+        let mut row_bytes = vec![0u8; w];
+        let mut hdr_row_rgb = vec![0.0f32; w * 3];
+        let mut sdr_row_rgb = vec![0.0f32; w * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let h_rgb = get_linear_rgb(&hdr_slice, x as u32, y as u32);
+                let s_rgb = get_linear_rgb(&sdr_slice, x as u32, y as u32);
+                hdr_row_rgb[x * 3..x * 3 + 3].copy_from_slice(&h_rgb);
+                sdr_row_rgb[x * 3..x * 3 + 3].copy_from_slice(&s_rgb);
+            }
+            compute_gain_row(
+                &hdr_row_rgb,
+                &sdr_row_rgb,
+                3,
+                hdr_slice.descriptor().primaries,
+                sdr_slice.descriptor().primaries,
+                &mut row_bytes,
+                &config,
+                &mut min_max,
+            );
+            // The batch result is contiguous — compare row by row.
+            let expected = &gainmap_batch.data[y * w..y * w + w];
+            assert_eq!(row_bytes, expected, "row {y} bytes diverged");
+        }
     }
 
     #[test]
