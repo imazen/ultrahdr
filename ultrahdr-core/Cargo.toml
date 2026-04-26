@@ -45,7 +45,7 @@ thiserror = "2.0"
 # Transfer functions (sRGB, PQ, HLG) — mandatory. These are load-bearing
 # for every meaningful gain map path; the old `transfer` feature flag was
 # removed in favour of always pulling linear-srgb.
-linear-srgb = { version = "0.6.7", default-features = false, features = ["transfer"] }
+linear-srgb = { version = "0.6.12", default-features = false, features = ["transfer"] }
 
 # Zen ecosystem types (mandatory — canonical gain map metadata types)
 zenpixels = { workspace = true }
