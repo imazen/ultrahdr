@@ -87,12 +87,26 @@ impl GainMapLut {
 }
 
 /// Output format for HDR reconstruction.
+///
+/// Mirrors libultrahdr's three supported decode outputs:
+/// - [`LinearFloat`](Self::LinearFloat) ↔ `UHDR_IMG_FMT_64bppRGBAHalfFloat`
+///   semantically (same linear-light content), but at f32 precision instead
+///   of f16. Use when downstream wants float math.
+/// - [`LinearF16`](Self::LinearF16) ↔ `UHDR_IMG_FMT_64bppRGBAHalfFloat` exactly.
+///   Use for direct compositor / GPU-texture handoff.
+/// - [`Srgb8`](Self::Srgb8) ↔ `UHDR_IMG_FMT_32bppRGBA8888` with sRGB transfer.
+///   Use when downstream wants SDR (display_boost = 1.0 typical).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum HdrOutputFormat {
-    /// Linear float RGB `[0, ~50]` where 1.0 = SDR white (203 nits)
+    /// Linear f32 RGBA where 1.0 = SDR white (203 nits). Range `[0, ~display_boost]`.
+    /// 16 bytes/pixel (`RgbaF32`).
     LinearFloat,
-    /// sRGB 8-bit (SDR output, no HDR boost)
+    /// Linear f16 (IEEE 754 half-precision) RGBA where 1.0 = SDR white.
+    /// 8 bytes/pixel (`RgbaF16`). Mirrors libultrahdr's
+    /// `UHDR_IMG_FMT_64bppRGBAHalfFloat`.
+    LinearF16,
+    /// sRGB 8-bit (SDR output, no HDR boost). 4 bytes/pixel (`Rgba8`).
     Srgb8,
 }
 
@@ -160,6 +174,13 @@ pub fn apply_gainmap_slice(
             width,
             height,
             PixelFormat::RgbaF32,
+            sdr_primaries,
+            TransferFunction::Linear,
+        )?,
+        HdrOutputFormat::LinearF16 => new_pixel_buffer(
+            width,
+            height,
+            PixelFormat::RgbaF16,
             sdr_primaries,
             TransferFunction::Linear,
         )?,
@@ -286,6 +307,22 @@ fn write_hdr_row(
                 out_data[idx + 12..idx + 16].copy_from_slice(&1.0f32.to_le_bytes());
             }
         }
+        HdrOutputFormat::LinearF16 => {
+            debug_assert_eq!(out_format, PixelFormat::RgbaF16);
+            // 8 bytes/pixel: 4 channels × f16 (2 bytes). Alpha is 1.0 (constant).
+            const F16_ONE: u16 = 0x3C00; // half::f16::ONE.to_bits()
+            for (x, &hdr) in hdr_row.iter().enumerate() {
+                let idx = row_start + x * 8;
+                let r = half::f16::from_f32(hdr[0]).to_bits().to_le_bytes();
+                let g = half::f16::from_f32(hdr[1]).to_bits().to_le_bytes();
+                let b = half::f16::from_f32(hdr[2]).to_bits().to_le_bytes();
+                let a = F16_ONE.to_le_bytes();
+                out_data[idx..idx + 2].copy_from_slice(&r);
+                out_data[idx + 2..idx + 4].copy_from_slice(&g);
+                out_data[idx + 4..idx + 6].copy_from_slice(&b);
+                out_data[idx + 6..idx + 8].copy_from_slice(&a);
+            }
+        }
         HdrOutputFormat::Srgb8 => {
             debug_assert_eq!(out_format, PixelFormat::Rgba8);
             for (x, &hdr) in hdr_row.iter().enumerate() {
@@ -343,6 +380,14 @@ fn get_sdr_linear(sdr: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
                 f32::from_le_bytes([data[idx + 4], data[idx + 5], data[idx + 6], data[idx + 7]]);
             let b =
                 f32::from_le_bytes([data[idx + 8], data[idx + 9], data[idx + 10], data[idx + 11]]);
+            [r, g, b]
+        }
+        PixelFormat::RgbaF16 | PixelFormat::RgbF16 => {
+            let bpp = if format == PixelFormat::RgbaF16 { 8 } else { 6 };
+            let idx = (y as usize) * stride + (x as usize) * bpp;
+            let r = half::f16::from_le_bytes([data[idx], data[idx + 1]]).to_f32();
+            let g = half::f16::from_le_bytes([data[idx + 2], data[idx + 3]]).to_f32();
+            let b = half::f16::from_le_bytes([data[idx + 4], data[idx + 5]]).to_f32();
             [r, g, b]
         }
         PixelFormat::Gray8 => {
@@ -1029,6 +1074,69 @@ mod tests {
         assert_eq!(result.height(), 4);
         // RgbaF32: 16 bytes per pixel (4 f32 channels)
         assert_eq!(result.as_slice().as_strided_bytes().len(), 4 * 4 * 16);
+    }
+
+    #[test]
+    fn test_apply_gainmap_linear_f16_format() {
+        let sdr = make_sdr_4x4(128, 128, 128);
+        let gainmap = make_gainmap_2x2(128);
+        let metadata = test_metadata();
+
+        let f32_out = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            4.0,
+            HdrOutputFormat::LinearFloat,
+            enough::Unstoppable,
+        )
+        .unwrap();
+        let f16_out = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            4.0,
+            HdrOutputFormat::LinearF16,
+            enough::Unstoppable,
+        )
+        .unwrap();
+
+        assert_eq!(f16_out.descriptor().pixel_format(), PixelFormat::RgbaF16);
+        assert_eq!(f16_out.width(), 4);
+        assert_eq!(f16_out.height(), 4);
+        // RgbaF16: 8 bytes per pixel (4 f16 channels).
+        assert_eq!(f16_out.as_slice().as_strided_bytes().len(), 4 * 4 * 8);
+
+        // f32 vs f16 must agree within f16 rounding (~1e-3 for values near 1).
+        let f32_bytes = f32_out.as_slice();
+        let f32_data = f32_bytes.as_strided_bytes();
+        let f16_bytes = f16_out.as_slice();
+        let f16_data = f16_bytes.as_strided_bytes();
+        for px in 0..16 {
+            let f32_idx = px * 16;
+            let f16_idx = px * 8;
+            for ch in 0..3 {
+                let want = f32::from_le_bytes(
+                    f32_data[f32_idx + ch * 4..f32_idx + ch * 4 + 4]
+                        .try_into()
+                        .unwrap(),
+                );
+                let got = half::f16::from_le_bytes(
+                    f16_data[f16_idx + ch * 2..f16_idx + ch * 2 + 2]
+                        .try_into()
+                        .unwrap(),
+                )
+                .to_f32();
+                let err = (want - got).abs();
+                // f16 has ~3-4 sig figs near 1.0; allow generous tolerance for
+                // values up to ~50 (full HDR boost range).
+                let tol = (want.abs() * 5e-4).max(5e-4);
+                assert!(
+                    err < tol,
+                    "px {px} ch {ch}: f32={want} f16={got} err={err} tol={tol}",
+                );
+            }
+        }
     }
 
     #[test]

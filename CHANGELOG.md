@@ -76,6 +76,13 @@ own section below.
     `compute_gainmap(hdr, sdr, …)` with the SDR they produced.
 
 #### Added
+- `HdrOutputFormat::LinearF16` — linear f16 RGBA HDR output.
+  Mirrors libultrahdr's `UHDR_IMG_FMT_64bppRGBAHalfFloat`. 8 bytes/pixel
+  vs `LinearFloat`'s 16. Use for direct compositor / GPU-texture handoff.
+- `RgbaF16` and `RgbF16` accepted as encode HDR input (`compute_gainmap`)
+  and as decode SDR input (`apply_gainmap`). PQ / HLG / sRGB transfers
+  on float inputs are now properly EOTF-decoded — previously RgbaF32
+  silently assumed Linear regardless of `descriptor().transfer()`.
 - Reference parity tests against libultrahdr and libavif goldens
   (`tests/reference_parity.rs`). 5 tests: bit-exact agreement on
   `applyGain` (105 rows from libultrahdr), `applyGainCore` (35 rows

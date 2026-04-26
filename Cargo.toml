@@ -50,7 +50,9 @@ rgb = { version = "0.8", features = ["as-bytes"] }
 linear-srgb = { version = "0.6.7", default-features = false, features = ["transfer"] }
 
 # Zen ecosystem interop
-zenpixels = { version = "0.2.10", default-features = false }
+# zenpixels 0.2.11 adds RgbaF16/RgbF16 needed for HdrOutputFormat::LinearF16;
+# follows the zenjpeg sibling-path pattern until 0.2.11 publishes.
+zenpixels = { path = "../zenpixels/zenpixels", version = "0.2.11", default-features = false }
 zencodec = { version = "0.1.13" }
 zenresize = { version = "0.2.2", default-features = false }
 
@@ -58,3 +60,12 @@ zenresize = { version = "0.2.2", default-features = false }
 proptest = "1.10"
 fast-ssim2 = "0.7"
 criterion = "0.8"
+
+
+[patch.crates-io]
+# Sibling-path pin for in-flight zenpixels 0.2.11 (RgbaF16/RgbF16 + new packed
+# formats in garb). zenjpeg's local checkout transitively requires
+# zenpixels-convert 0.2.11 which isn't published yet; without this patch
+# cargo can't resolve. Drop both lines once 0.2.11 hits crates.io.
+zenpixels = { path = "../zenpixels/zenpixels" }
+zenpixels-convert = { path = "../zenpixels/zenpixels-convert" }

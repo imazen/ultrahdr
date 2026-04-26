@@ -4,7 +4,7 @@ use alloc::vec;
 
 use crate::color::gamut::rgb_to_luminance;
 
-use crate::color::transfer::srgb_eotf;
+use crate::color::transfer::{hlg_eotf, pq_eotf, srgb_eotf};
 use crate::gainmap::splitter::{LumaGainMapSplitter, LumaToneMap, SplitConfig, SplitStats};
 use crate::types::TransferFunction;
 use crate::types::{
@@ -288,6 +288,28 @@ fn compute_multichannel_gainmap(
     Ok(gainmap)
 }
 
+/// Apply EOTF to a float-domain RGB triple based on the descriptor's transfer.
+///
+/// Used for f32 / f16 inputs where the pixel values aren't bytes — PQ and
+/// HLG-encoded floats are common in HDR pipelines (Apple `kCGColorSpacePQ`,
+/// EXR with non-linear transfer, GPU compositors). `Linear` passes through.
+/// `Srgb` runs the EOTF directly on the float values.
+#[inline]
+fn apply_transfer_to_linear(rgb: [f32; 3], transfer: TransferFunction) -> [f32; 3] {
+    match transfer {
+        TransferFunction::Linear => rgb,
+        TransferFunction::Srgb => [srgb_eotf(rgb[0]), srgb_eotf(rgb[1]), srgb_eotf(rgb[2])],
+        TransferFunction::Pq => [pq_eotf(rgb[0]), pq_eotf(rgb[1]), pq_eotf(rgb[2])],
+        TransferFunction::Hlg => [
+            // hlg_eotf returns nits at 1000-nit peak; normalize to SDR-relative.
+            hlg_eotf(rgb[0], 1000.0) / 1000.0,
+            hlg_eotf(rgb[1], 1000.0) / 1000.0,
+            hlg_eotf(rgb[2], 1000.0) / 1000.0,
+        ],
+        _ => rgb,
+    }
+}
+
 /// Extract linear RGB `[0,1]` from a pixel slice at the given pixel position.
 ///
 /// Applies the appropriate EOTF conversion (sRGB, PQ, HLG) based on the
@@ -319,7 +341,16 @@ fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
             let r = f32::from_le_bytes(data[idx..idx + 4].try_into().unwrap());
             let g = f32::from_le_bytes(data[idx + 4..idx + 8].try_into().unwrap());
             let b = f32::from_le_bytes(data[idx + 8..idx + 12].try_into().unwrap());
-            [r, g, b]
+            apply_transfer_to_linear([r, g, b], transfer)
+        }
+
+        PixelFormat::RgbaF16 | PixelFormat::RgbF16 => {
+            let bpp = if format == PixelFormat::RgbaF16 { 8 } else { 6 };
+            let idx = y as usize * stride + x as usize * bpp;
+            let r = half::f16::from_le_bytes([data[idx], data[idx + 1]]).to_f32();
+            let g = half::f16::from_le_bytes([data[idx + 2], data[idx + 3]]).to_f32();
+            let b = half::f16::from_le_bytes([data[idx + 4], data[idx + 5]]).to_f32();
+            apply_transfer_to_linear([r, g, b], transfer)
         }
 
         PixelFormat::Gray8 => {

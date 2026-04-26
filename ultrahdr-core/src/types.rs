@@ -123,7 +123,8 @@ pub use zenpixels::TransferFunction;
 /// Pixel format for raw images. Re-exported from [`zenpixels::PixelFormat`].
 ///
 /// ultrahdr-core's kernels accept a subset (`Rgba8`, `Rgb8`, `RgbaF32`,
-/// `Gray8`). Other formats are rejected by [`require_supported_format`].
+/// `RgbaF16`, `RgbF16`, `Gray8`). Other formats are rejected by
+/// [`require_supported_format`].
 pub use zenpixels::PixelFormat;
 
 /// Owning pixel container. Re-exported from [`zenpixels::PixelBuffer`].
@@ -218,9 +219,12 @@ pub fn validate_ultrahdr_dimensions(width: u32, height: u32) -> Result<()> {
 /// and `Gray8`. Everything else is rejected with [`Error::UnsupportedFormat`].
 pub fn require_supported_format(format: PixelFormat) -> Result<()> {
     match format {
-        PixelFormat::Rgba8 | PixelFormat::Rgb8 | PixelFormat::RgbaF32 | PixelFormat::Gray8 => {
-            Ok(())
-        }
+        PixelFormat::Rgba8
+        | PixelFormat::Rgb8
+        | PixelFormat::RgbaF32
+        | PixelFormat::RgbaF16
+        | PixelFormat::RgbF16
+        | PixelFormat::Gray8 => Ok(()),
         _ => Err(Error::UnsupportedFormat(format)),
     }
 }
