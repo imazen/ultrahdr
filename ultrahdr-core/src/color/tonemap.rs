@@ -416,12 +416,18 @@ impl AdaptiveTonemapper {
     /// Create from gain map metadata for perfect inversion.
     ///
     /// Use this for round-trips where you want exact reproduction.
+    ///
+    /// `metadata.alternate_hdr_headroom` is clamped to
+    /// `[0.0,` [`crate::limits::MAX_HEADROOM_MAGNITUDE`]`]` before `2^h` so
+    /// hostile metadata cannot store `+inf` in `max_hdr_observed`.
     pub fn from_gainmap(metadata: &GainMapMetadata) -> Self {
+        let headroom = (metadata.alternate_hdr_headroom as f32)
+            .clamp(0.0, crate::limits::MAX_HEADROOM_MAGNITUDE as f32);
         Self {
             mode: TonemapMode::GainMapInverse(GainMapInverter {
                 metadata: metadata.clone(),
             }),
-            max_hdr_observed: 2.0f32.powf(metadata.alternate_hdr_headroom as f32),
+            max_hdr_observed: 2.0f32.powf(headroom),
             stats: FitStats::default(),
         }
     }
@@ -476,6 +482,8 @@ impl AdaptiveTonemapper {
     ) -> Result<PixelBuffer> {
         let hdr_slice = hdr.as_slice();
         crate::types::validate_ultrahdr_slice(&hdr_slice)?;
+        gainmap.validate()?;
+        crate::types::validate_gainmap_magnitude(metadata)?;
         let width = hdr_slice.width();
         let height = hdr_slice.rows();
 
@@ -496,12 +504,16 @@ impl AdaptiveTonemapper {
 
                 let gain = sample_gainmap_at(gainmap, metadata, x, y, width, height);
 
+                // `gain` is already finite and `>= 2^-30` per `decode_gain_value`'s
+                // clamp; guard against division by an effective zero anyway so a
+                // future LUT change cannot reintroduce `+inf` / `NaN` here.
+                let safe = |g: f32| if g.abs() < 1e-30 { 1.0 } else { g };
                 let sdr_linear = [
-                    (hdr_linear[0] + metadata.channels[0].alternate_offset as f32) / gain[0]
+                    (hdr_linear[0] + metadata.channels[0].alternate_offset as f32) / safe(gain[0])
                         - metadata.channels[0].base_offset as f32,
-                    (hdr_linear[1] + metadata.channels[1].alternate_offset as f32) / gain[1]
+                    (hdr_linear[1] + metadata.channels[1].alternate_offset as f32) / safe(gain[1])
                         - metadata.channels[1].base_offset as f32,
-                    (hdr_linear[2] + metadata.channels[2].alternate_offset as f32) / gain[2]
+                    (hdr_linear[2] + metadata.channels[2].alternate_offset as f32) / safe(gain[2])
                         - metadata.channels[2].base_offset as f32,
                 ];
 
@@ -819,7 +831,13 @@ impl PerChannelLut {
 /// Scale a gain map to new dimensions.
 ///
 /// Uses bilinear interpolation for smooth results.
+///
+/// Returns [`Error::InvalidDimensions`] when `gainmap` has a zero
+/// dimension or when `new_width` / `new_height` is zero.
 pub fn scale_gainmap(gainmap: &GainMap, new_width: u32, new_height: u32) -> Result<GainMap> {
+    gainmap.validate()?;
+    crate::types::validate_ultrahdr_dimensions(new_width, new_height)?;
+
     let mut output = if gainmap.channels == 1 {
         GainMap::new(new_width, new_height)?
     } else {
@@ -877,14 +895,36 @@ pub fn crop_gainmap(
     sdr_height: u32,
     crop_rect: (u32, u32, u32, u32),
 ) -> Result<GainMap> {
+    gainmap.validate()?;
+    crate::types::validate_ultrahdr_dimensions(sdr_width, sdr_height)?;
     let (crop_x, crop_y, crop_w, crop_h) = crop_rect;
+    if crop_w == 0 || crop_h == 0 {
+        return Err(Error::InvalidDimensions(crop_w, crop_h));
+    }
+    // Reject crop rects that overflow or extend past `sdr_*` bounds.
+    let crop_x_end = crop_x
+        .checked_add(crop_w)
+        .ok_or(Error::InvalidDimensions(crop_x, crop_w))?;
+    let crop_y_end = crop_y
+        .checked_add(crop_h)
+        .ok_or(Error::InvalidDimensions(crop_y, crop_h))?;
+    if crop_x_end > sdr_width || crop_y_end > sdr_height {
+        return Err(Error::InvalidDimensions(crop_x_end, crop_y_end));
+    }
 
-    // Calculate corresponding gain map region
+    // Calculate corresponding gain map region. `sdr_width` / `sdr_height` are
+    // guaranteed `> 0` by `validate_ultrahdr_dimensions`, so the f32 division
+    // is finite.
     let gm_x = (crop_x as f32 / sdr_width as f32 * gainmap.width as f32).floor() as u32;
     let gm_y = (crop_y as f32 / sdr_height as f32 * gainmap.height as f32).floor() as u32;
     let gm_w = (crop_w as f32 / sdr_width as f32 * gainmap.width as f32).ceil() as u32;
     let gm_h = (crop_h as f32 / sdr_height as f32 * gainmap.height as f32).ceil() as u32;
 
+    // Clamp gm_x/gm_y first, THEN compute the remaining-window size — the
+    // saturating sub keeps `gainmap.width - gm_x` safe even if `gm_x ==
+    // gainmap.width` (which is forced to `gainmap.width - 1` by the .min).
+    let gm_x = gm_x.min(gainmap.width.saturating_sub(1));
+    let gm_y = gm_y.min(gainmap.height.saturating_sub(1));
     let gm_w = gm_w.min(gainmap.width - gm_x).max(1);
     let gm_h = gm_h.min(gainmap.height - gm_y).max(1);
 
@@ -1195,6 +1235,11 @@ fn sample_gainmap_at(
 }
 
 /// Decode gain value from normalized [0,1] to linear multiplier.
+///
+/// Output is clamped to a finite, sane range (`2^±30`) — see
+/// [`crate::limits::MAX_LOG_GAIN_MAGNITUDE`]. This is a defense-in-depth
+/// guard for callers that skipped [`crate::types::validate_gainmap_metadata`];
+/// validated metadata can never reach the clamp boundary.
 fn decode_gain_value(normalized: f32, metadata: &GainMapMetadata, channel: usize) -> f32 {
     let gamma = metadata.channels[channel].gamma as f32;
     let linear = if gamma != 1.0 && gamma > 0.0 {
@@ -1209,7 +1254,14 @@ fn decode_gain_value(normalized: f32, metadata: &GainMapMetadata, channel: usize
     let log_max = (metadata.channels[channel].max * ln2) as f32;
     let log_gain = log_min + linear * (log_max - log_min);
 
-    log_gain.exp()
+    let gain = log_gain.exp();
+    const MAX_GAIN: f32 = 1.073_741_8e9; // 2^30
+    const MIN_GAIN: f32 = 1.0 / MAX_GAIN;
+    if !gain.is_finite() {
+        1.0
+    } else {
+        gain.clamp(MIN_GAIN, MAX_GAIN)
+    }
 }
 
 #[inline]
@@ -1688,18 +1740,14 @@ mod tests {
     #[test]
     fn test_crop_gainmap_out_of_bounds() {
         let gm = GainMap::new(4, 4).unwrap();
-        // Crop rect extends past image — should clamp (not panic)
+        // Crop rect extends past the SDR bounds (3+4 > 4). The previous
+        // behavior silently underflowed `gainmap.width - gm_x` and produced
+        // wrong-but-bounded output; security audit 2026-05-06 changed this
+        // to reject explicitly so callers know the rect is invalid.
         let result = crop_gainmap(&gm, 4, 4, (3, 3, 4, 4));
-        // The function clamps via .min(), so it should succeed with a smaller region
-        assert!(result.is_ok(), "Out-of-bounds crop should clamp, not error");
-        let cropped = result.unwrap();
         assert!(
-            cropped.width <= 4 && cropped.height <= 4,
-            "Cropped dimensions should be clamped"
-        );
-        assert!(
-            cropped.width >= 1 && cropped.height >= 1,
-            "Cropped dimensions should be at least 1x1"
+            result.is_err(),
+            "Out-of-bounds crop must be rejected, not silently clamped"
         );
     }
 
