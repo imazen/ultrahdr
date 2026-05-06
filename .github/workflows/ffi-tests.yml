@@ -24,6 +24,9 @@ jobs:
       - name: Clone sibling zenjpeg (path-dep during pre-0.5 cascade coordination)
         run: git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
 
+      - name: Clone sibling zenanalyze (transitive path-dep of zenjpeg)
+        run: git clone --depth 1 https://github.com/imazen/zenanalyze.git ../zenanalyze
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -84,6 +87,9 @@ jobs:
 
       - name: Clone sibling zenjpeg (path-dep during pre-0.5 cascade coordination)
         run: git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
+
+      - name: Clone sibling zenanalyze (transitive path-dep of zenjpeg)
+        run: git clone --depth 1 https://github.com/imazen/zenanalyze.git ../zenanalyze
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
