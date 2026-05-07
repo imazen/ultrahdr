@@ -310,6 +310,46 @@ pub struct GainMap {
 }
 
 impl GainMap {
+    /// Validate a [`GainMap`]'s field invariants.
+    ///
+    /// Constructors ([`GainMap::new`], [`GainMap::new_multichannel`])
+    /// preserve these invariants, but the fields are `pub` for serde /
+    /// codec interop, so a struct-literal `GainMap { ... }` can produce
+    /// values that violate them. Every consumer that derefs `data`
+    /// based on `width`/`height`/`channels` must call this first.
+    ///
+    /// Rejects:
+    /// * `width == 0` / `height == 0` (every sampler does
+    ///   `width - 1` arithmetic that would underflow);
+    /// * `width` / `height` above [`limits::MAX_IMAGE_DIMENSION`];
+    /// * `channels` outside `{1, 3}`;
+    /// * `data.len() < width * height * channels`.
+    pub fn validate(&self) -> Result<()> {
+        validate_ultrahdr_dimensions(self.width, self.height)?;
+        if self.channels != 1 && self.channels != 3 {
+            return Err(Error::InvalidPixelData(alloc::format!(
+                "gainmap.channels must be 1 or 3, got {}",
+                self.channels
+            )));
+        }
+        let expected = (self.width as usize)
+            .checked_mul(self.height as usize)
+            .and_then(|p| p.checked_mul(self.channels as usize))
+            .ok_or_else(|| {
+                Error::LimitExceeded(alloc::string::ToString::to_string(
+                    &"gainmap dimensions overflow usize",
+                ))
+            })?;
+        if self.data.len() < expected {
+            return Err(Error::InvalidPixelData(alloc::format!(
+                "gainmap data buffer too small: {} < {}",
+                self.data.len(),
+                expected
+            )));
+        }
+        Ok(())
+    }
+
     /// Create a new single-channel gain map.
     pub fn new(width: u32, height: u32) -> Result<Self> {
         validate_ultrahdr_dimensions(width, height)?;
@@ -355,11 +395,89 @@ pub type GainMapMetadata = zencodec::GainMapParams;
 /// Re-exported from [`zencodec::GainMapChannel`].
 pub use zencodec::GainMapChannel;
 
+/// Reject gain map metadata whose magnitude would push f32 math to
+/// `±inf` / `NaN` even though every value is `is_finite()` in f64.
+///
+/// This is a strict subset of [`validate_gainmap_metadata`] — it does
+/// NOT inherit zencodec's `min <= max` invariant, which can be
+/// violated by a few ULPs after ISO 21496-1 fraction quantization
+/// without indicating an attack. The decode-side LUT independently
+/// clamps decoded gains to a finite range, so the magnitude bound is
+/// enough on its own to prevent `+inf` / `NaN` in the output buffer.
+pub fn validate_gainmap_magnitude(metadata: &GainMapMetadata) -> Result<()> {
+    if !metadata.alternate_hdr_headroom.is_finite() || !metadata.base_hdr_headroom.is_finite() {
+        return Err(Error::InvalidMetadata("hdr headroom must be finite".into()));
+    }
+    if metadata.alternate_hdr_headroom.abs() > limits::MAX_HEADROOM_MAGNITUDE
+        || metadata.base_hdr_headroom.abs() > limits::MAX_HEADROOM_MAGNITUDE
+    {
+        return Err(Error::InvalidMetadata(alloc::format!(
+            "hdr headroom magnitude exceeds {} (log2 domain)",
+            limits::MAX_HEADROOM_MAGNITUDE
+        )));
+    }
+    for (i, ch) in metadata.channels.iter().enumerate() {
+        if !ch.min.is_finite()
+            || !ch.max.is_finite()
+            || !ch.gamma.is_finite()
+            || !ch.base_offset.is_finite()
+            || !ch.alternate_offset.is_finite()
+        {
+            return Err(Error::InvalidMetadata(alloc::format!(
+                "channel {i} contains non-finite values"
+            )));
+        }
+        if ch.min.abs() > limits::MAX_LOG_GAIN_MAGNITUDE
+            || ch.max.abs() > limits::MAX_LOG_GAIN_MAGNITUDE
+        {
+            return Err(Error::InvalidMetadata(alloc::format!(
+                "channel {} min/max magnitude exceeds {} (log2 domain)",
+                i,
+                limits::MAX_LOG_GAIN_MAGNITUDE
+            )));
+        }
+        if ch.base_offset.abs() > limits::MAX_OFFSET_MAGNITUDE
+            || ch.alternate_offset.abs() > limits::MAX_OFFSET_MAGNITUDE
+        {
+            return Err(Error::InvalidMetadata(alloc::format!(
+                "channel {} offset magnitude exceeds {} (linear domain)",
+                i,
+                limits::MAX_OFFSET_MAGNITUDE
+            )));
+        }
+        if !(limits::MIN_GAMMA..=limits::MAX_GAMMA).contains(&ch.gamma) {
+            return Err(Error::InvalidMetadata(alloc::format!(
+                "channel {} gamma must be within [{}, {}]",
+                i,
+                limits::MIN_GAMMA,
+                limits::MAX_GAMMA
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Validate gain map metadata with ultrahdr-core's stricter checks.
 ///
-/// Delegates to [`zencodec::GainMapParams::validate()`] and additionally rejects
-/// negative `alternate_hdr_headroom` (log2 domain), which the base
-/// zencodec validation does not enforce.
+/// Delegates to [`zencodec::GainMapParams::validate()`] for `is_finite`
+/// / `min ≤ max` / `gamma > 0`, then additionally rejects:
+///
+/// * `alternate_hdr_headroom < 0` (log2 domain) — base zencodec
+///   validation does not enforce sign.
+/// * `|min|`, `|max|` greater than [`limits::MAX_LOG_GAIN_MAGNITUDE`].
+///   Without this bound a finite f64 like `1e30` casts to `f32 +inf`
+///   inside the LUT and silently propagates `+inf` into the HDR
+///   output (`LinearFloat` / `LinearF16` arms write the raw float;
+///   the `Srgb8` arm clamps but is still wrong).
+/// * `|alternate_hdr_headroom|`, `|base_hdr_headroom|` greater than
+///   [`limits::MAX_HEADROOM_MAGNITUDE`] — same `2^headroom` overflow
+///   risk as `min`/`max`.
+/// * `|base_offset|`, `|alternate_offset|` greater than
+///   [`limits::MAX_OFFSET_MAGNITUDE`] — keeps
+///   `(sdr + offset) / gain - other_offset` finite.
+/// * `gamma` outside `[`[`limits::MIN_GAMMA`]`,` [`limits::MAX_GAMMA`]`]` —
+///   above-spec values either produce a near-step function (`> 100`)
+///   or saturate `powf` (`< 0.01`).
 pub fn validate_gainmap_metadata(metadata: &GainMapMetadata) -> Result<()> {
     metadata
         .validate()
@@ -368,6 +486,42 @@ pub fn validate_gainmap_metadata(metadata: &GainMapMetadata) -> Result<()> {
         return Err(Error::InvalidMetadata(
             "alternate_hdr_headroom must be >= 0.0 (log2 domain)".into(),
         ));
+    }
+    if metadata.alternate_hdr_headroom.abs() > limits::MAX_HEADROOM_MAGNITUDE
+        || metadata.base_hdr_headroom.abs() > limits::MAX_HEADROOM_MAGNITUDE
+    {
+        return Err(Error::InvalidMetadata(alloc::format!(
+            "hdr headroom magnitude exceeds {} (log2 domain)",
+            limits::MAX_HEADROOM_MAGNITUDE
+        )));
+    }
+    for (i, ch) in metadata.channels.iter().enumerate() {
+        if ch.min.abs() > limits::MAX_LOG_GAIN_MAGNITUDE
+            || ch.max.abs() > limits::MAX_LOG_GAIN_MAGNITUDE
+        {
+            return Err(Error::InvalidMetadata(alloc::format!(
+                "channel {} min/max magnitude exceeds {} (log2 domain)",
+                i,
+                limits::MAX_LOG_GAIN_MAGNITUDE
+            )));
+        }
+        if ch.base_offset.abs() > limits::MAX_OFFSET_MAGNITUDE
+            || ch.alternate_offset.abs() > limits::MAX_OFFSET_MAGNITUDE
+        {
+            return Err(Error::InvalidMetadata(alloc::format!(
+                "channel {} offset magnitude exceeds {} (linear domain)",
+                i,
+                limits::MAX_OFFSET_MAGNITUDE
+            )));
+        }
+        if !(limits::MIN_GAMMA..=limits::MAX_GAMMA).contains(&ch.gamma) {
+            return Err(Error::InvalidMetadata(alloc::format!(
+                "channel {} gamma must be within [{}, {}]",
+                i,
+                limits::MIN_GAMMA,
+                limits::MAX_GAMMA
+            )));
+        }
     }
     Ok(())
 }
@@ -675,5 +829,130 @@ mod tests {
             assert!((original.channels[ch].gamma - parsed.channels[ch].gamma).abs() < 1e-4);
         }
         assert!((original.alternate_hdr_headroom - parsed.alternate_hdr_headroom).abs() < 1e-3);
+    }
+
+    // Regression: large finite metadata values used to cast `f64 * ln2` to
+    // `f32 +inf`, propagating `+inf` into LinearFloat / LinearF16 output
+    // (security audit 2026-05-06, finding C1).
+    #[test]
+    fn validate_gainmap_magnitude_rejects_huge_finite_min_max() {
+        let metadata = make_metadata(
+            [1.0e30; 3], // log2 domain — clearly way past 30
+            [1.0e30; 3],
+            [1.0; 3],
+            [0.0; 3],
+            [0.0; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
+        let err = validate_gainmap_magnitude(&metadata).unwrap_err();
+        let msg = alloc::string::ToString::to_string(&err);
+        assert!(
+            msg.contains("magnitude") && msg.contains("log2"),
+            "expected magnitude/log2 message: {msg}"
+        );
+    }
+
+    #[test]
+    fn validate_gainmap_magnitude_rejects_huge_headroom() {
+        let metadata = make_metadata(
+            [0.0; 3], [2.0; 3], [1.0; 3], [0.0; 3], [0.0; 3], 0.0,
+            1.0e10, // alt headroom way past 30
+            true, false,
+        );
+        assert!(validate_gainmap_magnitude(&metadata).is_err());
+    }
+
+    #[test]
+    fn validate_gainmap_magnitude_rejects_huge_offsets() {
+        let mut metadata = make_metadata(
+            [0.0; 3], [2.0; 3], [1.0; 3],
+            [100.0; 3], // base_offset way past MAX_OFFSET_MAGNITUDE
+            [0.0; 3], 0.0, 2.0, true, false,
+        );
+        assert!(validate_gainmap_magnitude(&metadata).is_err());
+
+        metadata.channels[0].base_offset = 0.0;
+        metadata.channels[0].alternate_offset = 100.0;
+        assert!(validate_gainmap_magnitude(&metadata).is_err());
+    }
+
+    #[test]
+    fn validate_gainmap_magnitude_rejects_extreme_gamma() {
+        let metadata = make_metadata(
+            [0.0; 3],
+            [2.0; 3],
+            [1000.0, 1.0, 1.0], // gamma > MAX_GAMMA
+            [0.0; 3],
+            [0.0; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
+        assert!(validate_gainmap_magnitude(&metadata).is_err());
+    }
+
+    #[test]
+    fn validate_gainmap_magnitude_accepts_realistic_values() {
+        let metadata = make_metadata(
+            [-2.0, -2.0, -2.0],
+            [3.0, 3.0, 3.0],
+            [1.0, 1.0, 1.0],
+            [1.0 / 64.0; 3],
+            [1.0 / 64.0; 3],
+            0.0,
+            3.0,
+            true,
+            false,
+        );
+        assert!(validate_gainmap_magnitude(&metadata).is_ok());
+    }
+
+    // Regression: zero-dim GainMap used to underflow `width - 1` in every
+    // sampler (security audit 2026-05-06, finding C2).
+    #[test]
+    fn gainmap_validate_rejects_zero_dim() {
+        let gm = GainMap {
+            width: 0,
+            height: 4,
+            channels: 1,
+            data: alloc::vec![0u8; 0],
+        };
+        assert!(gm.validate().is_err());
+
+        let gm = GainMap {
+            width: 4,
+            height: 0,
+            channels: 1,
+            data: alloc::vec![0u8; 0],
+        };
+        assert!(gm.validate().is_err());
+    }
+
+    #[test]
+    fn gainmap_validate_rejects_bad_channels() {
+        for c in [0u8, 2, 4, 255] {
+            let gm = GainMap {
+                width: 2,
+                height: 2,
+                channels: c,
+                data: alloc::vec![0u8; 16],
+            };
+            assert!(gm.validate().is_err(), "channels={c} should be rejected");
+        }
+    }
+
+    #[test]
+    fn gainmap_validate_rejects_short_data_buffer() {
+        let gm = GainMap {
+            width: 4,
+            height: 4,
+            channels: 1,
+            data: alloc::vec![0u8; 4], // expected 16
+        };
+        assert!(gm.validate().is_err());
     }
 }

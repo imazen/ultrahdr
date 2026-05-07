@@ -6,9 +6,28 @@ use alloc::vec;
 use crate::color::transfer::{srgb_eotf, srgb_oetf};
 use crate::types::{
     GainMap, GainMapMetadata, PixelBuffer, PixelFormat, PixelSlice, Result, TransferFunction,
-    new_pixel_buffer,
+    new_pixel_buffer, validate_gainmap_magnitude,
 };
 use enough::Stop;
+
+/// Defense-in-depth clamp for an LUT-decoded gain multiplier.
+///
+/// Mirrors the bound in [`crate::limits::MAX_LOG_GAIN_MAGNITUDE`]:
+/// `exp(±30 * ln(2)) ≈ 2^±30 ≈ [9.3e-10, 1.07e9]`. Anything outside
+/// this range or non-finite is replaced with a neutral `1.0` so the
+/// [`HdrOutputFormat::LinearFloat`] / [`HdrOutputFormat::LinearF16`]
+/// arms cannot emit `+inf` / `NaN` pixels even if a caller skipped
+/// metadata validation.
+#[inline]
+fn clamp_gain_finite(gain: f32) -> f32 {
+    const MAX_GAIN: f32 = 1.073_741_8e9; // 2^30
+    const MIN_GAIN: f32 = 1.0 / MAX_GAIN;
+    if !gain.is_finite() {
+        1.0
+    } else {
+        gain.clamp(MIN_GAIN, MAX_GAIN)
+    }
+}
 
 /// Precomputed lookup table for gain map decoding.
 ///
@@ -49,9 +68,12 @@ impl GainMapLut {
                     normalized
                 };
 
-                // Convert from normalized to log gain, apply weight, convert to linear
+                // Convert from normalized to log gain, apply weight, convert to linear.
+                // Clamp to a finite, sane range so non-validated metadata cannot
+                // smuggle `+inf` / `NaN` into the HDR output buffer
+                // (see `clamp_gain_finite` for the bound and rationale).
                 let log_gain = log_min + linear * log_range;
-                let gain = (log_gain * weight).exp();
+                let gain = clamp_gain_finite((log_gain * weight).exp());
 
                 table[channel * 256 + i] = gain;
             }
@@ -152,6 +174,8 @@ pub fn apply_gainmap_slice(
     stop: impl Stop,
 ) -> Result<PixelBuffer> {
     crate::types::validate_ultrahdr_slice(&sdr)?;
+    gainmap.validate()?;
+    validate_gainmap_magnitude(metadata)?;
 
     let width = sdr.width();
     let height = sdr.rows();
@@ -427,9 +451,23 @@ impl ShepardsLut {
     /// Build weight tables for an arbitrary integer scale (`scale_x`, `scale_y`).
     /// Most callers should use [`Self::try_new`] which infers the scale from
     /// image and gain-map dimensions.
-    pub fn new(scale_x: u32, scale_y: u32) -> Self {
-        debug_assert!(scale_x >= 1 && scale_y >= 1);
-        let n = (scale_x * scale_y * 4) as usize;
+    ///
+    /// Returns `None` when `scale_x * scale_y` exceeds
+    /// [`crate::limits::MAX_SHEPARDS_TABLE_ENTRIES`] (the LUT would not fit
+    /// in a sane allocation) or when `checked_mul` overflows. Callers that
+    /// hit this case must fall back to the per-pixel float path.
+    ///
+    /// Also returns `None` when either scale is zero.
+    pub fn new(scale_x: u32, scale_y: u32) -> Option<Self> {
+        if scale_x == 0 || scale_y == 0 {
+            return None;
+        }
+        let entries = scale_x.checked_mul(scale_y)?;
+        if entries > crate::limits::MAX_SHEPARDS_TABLE_ENTRIES {
+            return None;
+        }
+        // `entries * 4` cannot overflow u32 once `entries <= 4096`.
+        let n = entries.checked_mul(4)? as usize;
         let mut full = vec![0.0f32; n].into_boxed_slice();
         let mut no_right = vec![0.0f32; n].into_boxed_slice();
         let mut no_bottom = vec![0.0f32; n].into_boxed_slice();
@@ -438,20 +476,22 @@ impl ShepardsLut {
         fill_shepards(&mut no_right, scale_x, scale_y, 0, 1);
         fill_shepards(&mut no_bottom, scale_x, scale_y, 1, 0);
         fill_shepards(&mut corner, scale_x, scale_y, 0, 0);
-        Self {
+        Some(Self {
             scale_x,
             scale_y,
             full,
             no_right,
             no_bottom,
             corner,
-        }
+        })
     }
 
     /// Build a LUT iff image dims are an exact integer multiple of gain-map
-    /// dims. `None` means the caller must take the per-pixel sqrt fallback.
+    /// dims AND the resulting scale fits in
+    /// [`crate::limits::MAX_SHEPARDS_TABLE_ENTRIES`]. `None` means the caller
+    /// must take the per-pixel sqrt fallback.
     pub fn try_new(img_width: u32, img_height: u32, gm_width: u32, gm_height: u32) -> Option<Self> {
-        if gm_width == 0 || gm_height == 0 {
+        if gm_width == 0 || gm_height == 0 || img_width == 0 || img_height == 0 {
             return None;
         }
         if !img_width.is_multiple_of(gm_width) || !img_height.is_multiple_of(gm_height) {
@@ -459,10 +499,7 @@ impl ShepardsLut {
         }
         let sx = img_width / gm_width;
         let sy = img_height / gm_height;
-        if sx == 0 || sy == 0 {
-            return None;
-        }
-        Some(Self::new(sx, sy))
+        Self::new(sx, sy)
     }
 
     #[inline(always)]
@@ -1418,7 +1455,7 @@ mod tests {
         // Sub-pixel offset (0, 0) sits exactly on the top-left sample.
         // C++ libultrahdr short-circuits to weights = [1, 0, 0, 0]; we mirror
         // that so the LUT and per-pixel paths agree at sample centers.
-        let lut = ShepardsLut::new(4, 4);
+        let lut = ShepardsLut::new(4, 4).expect("4x4 fits in MAX_SHEPARDS_TABLE_ENTRIES");
         let table = lut.pick(false, false);
         assert_eq!(table[0], 1.0);
         assert_eq!(table[1], 0.0);
@@ -1499,6 +1536,94 @@ mod tests {
                         diff,
                     );
                 }
+            }
+        }
+    }
+
+    // Regression: large `scale_x * scale_y` used to either wrap a u32
+    // multiplication or allocate ~16 GB (security audit 2026-05-06,
+    // finding C3). `try_new` must early-return `None` so callers fall
+    // through to the per-pixel float path.
+    #[test]
+    fn shepards_lut_try_new_caps_pathological_scale() {
+        // 65535x65535 image, 1x1 gainmap → scale 65535 each axis.
+        // 65535 * 65535 * 4 wraps u32; the cap rejects it before that.
+        assert!(ShepardsLut::try_new(65535, 65535, 1, 1).is_none());
+
+        // 32768x32768 image, 2x2 gainmap → scale 16384 each axis.
+        // 16384 * 16384 = 268M, far above MAX_SHEPARDS_TABLE_ENTRIES.
+        assert!(ShepardsLut::try_new(32768, 32768, 2, 2).is_none());
+
+        // 64x64 image, 1x1 gainmap → scale 64 each axis.
+        // 64 * 64 = 4096 — exactly at the cap, must succeed.
+        assert!(ShepardsLut::try_new(64, 64, 1, 1).is_some());
+
+        // 65x65 image, 1x1 gainmap → scale 65 each axis.
+        // 65 * 65 = 4225, just over the cap. Must reject.
+        assert!(ShepardsLut::try_new(65, 65, 1, 1).is_none());
+    }
+
+    #[test]
+    fn shepards_lut_try_new_rejects_zero_dims() {
+        assert!(ShepardsLut::try_new(0, 64, 8, 8).is_none());
+        assert!(ShepardsLut::try_new(64, 0, 8, 8).is_none());
+        assert!(ShepardsLut::try_new(64, 64, 0, 8).is_none());
+        assert!(ShepardsLut::try_new(64, 64, 8, 0).is_none());
+    }
+
+    #[test]
+    fn shepards_lut_new_rejects_zero_scale() {
+        assert!(ShepardsLut::new(0, 4).is_none());
+        assert!(ShepardsLut::new(4, 0).is_none());
+    }
+
+    // Regression: a forged GainMap with `width = 0` used to underflow
+    // `gh - 1` and panic in samplers (security audit 2026-05-06, finding
+    // C2). `apply_gainmap_slice` must reject it before any arithmetic.
+    #[test]
+    fn apply_gainmap_slice_rejects_zero_dim_gainmap() {
+        use crate::types::{ColorPrimaries, PixelBuffer, TransferFunction};
+        use enough::Unstoppable;
+
+        let desc = zenpixels::PixelDescriptor::from_pixel_format(PixelFormat::Rgba8)
+            .with_primaries(ColorPrimaries::Bt709)
+            .with_transfer(TransferFunction::Srgb);
+        let sdr = PixelBuffer::try_new(8, 8, desc).unwrap();
+        let metadata = GainMapMetadata::default();
+        let gm = GainMap {
+            width: 0,
+            height: 8,
+            channels: 1,
+            data: alloc::vec![0u8; 0],
+        };
+        let res = apply_gainmap(
+            &sdr,
+            &gm,
+            &metadata,
+            1.0,
+            HdrOutputFormat::LinearFloat,
+            Unstoppable,
+        );
+        assert!(res.is_err());
+    }
+
+    // Regression: large finite metadata used to silently produce `+inf`
+    // gain values in the LUT (security audit 2026-05-06, finding C1).
+    #[test]
+    fn gainmap_lut_clamps_large_metadata_to_finite() {
+        let mut metadata = GainMapMetadata::default();
+        // Bypass external validation — simulate a caller that did not
+        // run `validate_gainmap_magnitude`. The LUT must still produce
+        // finite values via `clamp_gain_finite`.
+        for ch in &mut metadata.channels {
+            ch.min = 1.0e30;
+            ch.max = 1.0e30;
+        }
+        let lut = GainMapLut::new(&metadata, 1.0);
+        for i in 0..256 {
+            for c in 0..3 {
+                let g = lut.lookup(i as u8, c);
+                assert!(g.is_finite(), "lut[{c}][{i}] = {g} should be finite");
             }
         }
     }

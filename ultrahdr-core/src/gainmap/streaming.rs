@@ -58,6 +58,7 @@
 //! ```
 
 use alloc::format;
+use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -132,6 +133,9 @@ impl RowDecoder {
         display_boost: f32,
         gamut: ColorPrimaries,
     ) -> Result<Self> {
+        crate::types::validate_ultrahdr_dimensions(width, height)?;
+        gainmap.validate()?;
+        crate::types::validate_gainmap_magnitude(&metadata)?;
         let weight = super::apply::calculate_weight(display_boost, &metadata);
         let lut = super::apply::GainMapLut::new(&metadata, weight);
         let shepards =
@@ -386,6 +390,14 @@ impl StreamDecoder {
         display_boost: f32,
         gamut: ColorPrimaries,
     ) -> Result<Self> {
+        crate::types::validate_ultrahdr_dimensions(sdr_width, sdr_height)?;
+        crate::types::validate_ultrahdr_dimensions(gm_width, gm_height)?;
+        crate::types::validate_gainmap_magnitude(&metadata)?;
+        if gm_channels != 1 && gm_channels != 3 {
+            return Err(Error::InvalidPixelData(format!(
+                "gainmap channels must be 1 or 3, got {gm_channels}"
+            )));
+        }
         let weight = super::apply::calculate_weight(display_boost, &metadata);
         let lut = super::apply::GainMapLut::new(&metadata, weight);
         let base_offset = [
@@ -453,12 +465,25 @@ impl StreamDecoder {
     }
 
     /// Check if we have enough gainmap data to process the given number of SDR rows.
+    ///
+    /// `num_sdr_rows == 0` returns `true` iff there are SDR rows still to process
+    /// (the trivial "process zero rows" answer is always OK if not done).
+    /// `gm_height == 0` is rejected at construction so the `- 1` arithmetic
+    /// below cannot underflow.
     pub fn can_process(&self, num_sdr_rows: u32) -> bool {
         if self.current_sdr_row >= self.sdr_height {
             return false;
         }
+        if num_sdr_rows == 0 {
+            return true;
+        }
+        debug_assert!(self.sdr_height > 0 && self.gm_height > 0);
 
-        let last_sdr_row = (self.current_sdr_row + num_sdr_rows - 1).min(self.sdr_height - 1);
+        let last_sdr_row = self
+            .current_sdr_row
+            .saturating_add(num_sdr_rows)
+            .saturating_sub(1)
+            .min(self.sdr_height - 1);
         let gm_y_last = (last_sdr_row as f32 / self.sdr_height as f32) * self.gm_height as f32;
         let gm_y1_needed = (gm_y_last.ceil() as u32).min(self.gm_height - 1);
 
@@ -684,14 +709,21 @@ impl RowEncoder {
         hdr_gamut: ColorPrimaries,
         sdr_gamut: ColorPrimaries,
     ) -> Result<Self> {
+        crate::types::validate_ultrahdr_dimensions(width, height)?;
         let scale = config.scale_factor.max(1) as u32;
         let gm_width = width.div_ceil(scale);
         let gm_height = height.div_ceil(scale);
+        crate::types::validate_ultrahdr_dimensions(gm_width, gm_height)?;
 
         let buffer_size = (scale as usize + 16).max(32);
         let channels = if config.multi_channel { 3 } else { 1 };
-        let gm_row_stride = gm_width as usize * channels;
-        let gainmap_data = vec![0u8; gm_row_stride * gm_height as usize];
+        let gm_row_stride = (gm_width as usize)
+            .checked_mul(channels)
+            .ok_or_else(|| Error::LimitExceeded("gainmap row stride overflow".to_string()))?;
+        let alloc_size = gm_row_stride
+            .checked_mul(gm_height as usize)
+            .ok_or_else(|| Error::LimitExceeded("gainmap allocation overflow".to_string()))?;
+        let gainmap_data = vec![0u8; alloc_size];
 
         Ok(Self {
             config,
@@ -968,11 +1000,15 @@ impl StreamEncoder {
         hdr_gamut: ColorPrimaries,
         sdr_gamut: ColorPrimaries,
     ) -> Result<Self> {
+        crate::types::validate_ultrahdr_dimensions(width, height)?;
         let scale = config.scale_factor.max(1) as u32;
         let gm_width = width.div_ceil(scale);
         let gm_height = height.div_ceil(scale);
+        crate::types::validate_ultrahdr_dimensions(gm_width, gm_height)?;
 
-        let row_floats = width as usize * 3; // RGB
+        let row_floats = (width as usize)
+            .checked_mul(3)
+            .ok_or_else(|| Error::LimitExceeded("encoder row stride overflow".to_string()))?;
         let buffer_capacity = (scale + 16).min(32);
 
         Ok(Self {
@@ -1540,6 +1576,53 @@ mod tests {
 
         assert!(decoder.is_complete());
         assert_eq!(decoder.sdr_rows_remaining(), 0);
+    }
+
+    // Regression: `can_process(0)` used to compute `0u32 - 1` in the
+    // `last_sdr_row` calculation, underflowing to `u32::MAX` (security
+    // audit 2026-05-06, finding H2). The function now early-returns
+    // for `num_sdr_rows == 0`.
+    #[test]
+    fn stream_decoder_can_process_zero_rows() {
+        let metadata = test_metadata();
+        let decoder =
+            StreamDecoder::new(metadata, 4, 4, 2, 2, 1, 4.0, ColorPrimaries::Bt709).unwrap();
+        // No gainmap data buffered yet, but `0` rows is a trivial "yes".
+        assert!(decoder.can_process(0));
+    }
+
+    // Regression: zero-dim gainmap and zero-dim SDR used to flow through
+    // `StreamDecoder::new` (security audit 2026-05-06, finding H1).
+    #[test]
+    fn stream_decoder_new_rejects_zero_dims() {
+        let metadata = test_metadata();
+        assert!(
+            StreamDecoder::new(metadata.clone(), 0, 4, 2, 2, 1, 4.0, ColorPrimaries::Bt709)
+                .is_err()
+        );
+        assert!(
+            StreamDecoder::new(metadata.clone(), 4, 4, 0, 2, 1, 4.0, ColorPrimaries::Bt709)
+                .is_err()
+        );
+        assert!(StreamDecoder::new(metadata, 4, 4, 2, 2, 5, 4.0, ColorPrimaries::Bt709).is_err());
+    }
+
+    #[test]
+    fn row_encoder_new_rejects_zero_dims() {
+        let config = GainMapConfig::default();
+        assert!(
+            RowEncoder::new(
+                0,
+                4,
+                config.clone(),
+                ColorPrimaries::Bt709,
+                ColorPrimaries::Bt709
+            )
+            .is_err()
+        );
+        assert!(
+            RowEncoder::new(4, 0, config, ColorPrimaries::Bt709, ColorPrimaries::Bt709).is_err()
+        );
     }
 
     #[test]

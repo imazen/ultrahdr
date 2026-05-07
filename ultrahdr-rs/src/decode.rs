@@ -182,7 +182,15 @@ impl<'a> Decoder<'a> {
             // First secondary image = gain map.
             let gm_entry = &mpf_entries[1];
             let gm_start = gm_entry.offset;
-            let gm_end = gm_start + gm_entry.size;
+            // `checked_add` defends against the 32-bit case where
+            // `offset + size` could wrap past `usize::MAX` and pass the
+            // `<= self.data.len()` bound check before slicing panics.
+            let gm_end = match gm_start.checked_add(gm_entry.size) {
+                Some(end) => end,
+                None => {
+                    return Err(Error::DecodeError("MPF entry offset+size overflows".into()));
+                }
+            };
             if gm_end <= self.data.len() {
                 self.gainmap_jpeg = Some((gm_start, gm_end));
                 self.is_ultrahdr = true;

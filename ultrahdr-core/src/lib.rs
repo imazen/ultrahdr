@@ -72,8 +72,9 @@ mod types;
 pub use types::{
     ColorPrimaries, Error, GainMap, GainMapEncodingFormat, PixelBuffer, PixelFormat, PixelSlice,
     PixelSliceMut, Result, TransferFunction, clone_pixel_buffer, descriptor_for, luminance,
-    new_pixel_buffer, pixel_buffer_from_vec, require_supported_format, validate_gainmap_metadata,
-    validate_ultrahdr_dimensions, validate_ultrahdr_image, validate_ultrahdr_slice,
+    new_pixel_buffer, pixel_buffer_from_vec, require_supported_format, validate_gainmap_magnitude,
+    validate_gainmap_metadata, validate_ultrahdr_dimensions, validate_ultrahdr_image,
+    validate_ultrahdr_slice,
 };
 
 // Re-export from zencodec (canonical gain map metadata types)
@@ -109,4 +110,38 @@ pub mod limits {
 
     /// Maximum gain map metadata array length.
     pub const MAX_METADATA_ARRAY_LENGTH: usize = 1024;
+
+    /// Maximum absolute magnitude for `min` / `max` gain values
+    /// (log2 domain). Real Ultra HDR metadata never approaches ±30; the
+    /// cap exists to keep `(value * ln2) as f32` finite and the resulting
+    /// `exp()` inside `[2^-30, 2^30]` ≈ `[1e-9, 1e9]` — wider than any
+    /// HDR display will ever support, narrower than `f32` overflow.
+    pub const MAX_LOG_GAIN_MAGNITUDE: f64 = 30.0;
+
+    /// Maximum absolute magnitude for `alternate_hdr_headroom` /
+    /// `base_hdr_headroom` (log2 domain). Same rationale as
+    /// [`MAX_LOG_GAIN_MAGNITUDE`].
+    pub const MAX_HEADROOM_MAGNITUDE: f64 = 30.0;
+
+    /// Maximum absolute magnitude for `base_offset` / `alternate_offset`
+    /// (linear domain). Spec values are in `[0, 1]`; the cap is generous
+    /// to allow for non-spec-compliant metadata while still rejecting
+    /// values that would push `(sdr + offset) / gain` to `±inf`.
+    pub const MAX_OFFSET_MAGNITUDE: f64 = 16.0;
+
+    /// Maximum gamma value for gain map decoding. Spec uses values
+    /// near 1.0; `gamma > 100` produces a near-step function and risks
+    /// `powf` precision loss.
+    pub const MAX_GAMMA: f64 = 100.0;
+
+    /// Minimum gamma value (must be > 0; cap below for the same
+    /// precision-loss reason).
+    pub const MIN_GAMMA: f64 = 0.01;
+
+    /// Maximum precomputed Shepard's IDW table entries
+    /// (`scale_x * scale_y`). Practical Ultra HDR ratios never exceed
+    /// 1:16 (so `scale ≤ 16`, `scale² ≤ 256`); the cap of 4096 is
+    /// generous and keeps the four LUTs (`full`, `no_right`,
+    /// `no_bottom`, `corner`) under 256 KB combined.
+    pub const MAX_SHEPARDS_TABLE_ENTRIES: u32 = 4096;
 }
