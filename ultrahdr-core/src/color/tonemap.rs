@@ -1048,9 +1048,7 @@ pub fn tonemap_to_sdr(
     match transfer {
         TransferFunction::Pq => tonemap_pq_to_sdr(encoded_rgb, config),
         TransferFunction::Hlg => tonemap_hlg_to_sdr(encoded_rgb, config),
-        TransferFunction::Linear => {
-            convert_gamut(encoded_rgb, config.source_gamut, config.target_gamut)
-        }
+        TransferFunction::Linear => tonemap_linear_hdr_to_sdr(encoded_rgb, config),
         _ => {
             let linear = [
                 srgb_eotf(encoded_rgb[0]),
@@ -1088,29 +1086,24 @@ pub fn tonemap_to_srgb8(
 ///
 /// Takes an HDR image in any supported format and produces RGBA8 output.
 pub fn tonemap_image_to_srgb8(img: &PixelBuffer, target_gamut: ColorPrimaries) -> Result<Vec<u8>> {
-    use crate::color::gamut::convert_gamut;
-
     let slice = img.as_slice();
     crate::types::validate_ultrahdr_slice(&slice)?;
 
     let img_gamut = slice.descriptor().primaries;
     let img_transfer = slice.descriptor().transfer();
-    let config = ToneMapConfig::default();
+    let config = ToneMapConfig {
+        source_gamut: img_gamut,
+        target_gamut,
+        ..ToneMapConfig::default()
+    };
     let width = slice.width() as usize;
     let height = slice.rows() as usize;
     let mut output = vec![0u8; width * height * 4];
 
     for y in 0..height {
         for x in 0..width {
-            let linear_rgb = get_linear_rgb(&slice, x as u32, y as u32);
-
-            let gamut_converted = if img_gamut != target_gamut {
-                convert_gamut(linear_rgb, img_gamut, target_gamut)
-            } else {
-                linear_rgb
-            };
-
-            let sdr = tonemap_to_sdr(gamut_converted, img_transfer, &config);
+            let rgb = get_rgb_sample(&slice, x as u32, y as u32);
+            let sdr = tonemap_to_sdr(rgb, img_transfer, &config);
 
             let srgb = [
                 (srgb_oetf(sdr[0]) * 255.0).round().clamp(0.0, 255.0) as u8,
@@ -1133,6 +1126,97 @@ pub fn tonemap_image_to_srgb8(img: &PixelBuffer, target_gamut: ColorPrimaries) -
 // Helper Functions
 // ============================================================================
 
+/// Tone map SDR-relative linear HDR RGB to SDR.
+///
+/// API 0 / libultrahdr half-float input uses linear samples where `1.0` is
+/// SDR white (203 nits) and full PQ headroom is `10000 / 203`.
+pub fn tonemap_linear_hdr_to_sdr(linear_rgb: [f32; 3], config: &ToneMapConfig) -> [f32; 3] {
+    let nits = [
+        linear_rgb[0] * config.target_peak_nits,
+        linear_rgb[1] * config.target_peak_nits,
+        linear_rgb[2] * config.target_peak_nits,
+    ];
+
+    let gamut_converted = convert_gamut(nits, config.source_gamut, config.target_gamut);
+    let lum = rgb_to_luminance(gamut_converted, config.target_gamut);
+
+    let lum_ratio = if lum > 0.0 {
+        let lum_normalized = lum / config.hdr_peak_nits;
+        let lum_tonemapped = filmic_narkowicz(lum_normalized * 4.0);
+        let target_lum = lum_tonemapped * config.target_peak_nits;
+        target_lum / lum
+    } else {
+        0.0
+    };
+
+    let tonemapped = [
+        gamut_converted[0] * lum_ratio / config.target_peak_nits,
+        gamut_converted[1] * lum_ratio / config.target_peak_nits,
+        gamut_converted[2] * lum_ratio / config.target_peak_nits,
+    ];
+
+    soft_clip_gamut(tonemapped)
+}
+
+/// Read raw normalized RGB samples without applying the descriptor transfer.
+fn get_rgb_sample(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
+    use crate::PixelFormat;
+
+    let desc = img.descriptor();
+    let format = desc.pixel_format();
+    let stride = img.stride();
+    let data = img.as_strided_bytes();
+    match format {
+        PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
+            let bpp = if format == PixelFormat::Rgba8 { 4 } else { 3 };
+            let idx = (y as usize) * stride + (x as usize) * bpp;
+            [
+                data[idx] as f32 / 255.0,
+                data[idx + 1] as f32 / 255.0,
+                data[idx + 2] as f32 / 255.0,
+            ]
+        }
+        PixelFormat::RgbaF32 => {
+            let idx = (y as usize) * stride + (x as usize) * 16;
+            [
+                f32::from_le_bytes(data[idx..idx + 4].try_into().unwrap()),
+                f32::from_le_bytes(data[idx + 4..idx + 8].try_into().unwrap()),
+                f32::from_le_bytes(data[idx + 8..idx + 12].try_into().unwrap()),
+            ]
+        }
+        PixelFormat::RgbaF16 | PixelFormat::RgbF16 => {
+            let bpp = if format == PixelFormat::RgbaF16 { 8 } else { 6 };
+            let idx = (y as usize) * stride + (x as usize) * bpp;
+            [
+                half::f16::from_le_bytes([data[idx], data[idx + 1]]).to_f32(),
+                half::f16::from_le_bytes([data[idx + 2], data[idx + 3]]).to_f32(),
+                half::f16::from_le_bytes([data[idx + 4], data[idx + 5]]).to_f32(),
+            ]
+        }
+        PixelFormat::Gray8 => {
+            let idx = (y as usize) * stride + x as usize;
+            let v = data[idx] as f32 / 255.0;
+            [v, v, v]
+        }
+        _ => [0.0, 0.0, 0.0],
+    }
+}
+
+#[inline]
+fn apply_transfer_to_linear(rgb: [f32; 3], transfer: TransferFunction) -> [f32; 3] {
+    match transfer {
+        TransferFunction::Linear => rgb,
+        TransferFunction::Srgb => [srgb_eotf(rgb[0]), srgb_eotf(rgb[1]), srgb_eotf(rgb[2])],
+        TransferFunction::Pq => [pq_eotf(rgb[0]), pq_eotf(rgb[1]), pq_eotf(rgb[2])],
+        TransferFunction::Hlg => [
+            hlg_eotf(rgb[0], 1000.0) / 1000.0,
+            hlg_eotf(rgb[1], 1000.0) / 1000.0,
+            hlg_eotf(rgb[2], 1000.0) / 1000.0,
+        ],
+        _ => rgb,
+    }
+}
+
 /// Get linear RGB from a pixel slice, honoring its transfer function.
 fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
     use crate::PixelFormat;
@@ -1149,11 +1233,7 @@ fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
             let r = data[idx] as f32 / 255.0;
             let g = data[idx + 1] as f32 / 255.0;
             let b = data[idx + 2] as f32 / 255.0;
-            if transfer == TransferFunction::Srgb {
-                [srgb_eotf(r), srgb_eotf(g), srgb_eotf(b)]
-            } else {
-                [r, g, b]
-            }
+            apply_transfer_to_linear([r, g, b], transfer)
         }
         PixelFormat::RgbaF32 => {
             let idx = (y as usize) * stride + (x as usize) * 16;
@@ -1162,9 +1242,23 @@ fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
                 f32::from_le_bytes([data[idx + 4], data[idx + 5], data[idx + 6], data[idx + 7]]);
             let b =
                 f32::from_le_bytes([data[idx + 8], data[idx + 9], data[idx + 10], data[idx + 11]]);
-            [r, g, b]
+            apply_transfer_to_linear([r, g, b], transfer)
         }
-        _ => [0.5, 0.5, 0.5],
+        PixelFormat::RgbaF16 | PixelFormat::RgbF16 => {
+            let bpp = if format == PixelFormat::RgbaF16 { 8 } else { 6 };
+            let idx = (y as usize) * stride + (x as usize) * bpp;
+            let r = half::f16::from_le_bytes([data[idx], data[idx + 1]]).to_f32();
+            let g = half::f16::from_le_bytes([data[idx + 2], data[idx + 3]]).to_f32();
+            let b = half::f16::from_le_bytes([data[idx + 4], data[idx + 5]]).to_f32();
+            apply_transfer_to_linear([r, g, b], transfer)
+        }
+        PixelFormat::Gray8 => {
+            let idx = y as usize * stride + x as usize;
+            let v = data[idx] as f32 / 255.0;
+            let linear = apply_transfer_to_linear([v, v, v], transfer);
+            [linear[0], linear[1], linear[2]]
+        }
+        _ => [0.0, 0.0, 0.0],
     }
 }
 
@@ -1652,6 +1746,68 @@ mod tests {
     }
 
     #[test]
+    fn test_linear_hdr_tonemap_compresses_highlights() {
+        let config = ToneMapConfig::default();
+        let black = tonemap_linear_hdr_to_sdr([0.0, 0.0, 0.0], &config);
+        let white = tonemap_linear_hdr_to_sdr([1.0, 1.0, 1.0], &config);
+        let peak = tonemap_linear_hdr_to_sdr([10000.0 / 203.0; 3], &config);
+
+        assert!(black[0] <= 0.001, "black should stay black, got {:?}", black);
+        assert!(
+            white[0] > black[0] + 0.01,
+            "SDR white should be brighter than black: {:?} vs {:?}",
+            white,
+            black
+        );
+        assert!(
+            peak[0] >= white[0] && peak[0] <= 1.0,
+            "full HDR headroom should compress into SDR range: {:?}",
+            peak
+        );
+    }
+
+    #[test]
+    fn test_tonemap_image_rgba_f16_linear_gradient_is_not_flat() {
+        let values = [0.0_f32, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0];
+        let img = rgba_f16_linear_test_image(&values);
+        let out = tonemap_image_to_srgb8(&img, ColorPrimaries::Bt709).unwrap();
+
+        let reds: Vec<u8> = out.chunks_exact(4).map(|px| px[0]).collect();
+        assert!(
+            reds.windows(2).all(|w| w[1] >= w[0]),
+            "f16 linear gradient should stay monotonic, got {:?}",
+            reds
+        );
+        let unique = reds
+            .iter()
+            .copied()
+            .collect::<alloc::collections::BTreeSet<_>>();
+        assert!(
+            unique.len() >= 5,
+            "f16 linear tonemap should not collapse to flat gray, got {:?}",
+            reds
+        );
+    }
+
+    #[test]
+    fn test_tonemap_image_rgba_f16_matches_rgba_f32() {
+        let values = [0.0_f32, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0];
+        let f16_img = rgba_f16_linear_test_image(&values);
+        let f32_img = rgba_f32_linear_test_image(&values);
+
+        let f16_out = tonemap_image_to_srgb8(&f16_img, ColorPrimaries::Bt709).unwrap();
+        let f32_out = tonemap_image_to_srgb8(&f32_img, ColorPrimaries::Bt709).unwrap();
+
+        for (i, (a, b)) in f16_out.iter().zip(f32_out.iter()).enumerate() {
+            let delta = a.abs_diff(*b);
+            assert!(
+                delta <= 2,
+                "f16/f32 tonemap diverged at byte {i}: {a} vs {b}"
+            );
+        }
+    }
+
+    #[test]
     fn test_scale_gainmap_identity() {
         let mut gm = GainMap::new(4, 4).unwrap();
         for i in 0..16 {
@@ -2013,6 +2169,47 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn rgba_f16_linear_test_image(values: &[f32]) -> PixelBuffer {
+        let mut data = Vec::with_capacity(values.len() * 8);
+        for &value in values {
+            let v = half::f16::from_f32(value).to_le_bytes();
+            data.extend_from_slice(&v);
+            data.extend_from_slice(&v);
+            data.extend_from_slice(&v);
+            data.extend_from_slice(&half::f16::ONE.to_le_bytes());
+        }
+
+        crate::types::pixel_buffer_from_vec(
+            data,
+            values.len() as u32,
+            1,
+            crate::PixelFormat::RgbaF16,
+            ColorPrimaries::Bt709,
+            TransferFunction::Linear,
+        )
+        .unwrap()
+    }
+
+    fn rgba_f32_linear_test_image(values: &[f32]) -> PixelBuffer {
+        let mut data = Vec::with_capacity(values.len() * 16);
+        for &value in values {
+            data.extend_from_slice(&value.to_le_bytes());
+            data.extend_from_slice(&value.to_le_bytes());
+            data.extend_from_slice(&value.to_le_bytes());
+            data.extend_from_slice(&1.0f32.to_le_bytes());
+        }
+
+        crate::types::pixel_buffer_from_vec(
+            data,
+            values.len() as u32,
+            1,
+            crate::PixelFormat::RgbaF32,
+            ColorPrimaries::Bt709,
+            TransferFunction::Linear,
+        )
+        .unwrap()
     }
 
     // ========================================================================

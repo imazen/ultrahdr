@@ -41,6 +41,34 @@ pub fn create_hdr_gradient(width: u32, height: u32, peak_brightness: f32) -> Pix
     .unwrap()
 }
 
+/// Create an HDR gradient image in RGBA half-float linear format.
+pub fn create_hdr_f16_gradient(width: u32, height: u32, peak_brightness: f32) -> PixelBuffer {
+    let mut data = Vec::with_capacity((width * height * 8) as usize);
+
+    for _y in 0..height {
+        for x in 0..width {
+            let t = x as f32 / (width - 1).max(1) as f32;
+            let value = half::f16::from_f32(t * peak_brightness).to_le_bytes();
+            let alpha = half::f16::ONE.to_le_bytes();
+
+            data.extend_from_slice(&value);
+            data.extend_from_slice(&value);
+            data.extend_from_slice(&value);
+            data.extend_from_slice(&alpha);
+        }
+    }
+
+    pixel_buffer_from_vec(
+        data,
+        width,
+        height,
+        PixelFormat::RgbaF16,
+        ColorPrimaries::Bt709,
+        TransferFunction::Linear,
+    )
+    .unwrap()
+}
+
 /// Create an SDR gradient image for testing.
 pub fn create_sdr_gradient(width: u32, height: u32) -> PixelBuffer {
     let mut data = Vec::with_capacity((width * height * 4) as usize);

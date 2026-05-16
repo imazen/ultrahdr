@@ -5,8 +5,8 @@
 mod common;
 
 use common::{
-    create_hdr_checkerboard, create_hdr_gradient, create_hdr_solid, create_sdr_checkerboard,
-    create_sdr_gradient, create_sdr_solid,
+    create_hdr_checkerboard, create_hdr_f16_gradient, create_hdr_gradient, create_hdr_solid,
+    create_sdr_checkerboard, create_sdr_gradient, create_sdr_solid,
 };
 use ultrahdr_rs::{Decoder, Encoder, clone_pixel_buffer};
 
@@ -25,6 +25,29 @@ fn test_encode_hdr_only() {
     // Verify it's a valid Ultra HDR
     let decoder = Decoder::new(&encoded).unwrap();
     assert!(decoder.is_ultrahdr(), "Output should be Ultra HDR");
+}
+
+/// Regression: HDR-only RGBA-F16 linear input used to produce a flat SDR base.
+#[test]
+fn test_encode_hdr_only_f16_linear_primary_is_not_flat() {
+    let hdr = create_hdr_f16_gradient(64, 8, 10000.0 / 203.0);
+
+    let mut encoder = Encoder::new();
+    encoder.set_hdr_image(hdr);
+    let encoded = encoder.encode().unwrap();
+
+    let decoder = Decoder::new(&encoded).unwrap();
+    let sdr = decoder.decode_sdr().unwrap();
+    let sdr_slice = sdr.as_slice();
+    let bytes = sdr_slice.as_strided_bytes();
+    let mut reds: Vec<u8> = bytes.chunks_exact(4).map(|px| px[0]).collect();
+    reds.sort_unstable();
+    reds.dedup();
+
+    assert!(
+        reds.len() >= 8,
+        "HDR-only f16 linear primary should retain image variation, got {reds:?}"
+    );
 }
 
 /// Test encoding with HDR + SDR input.
