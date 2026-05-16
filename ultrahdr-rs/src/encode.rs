@@ -329,6 +329,14 @@ impl Encoder {
         self
     }
 
+    fn metadata_format(&self) -> GainMapEncodingFormat {
+        if self.use_iso_metadata {
+            GainMapEncodingFormat::Both
+        } else {
+            GainMapEncodingFormat::Xmp
+        }
+    }
+
     /// Encode to Ultra HDR JPEG.
     pub fn encode(&self) -> Result<Vec<u8>> {
         // Fast path: if we have raw gain map JPEG bytes, skip gain map processing
@@ -358,7 +366,13 @@ impl Encoder {
                 ));
             };
 
-            return encode_ultrahdr(&base_jpeg, gainmap_jpeg, metadata, gamut);
+            return encode_ultrahdr_with_format(
+                &base_jpeg,
+                gainmap_jpeg,
+                metadata,
+                gamut,
+                self.metadata_format(),
+            );
         }
 
         // Validate inputs
@@ -414,7 +428,13 @@ impl Encoder {
         let gainmap_jpeg = self.encode_gainmap_jpeg(&gainmap)?;
 
         let gamut = sdr.descriptor().primaries;
-        encode_ultrahdr(&base_jpeg, &gainmap_jpeg, &metadata, gamut)
+        encode_ultrahdr_with_format(
+            &base_jpeg,
+            &gainmap_jpeg,
+            &metadata,
+            gamut,
+            self.metadata_format(),
+        )
     }
 
     /// Encode to Ultra HDR JPEG from pre-set JPEGs (production API).
@@ -434,7 +454,13 @@ impl Encoder {
             .as_ref()
             .ok_or_else(|| Error::EncodeError("Metadata not set".into()))?;
 
-        encode_ultrahdr(base_jpeg, gainmap_jpeg, metadata, ColorPrimaries::Bt709)
+        encode_ultrahdr_with_format(
+            base_jpeg,
+            gainmap_jpeg,
+            metadata,
+            ColorPrimaries::Bt709,
+            self.metadata_format(),
+        )
     }
 
     /// Compute a new gain map.

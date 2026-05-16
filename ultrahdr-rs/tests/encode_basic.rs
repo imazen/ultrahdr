@@ -233,9 +233,27 @@ fn test_encode_iso_metadata_toggle() {
         .set_use_iso_metadata(false);
     let without_iso = encoder.encode().unwrap();
 
+    let iso_urn = zencodec::gainmap::ISO_21496_1_URN;
+    assert!(
+        with_iso
+            .windows(iso_urn.len())
+            .any(|window| window == iso_urn),
+        "ISO metadata should be present when enabled"
+    );
+    assert!(
+        !without_iso
+            .windows(iso_urn.len())
+            .any(|window| window == iso_urn),
+        "ISO metadata should be absent when disabled"
+    );
+
     // Both should be valid Ultra HDR
-    assert!(Decoder::new(&with_iso).unwrap().is_ultrahdr());
-    assert!(Decoder::new(&without_iso).unwrap().is_ultrahdr());
+    let with_iso_decoder = Decoder::new(&with_iso).unwrap();
+    let without_iso_decoder = Decoder::new(&without_iso).unwrap();
+    assert!(with_iso_decoder.is_ultrahdr());
+    assert!(without_iso_decoder.is_ultrahdr());
+    assert!(with_iso_decoder.metadata().is_some());
+    assert!(without_iso_decoder.metadata().is_some());
 }
 
 /// Test that encoding without HDR image fails.
