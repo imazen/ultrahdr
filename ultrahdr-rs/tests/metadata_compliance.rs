@@ -5,7 +5,20 @@
 mod common;
 
 use common::{create_hdr_gradient, create_sdr_gradient, create_test_metadata};
-use ultrahdr_rs::{Decoder, Encoder, GainMapMetadata};
+use ultrahdr_rs::{
+    ColorPrimaries, Decoder, Encoder, GainMapEncodingFormat, GainMapMetadata,
+    encode_ultrahdr_with_format,
+};
+
+/// Simplest possible JPEG for structure tests.
+fn stub_jpeg() -> Vec<u8> {
+    vec![
+        0xFF, 0xD8, // SOI
+        0xFF, 0xE0, 0x00, 0x07, // APP0, length 7
+        b'J', b'F', b'I', b'F', 0x00, // JFIF
+        0xFF, 0xD9, // EOI
+    ]
+}
 
 // ============================================================================
 // Phase 4.1: XMP Serialization Tests
@@ -293,6 +306,68 @@ fn test_iso21496_rejects_invalid() {
         ultrahdr_rs::Iso21496Format::AvifTmap,
     );
     assert!(result.is_err());
+}
+
+/// Test ISO-only Ultra HDR parses gain-map metadata without XMP gain-map metadata.
+#[test]
+fn test_decoder_reads_iso21496_metadata_when_xmp_absent() {
+    let metadata = create_test_metadata(4.0);
+    let encoded = encode_ultrahdr_with_format(
+        &stub_jpeg(),
+        &stub_jpeg(),
+        &metadata,
+        ColorPrimaries::Bt709,
+        GainMapEncodingFormat::Iso21496,
+    )
+    .unwrap();
+
+    let boundaries = zenjpeg::container::marker::find_jpeg_boundaries(&encoded);
+    assert!(
+        boundaries.len() >= 2,
+        "fixture should contain secondary JPEG"
+    );
+    let gainmap_text = String::from_utf8_lossy(&encoded[boundaries[1].clone()]);
+    assert!(
+        !gainmap_text.contains("hdrgm:"),
+        "ISO-only gain map must not contain hdrgm numeric XMP metadata"
+    );
+
+    let iso_urn = zencodec::gainmap::ISO_21496_1_URN;
+    assert!(
+        encoded
+            .windows(iso_urn.len())
+            .any(|window| window == iso_urn),
+        "ISO-only fixture should contain ISO 21496-1 APP2 metadata"
+    );
+
+    let decoder = Decoder::new(&encoded).unwrap();
+    assert!(decoder.is_ultrahdr());
+
+    let parsed = decoder
+        .metadata()
+        .expect("ISO-only metadata should be parsed");
+    assert!(
+        (parsed.channels[0].max - metadata.channels[0].max).abs() < 0.02,
+        "max boost mismatch: {} vs {}",
+        parsed.channels[0].max,
+        metadata.channels[0].max
+    );
+    assert!(
+        (parsed.channels[0].min - metadata.channels[0].min).abs() < 0.02,
+        "min boost mismatch: {} vs {}",
+        parsed.channels[0].min,
+        metadata.channels[0].min
+    );
+    assert!(
+        (parsed.alternate_hdr_headroom - metadata.alternate_hdr_headroom).abs() < 0.02,
+        "HDR headroom mismatch: {} vs {}",
+        parsed.alternate_hdr_headroom,
+        metadata.alternate_hdr_headroom
+    );
+    assert_eq!(
+        parsed.use_base_color_space, metadata.use_base_color_space,
+        "use_base_color_space mismatch"
+    );
 }
 
 // ============================================================================

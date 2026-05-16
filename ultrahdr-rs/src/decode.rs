@@ -2,9 +2,10 @@
 
 use ultrahdr_core::gainmap::apply::{HdrOutputFormat, apply_gainmap};
 use ultrahdr_core::{
-    ColorPrimaries, Error, GainMap, GainMapMetadata, PixelBuffer, PixelFormat, Result,
-    TransferFunction, Unstoppable, pixel_buffer_from_vec,
+    ColorPrimaries, Error, GainMap, GainMapMetadata, Iso21496Format, PixelBuffer, PixelFormat,
+    Result, TransferFunction, Unstoppable, parse_iso21496_fmt, pixel_buffer_from_vec,
 };
+use zencodec::gainmap::{ISO_21496_1_PRIMARY_APP2_BODY, ISO_21496_1_URN};
 use zenjpeg::container::marker::find_jpeg_boundaries;
 use zenjpeg::container::xmp::parse_xmp;
 
@@ -163,6 +164,12 @@ impl<'a> Decoder<'a> {
                 self.metadata = Some(metadata);
             }
         }
+        if self.metadata.is_none()
+            && let Some(metadata) = find_iso21496_metadata_in_segments(&segments)
+        {
+            self.is_ultrahdr = true;
+            self.metadata = Some(metadata);
+        }
 
         // Try to parse MPF to find gain map.
         let mpf_entries = container::parse_mpf(self.data)?;
@@ -205,6 +212,10 @@ impl<'a> Decoder<'a> {
                         && let Ok((gm_metadata, _)) = parse_xmp(&gm_xmp)
                     {
                         self.metadata = Some(gm_metadata);
+                    } else if let Some(gm_metadata) =
+                        find_iso21496_metadata_in_segments(&gm_segments)
+                    {
+                        self.metadata = Some(gm_metadata);
                     }
                 }
             }
@@ -225,6 +236,10 @@ impl<'a> Decoder<'a> {
                     if let Some(gm_xmp) = find_xmp_in_segments(&gm_segments)
                         && gm_xmp.contains("hdrgm:")
                         && let Ok((gm_metadata, _)) = parse_xmp(&gm_xmp)
+                    {
+                        self.metadata = Some(gm_metadata);
+                    } else if let Some(gm_metadata) =
+                        find_iso21496_metadata_in_segments(&gm_segments)
                     {
                         self.metadata = Some(gm_metadata);
                     }
@@ -250,6 +265,22 @@ impl<'a> Decoder<'a> {
         let sdr = self.decode_sdr()?;
         Ok((sdr.width(), sdr.height()))
     }
+}
+
+/// Find ISO 21496-1 gain-map metadata in JPEG APP2 segments.
+///
+/// The primary JPEG can contain a version-only ISO marker with the same URN.
+/// That marker advertises ISO awareness, but has no gain-map payload, so it is
+/// intentionally skipped here.
+fn find_iso21496_metadata_in_segments(segments: &[AppSegment]) -> Option<GainMapMetadata> {
+    segments
+        .iter()
+        .filter(|segment| segment.marker_num == 2)
+        .filter(|segment| segment.data.starts_with(ISO_21496_1_URN))
+        .filter(|segment| segment.data.as_slice() != ISO_21496_1_PRIMARY_APP2_BODY)
+        .find_map(|segment| {
+            parse_iso21496_fmt(&segment.data, Iso21496Format::JpegApp2BodyWithUrn).ok()
+        })
 }
 
 /// Find XMP data in pre-scanned APP segments.
