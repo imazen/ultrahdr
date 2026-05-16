@@ -132,6 +132,7 @@ pub fn compute_gainmap_slice(
     // Clamp actual values to configured range
     actual_min_boost = actual_min_boost.max(config.min_boost);
     actual_max_boost = actual_max_boost.min(config.max_boost);
+    actual_min_boost = actual_min_boost.min(actual_max_boost);
 
     // Build metadata (convert linear boost values to log2 domain)
     let metadata = crate::types::metadata_from_arrays(
@@ -741,6 +742,26 @@ mod tests {
             avg > 128.0,
             "bright HDR should produce high gainmap values, got average {}",
             avg
+        );
+    }
+
+    #[test]
+    fn test_compute_gainmap_metadata_stays_valid_when_all_gains_clip_high() {
+        let hdr = make_hdr_8x8(100.0, 100.0, 100.0);
+        let sdr = make_sdr_8x8(255, 255, 255);
+        let config = GainMapConfig {
+            max_boost: 10000.0 / 203.0,
+            ..Default::default()
+        };
+
+        let (_gainmap, metadata) =
+            compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
+
+        assert!(
+            metadata.channels[0].min <= metadata.channels[0].max,
+            "metadata min must not exceed max: {} > {}",
+            metadata.channels[0].min,
+            metadata.channels[0].max
         );
     }
 

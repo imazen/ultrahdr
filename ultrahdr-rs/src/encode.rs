@@ -3,7 +3,10 @@
 use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8;
 
 use ultrahdr_core::gainmap::compute::{GainMapConfig, compute_gainmap};
-use ultrahdr_core::{ColorPrimaries, Error, GainMapEncodingFormat, GainMapMetadata, Result};
+use ultrahdr_core::{
+    ColorPrimaries, Error, GainMapEncodingFormat, GainMapMetadata, Result,
+    validate_gainmap_metadata,
+};
 
 use ultrahdr_core::{PixelFormat, TransferFunction, Unstoppable};
 
@@ -103,6 +106,8 @@ pub fn encode_ultrahdr_with_format(
     gamut: ColorPrimaries,
     format: GainMapEncodingFormat,
 ) -> Result<Vec<u8>> {
+    validate_gainmap_metadata(metadata)?;
+
     // Build metadata markers for the gain map JPEG (XMP and/or ISO 21496-1).
     let metadata_markers = build_gainmap_metadata_markers(metadata, format);
 
@@ -335,12 +340,15 @@ impl Encoder {
         if let (Some(gainmap_jpeg), Some(metadata)) =
             (&self.existing_gainmap_jpeg, &self.existing_metadata)
         {
+            validate_gainmap_metadata(metadata)?;
+
             let (base_jpeg, gamut) = if let Some(ref compressed) = self.compressed_sdr {
                 (compressed.clone(), ColorPrimaries::Bt709)
             } else if let Some(ref sdr_img) = self.sdr_image {
                 let gamut = sdr_img.descriptor().primaries;
                 (self.encode_base_jpeg(sdr_img)?, gamut)
             } else if let Some(ref hdr) = self.hdr_image {
+                validate_hdr_input_for_encode(hdr)?;
                 let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorPrimaries::Bt709)?;
                 let sdr = pixel_buffer_from_vec(
                     sdr_pixels,
@@ -366,6 +374,7 @@ impl Encoder {
             .hdr_image
             .as_ref()
             .ok_or_else(|| Error::EncodeError("HDR image is required".into()))?;
+        validate_hdr_input_for_encode(hdr)?;
 
         // Generate or use provided SDR
         let sdr: PixelBuffer = if let Some(ref sdr_img) = self.sdr_image {
@@ -395,6 +404,7 @@ impl Encoder {
                     && gm.height <= expected_height + 1;
 
                 if width_ok && height_ok {
+                    validate_gainmap_metadata(meta)?;
                     (gm.clone(), meta.clone())
                 } else {
                     self.compute_new_gainmap(hdr, &sdr)?
@@ -433,6 +443,7 @@ impl Encoder {
             .existing_metadata
             .as_ref()
             .ok_or_else(|| Error::EncodeError("Metadata not set".into()))?;
+        validate_gainmap_metadata(metadata)?;
 
         encode_ultrahdr(base_jpeg, gainmap_jpeg, metadata, ColorPrimaries::Bt709)
     }
@@ -443,12 +454,16 @@ impl Encoder {
         hdr: &PixelBuffer,
         sdr: &PixelBuffer,
     ) -> Result<(GainMap, GainMapMetadata)> {
+        let full_hdr10_boost = 10000.0 / 203.0;
+        let max_boost = (self.target_display_peak / 203.0)
+            .max(full_hdr10_boost)
+            .max(self.gain_map_min);
         let config = GainMapConfig {
             scale_factor: self.gainmap_scale,
             gamma: 1.0,
             multi_channel: false,
             min_boost: self.gain_map_min,
-            max_boost: self.target_display_peak / 203.0,
+            max_boost,
             base_offset: 1.0 / 64.0,
             alternate_offset: 1.0 / 64.0,
             base_hdr_headroom: 1.0, // linear: 1.0 = no boost → log2 = 0.0
@@ -503,6 +518,23 @@ impl Encoder {
             .map_err(|e| Error::JpegEncode(e.to_string()))?;
         enc.finish().map_err(|e| Error::JpegEncode(e.to_string()))
     }
+}
+
+fn validate_hdr_input_for_encode(hdr: &PixelBuffer) -> Result<()> {
+    let desc = hdr.descriptor();
+    let format = desc.pixel_format();
+    let transfer = desc.transfer();
+
+    if matches!(format, PixelFormat::RgbaF16 | PixelFormat::RgbF16)
+        && transfer != TransferFunction::Linear
+    {
+        return Err(Error::EncodeError(format!(
+            "invalid HDR input transfer {:?} for {:?}; half-float HDR input requires TransferFunction::Linear",
+            transfer, format
+        )));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

@@ -5,10 +5,11 @@
 mod common;
 
 use common::{
-    create_hdr_checkerboard, create_hdr_gradient, create_hdr_solid, create_sdr_checkerboard,
-    create_sdr_gradient, create_sdr_solid,
+    create_hdr_checkerboard, create_hdr_f16_gradient_with_transfer, create_hdr_gradient,
+    create_hdr_solid, create_sdr_checkerboard, create_sdr_gradient, create_sdr_solid,
+    create_test_metadata,
 };
-use ultrahdr_rs::{Decoder, Encoder, clone_pixel_buffer};
+use ultrahdr_rs::{Decoder, Encoder, GainMap, TransferFunction, clone_pixel_buffer};
 
 /// Test encoding with HDR-only input (auto-generates SDR).
 #[test]
@@ -25,6 +26,59 @@ fn test_encode_hdr_only() {
     // Verify it's a valid Ultra HDR
     let decoder = Decoder::new(&encoded).unwrap();
     assert!(decoder.is_ultrahdr(), "Output should be Ultra HDR");
+}
+
+/// libultrahdr API 0 accepts RGBA half-float HDR input only with Linear transfer.
+#[test]
+fn test_encode_accepts_rgba_f16_linear_hdr() {
+    let hdr = create_hdr_f16_gradient_with_transfer(64, 64, 4.0, TransferFunction::Linear);
+    let sdr = create_sdr_gradient(64, 64);
+
+    let mut encoder = Encoder::new();
+    encoder.set_hdr_image(hdr).set_sdr_image(sdr);
+
+    let encoded = encoder.encode().unwrap();
+    assert!(Decoder::new(&encoded).unwrap().is_ultrahdr());
+}
+
+/// libultrahdr API 0 rejects RGBA half-float paired with PQ/HLG transfer.
+#[test]
+fn test_encode_rejects_rgba_f16_pq_or_hlg_hdr() {
+    for transfer in [TransferFunction::Pq, TransferFunction::Hlg] {
+        let hdr = create_hdr_f16_gradient_with_transfer(64, 64, 1.0, transfer);
+        let sdr = create_sdr_gradient(64, 64);
+
+        let mut encoder = Encoder::new();
+        encoder.set_hdr_image(hdr).set_sdr_image(sdr);
+
+        let err = encoder.encode().unwrap_err().to_string();
+        assert!(
+            err.contains("half-float HDR input requires TransferFunction::Linear"),
+            "unexpected error for {transfer:?}: {err}"
+        );
+    }
+}
+
+/// Invalid existing metadata must not be serialized into an UltraHDR output.
+#[test]
+fn test_encode_rejects_invalid_existing_gainmap_metadata() {
+    let hdr = create_hdr_gradient(64, 64, 4.0);
+    let sdr = create_sdr_gradient(64, 64);
+    let gainmap = GainMap::new(16, 16).unwrap();
+    let mut metadata = create_test_metadata(4.0);
+    metadata.channels[0].max = -1.0;
+
+    let mut encoder = Encoder::new();
+    encoder
+        .set_hdr_image(hdr)
+        .set_sdr_image(sdr)
+        .set_existing_gainmap(gainmap, metadata);
+
+    let err = encoder.encode().unwrap_err().to_string();
+    assert!(
+        err.contains("min must be <= max") || err.contains("invalid metadata"),
+        "unexpected error: {err}"
+    );
 }
 
 /// Test encoding with HDR + SDR input.
