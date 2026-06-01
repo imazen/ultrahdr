@@ -22,6 +22,7 @@ exclude = [
     "justfile",
     "Cargo.toml.original.txt",
     "fuzz/",
+    "tests/",
 ]
 
 [dependencies]
@@ -51,7 +52,7 @@ enough = { workspace = true }
 # improvements we haven't tried to upstream yet. Imported as
 # `libultrahdr_rs` (hyphen → underscore) to match the fork's repo name
 # and leave a clear audit trail in test code.
-libultrahdr_rs = { package = "ultrahdr", git = "https://github.com/imazen/libultrahdr-rs.git", rev = "b820575b0029bfe6684c8d14fe66a655016e9c72", optional = true }
+libultrahdr_rs = { package = "ultrahdr", version = "0.1.3", git = "https://github.com/imazen/libultrahdr-rs.git", rev = "b820575b0029bfe6684c8d14fe66a655016e9c72", optional = true }
 
 [dev-dependencies]
 # Testing (WASM-compatible)

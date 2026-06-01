@@ -16,6 +16,9 @@ own section below.
 <!-- Breaking changes queued for the next major (or minor for 0.x) release.
      Batch them here instead of shipping piecemeal. -->
 
+#### Changed
+- Exclude `tests/` and `benches/` from published package to slim the tarball; local `cargo test`/`cargo bench` are unaffected (target declarations kept intact)
+
 ### [0.5.0] - 2026-04-26
 
 #### Breaking changes
@@ -215,6 +218,9 @@ own section below.
 
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release. -->
+
+#### Changed
+- Exclude `tests/` from published package; add `version = "0.1.3"` to the `libultrahdr_rs` git-only optional dep (required by `cargo package`)
 - `Encoder::set_hdr_image` / `set_sdr_image` now take `PixelBuffer` (from
   zenpixels) instead of the former `RawImage`. `Decoder::decode_sdr` /
   `decode_hdr` / `decode_hdr_with_format` return `PixelBuffer`. See the
