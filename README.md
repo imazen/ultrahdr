@@ -2,7 +2,7 @@
 
 Pure-Rust encoder and decoder for [Ultra HDR](https://developer.android.com/media/platform/hdr-image-format) gain map JPEGs. An Ultra HDR file is a normal SDR JPEG with a second JPEG (the gain map) and a small block of metadata stapled onto it; HDR-capable readers reconstruct an HDR image, everything else sees the SDR base. This workspace ships the gain map math (`ultrahdr-core`) and a JPEG-bundled encoder/decoder (`ultrahdr-rs`) built on [zenjpeg](https://github.com/imazen/zenjpeg).
 
-> **Active development through April 2026.** The public API is still being shaped. If you are integrating against this today, expect renames and re-exports between point releases — pin patch versions and read `CHANGELOG.md` before upgrading. If you'd rather not chase breakage, come back after the May 2026 stabilization pass when the surface settles. Semver 0.x rules apply: breaking changes ride a minor bump.
+> **Pre-1.0, still being shaped.** Expect renames and re-exports between point releases — for example, `ultrahdr_core::metadata` is being retired in favor of `zenjpeg::container` and `zencodec::gainmap` ([#8](https://github.com/imazen/ultrahdr/issues/8)), and the streaming types are `#[doc(hidden)]` pending removal. Pin patch versions and read `CHANGELOG.md` before upgrading. Semver 0.x rules apply: breaking changes ride a minor bump.
 
 ## Acknowledgments
 
@@ -114,7 +114,7 @@ For finer control over the SDR generation, build the SDR yourself with `ultrahdr
 
 ### Apply a gain map directly (math only)
 
-If you've already parsed an Ultra HDR JPEG (or are pulling a gain map out of an AVIF / JXL container), `ultrahdr_core::apply_gainmap` does the per-pixel reconstruction. No JPEG codec involved.
+If you've already parsed an Ultra HDR JPEG (or are pulling a gain map out of an AVIF / JXL container), `ultrahdr_core::gainmap::apply_gainmap` does the per-pixel reconstruction. No JPEG codec involved.
 
 ```rust
 use ultrahdr_core::{
