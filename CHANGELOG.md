@@ -16,6 +16,10 @@ own section below.
 <!-- Breaking changes queued for the next major (or minor for 0.x) release.
      Batch them here instead of shipping piecemeal. -->
 
+#### Added
+- `metadata::apple` — Apple iOS MakerNote HDR headroom parser. Extracts `0x21 HDRHeadroom`, `0x30 HDRGain`, `0x0a HDRImageType` (per exiftool `Apple.pm`) from EXIF TIFF bytes, computes HDR headroom via the Apple stops formula, and maps to `GainMapMetadata` (`from_apple_headroom`). Validated against 49 real iPhone 8/13/16/17 HEIC captures (parsed values match exiftool, tol 1e-3). `no_std` + `alloc`, zero new deps. Public API: `parse_exif_for_apple_hdr`, `parse_apple_makernote`, `from_apple_headroom`, `AppleHdrInfo`.
+- `metadata::bplist` — minimal `bplist00` (Apple binary property list) reader for bplist-encoded MakerNote values (`RunTime`, AE state, …). Depth-bounded against cyclic refs. Public API: `parse_bplist`, `PlistValue`.
+
 #### Changed
 - Exclude `tests/` and `benches/` from published package to slim the tarball; local `cargo test`/`cargo bench` are unaffected (target declarations kept intact)
 

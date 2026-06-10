@@ -66,6 +66,7 @@ extern crate alloc;
 
 pub mod color;
 pub mod gainmap;
+pub mod metadata;
 mod types;
 
 // Re-export core types (local)
@@ -87,6 +88,11 @@ pub use enough::{Stop, StopReason, Unstoppable};
 
 // Re-export gain map types
 pub use gainmap::{apply::HdrOutputFormat, compute::GainMapConfig, compute::compute_gain_row};
+
+// Re-export Apple MakerNote HDR extraction (HEIC/JPEG gain-map headroom)
+pub use metadata::apple::{
+    AppleHdrInfo, from_apple_headroom, parse_apple_makernote, parse_exif_for_apple_hdr,
+};
 
 // Splitter API lives in zentone — re-export at crate root for back-compat
 // with `ultrahdr_core::LumaToneMap` etc. Gated behind the `tonemap` feature
