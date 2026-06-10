@@ -20,9 +20,18 @@ clippy:
 fmt-check:
     cargo fmt --all --check
 
-# Format code
+# Format code (also regenerates the public-API surface snapshots)
 fmt:
     cargo fmt --all
+    cargo test -p ultrahdr-core --test public_api_doc
+
+# Regenerate the public-API surface snapshots (docs/public-api/*.txt) only
+api-doc:
+    cargo test -p ultrahdr-core --test public_api_doc
+
+# Verify the committed public-API snapshots are current (what CI runs)
+api-doc-check:
+    ZEN_API_DOC=check cargo test -p ultrahdr-core --test public_api_doc
 
 # Build for WASM (with SIMD enabled via .cargo/config.toml)
 wasm-build:

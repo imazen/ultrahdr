@@ -16,6 +16,11 @@ concurrency:
   group: fuzz-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Public-API snapshot regen needs nightly rustdoc + cargo-public-api;
+  # ci.yml's api-doc job owns the check — skip everywhere else.
+  ZEN_API_DOC: off
+
 jobs:
   fuzz:
     name: Fuzz (${{ matrix.target }})
