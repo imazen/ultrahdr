@@ -5,6 +5,10 @@ members = [
     "ultrahdr-rs",
     "wasm-bench",
 ]
+# The public-API snapshot runner (depends on zenutils-apidoc) is NOT a
+# workspace member: plain `cargo test` and CI never build it. Regenerate
+# via `just api-doc` (= `cargo test --manifest-path apidoc/Cargo.toml`).
+exclude = ["apidoc"]
 
 [workspace.package]
 version = "0.3.5"

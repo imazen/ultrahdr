@@ -1,0 +1,19 @@
+# ultrahdr-core public API — additions from non-default features
+# features: archmage,magetypes,resize,simd,std,tonemap
+# (regenerated on every `cargo test` by zenutils-apidoc; ZEN_API_DOC=check verifies, =off skips).
+# Encodings: crate-name prefix stripped; auto traits collapse to a
+# count + exceptions; trait impls collapse to one roster line per
+# type (method signatures live at the trait definition); blanket
+# impls omitted; re-export duplicates annotated `[also: path]`.
+# DO NOT EDIT BY HAND — commit regenerated changes with the code.
+
+## summary
+#
+#   free functions                              2
+#
+# per-module pub lines:
+#   gainmap                           2
+
+## items (1 lines)
+
+pub fn gainmap::apply_gain_row_simd(&[[f32; 3]], &[u8], &[f32; 256], &mut [[f32; 3]]) [also: gainmap::apply_simd]

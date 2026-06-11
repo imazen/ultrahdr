@@ -1,5 +1,7 @@
 Cargo.lock
 !fuzz/Cargo.lock
+# The workspace-excluded apidoc/ runner commits its lockfile for reproducible regen
+!apidoc/Cargo.lock
 *.jpg
 *.jpeg
 *.png

@@ -69,10 +69,6 @@ zentone = { version = "0.1.0", default-features = false, features = ["experiment
 # High-quality gain map resampling (optional)
 zenresize = { workspace = true, optional = true }
 
-[dev-dependencies]
-# tests/public_api_doc.rs parses `cargo metadata` output for the feature list
-serde_json = "1.0.150"
-
 # Native-only: proptest uses rusty-fork/wait-timeout (no wasm32 support)
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 proptest = "1.10"

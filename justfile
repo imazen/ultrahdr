@@ -20,18 +20,20 @@ clippy:
 fmt-check:
     cargo fmt --all --check
 
-# Format code (also regenerates the public-API surface snapshots)
+# Format code (also regenerates the public-API surface snapshots).
+# The snapshot runner lives in the workspace-excluded apidoc/ package, so it
+# is never built or run by plain `cargo test` or any CI job.
 fmt:
     cargo fmt --all
-    cargo test -p ultrahdr-core --test public_api_doc
+    cargo test --manifest-path apidoc/Cargo.toml
 
-# Regenerate the public-API surface snapshots (docs/public-api/*.txt) only
+# Regenerate the public-API surface snapshots (docs/public-api/) only
 api-doc:
-    cargo test -p ultrahdr-core --test public_api_doc
+    cargo test --manifest-path apidoc/Cargo.toml
 
-# Verify the committed public-API snapshots are current (what CI runs)
+# Verify the committed snapshots are current
 api-doc-check:
-    ZEN_API_DOC=check cargo test -p ultrahdr-core --test public_api_doc
+    ZEN_API_DOC=check cargo test --manifest-path apidoc/Cargo.toml
 
 # Build for WASM (with SIMD enabled via .cargo/config.toml)
 wasm-build:

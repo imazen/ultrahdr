@@ -1,0 +1,14 @@
+# CI-free public-API snapshot runner — the only package depending on
+# zenutils-apidoc. The real workspace `exclude`s this directory, so plain
+# `cargo test` and every CI job (including --all-features ones) never
+# compile the apidoc tree or run rustdoc. Regenerate via `just api-doc`.
+[package]
+name = "ultrahdr-apidoc"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+zenutils-apidoc = "0.1.0"

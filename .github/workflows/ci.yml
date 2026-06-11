@@ -9,10 +9,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
-  # Public-API snapshot regen (ultrahdr-core/tests/public_api_doc.rs) needs
-  # nightly rustdoc + cargo-public-api; only the api-doc job carries them
-  # and runs the check.
-  ZEN_API_DOC: off
 
 # Superseded runs only waste runner queue — particularly the macOS
 # jobs, which wait on GitHub's scarcest pool. Only the newest
@@ -22,38 +18,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Public-API surface snapshots (docs/public-api/*.txt) must match the
-  # committed code. Needs the FULL workspace (ultrahdr-rs included), so the
-  # sibling path-deps are cloned like ffi-tests.yml does — no workspace strip.
-  api-doc:
-    name: Public-API snapshot check
-    runs-on: ubuntu-latest
-    env:
-      # Sibling clones (zenjpeg/zenanalyze/zentone main) are built as deps of
-      # the rustdoc pass; don't gate this check on THEIR warning hygiene.
-      RUSTFLAGS: ""
-    steps:
-      - uses: actions/checkout@v6
-      - name: Clone sibling zentone (required by ultrahdr-core default features)
-        run: git clone --depth 1 https://github.com/imazen/zentone.git ../zentone
-      - name: Clone sibling zenjpeg (path-dep during pre-0.5 cascade coordination)
-        run: git clone --depth 1 https://github.com/imazen/zenjpeg.git ../zenjpeg
-      - name: Clone sibling zenanalyze (transitive path-dep of zenjpeg)
-        run: git clone --depth 1 https://github.com/imazen/zenanalyze.git ../zenanalyze
-      - uses: dtolnay/rust-toolchain@nightly # rustdoc JSON for cargo-public-api
-      - uses: dtolnay/rust-toolchain@stable # restore stable as default
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-public-api
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Public-API snapshot is current
-        run: cargo test -p ultrahdr-core --test public_api_doc
-        env:
-          ZEN_API_DOC: check
-
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

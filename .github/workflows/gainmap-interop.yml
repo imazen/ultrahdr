@@ -8,9 +8,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Public-API snapshot regen needs nightly rustdoc + cargo-public-api;
-  # ci.yml's api-doc job owns the check — skip everywhere else.
-  ZEN_API_DOC: off
 
 # Superseded runs only waste runner queue — particularly the macOS
 # jobs, which wait on GitHub's scarcest pool. Only the newest
