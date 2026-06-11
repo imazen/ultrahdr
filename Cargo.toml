@@ -58,3 +58,12 @@ zenresize = { version = "0.2.2", default-features = false }
 proptest = "1.10"
 fast-ssim2 = "0.7"
 criterion = "0.8"
+
+# Local lockstep development: build against the sibling zentone checkout
+# (zentone -> ultrahdr-core release cascade) without putting an out-of-repo
+# path in ultrahdr-core's own manifest, which would break consumers that
+# depend on ultrahdr-core via `git = "https://github.com/imazen/ultrahdr"`.
+# CI clones ../zentone alongside this repo; registry builds (cargo publish,
+# git consumers) ignore this section entirely.
+[patch.crates-io]
+zentone = { path = "../zentone" }

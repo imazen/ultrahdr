@@ -60,7 +60,11 @@ zencodec = { workspace = true }
 # behind the `tonemap` feature (default-on) so decoder-only consumers can
 # build with `--no-default-features --features std` and drop the transitive
 # zentone dependency.
-zentone = { path = "../../zentone", version = "0.1.0", default-features = false, features = ["experimental"], optional = true }
+# Registry dep so the repo is consumable as a git dependency (an in-manifest
+# path that escapes the repo breaks `git = ...` consumers). Local lockstep
+# development against the sibling checkout comes from the workspace-root
+# `[patch.crates-io]` instead — same layout, same behavior.
+zentone = { version = "0.1.0", default-features = false, features = ["experimental"], optional = true }
 
 # High-quality gain map resampling (optional)
 zenresize = { workspace = true, optional = true }
