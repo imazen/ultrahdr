@@ -223,6 +223,17 @@ own section below.
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release. -->
 
+#### Fixed
+- **`Decoder::new` no longer aborts when the MPF index fails to parse**
+  (#26): MPF is one of several gain-map discovery routes, so a malformed or
+  unsupported index (e.g. zenjpeg#148 — valid big-endian `MM` MPF read as
+  "zero images") now degrades to the JPEG-boundary fallback instead of
+  erroring out of detection that the XMP scan already established. Files
+  like the committed 7.6 KB MPF-first fixture previously lost their HDR
+  rendition silently in every consumer; regression-pinned in
+  `tests/decoder_robustness.rs::mpf_first_sample_detected_as_ultrahdr`
+  (asserts detection, exact hdrgm values, and gain-map decode).
+
 #### Changed
 - Exclude `tests/` from published package; add `version = "0.1.3"` to the `libultrahdr_rs` git-only optional dep (required by `cargo package`)
 - `Encoder::set_hdr_image` / `set_sdr_image` now take `PixelBuffer` (from

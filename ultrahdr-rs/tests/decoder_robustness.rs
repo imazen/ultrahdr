@@ -322,3 +322,29 @@ fn test_icc_profile_detected() {
     assert!(icc.is_some(), "Should find ICC profile");
     assert_eq!(icc.unwrap(), icc_data, "ICC data should match");
 }
+
+/// Regression for issue #26: a real 7.6 KB UltraHDR sample whose MPF APP2 is
+/// the FIRST marker after SOI (before any APP1), carrying attribute-form
+/// hdrgm XMP (GainMapMax=2.072094, HDRCapacityMax=2.300448). zenjpeg's
+/// `UltraHdrExtras` decodes this file's gain map fine; this decoder must
+/// agree — two readers diverging on one file is how HDR renditions silently
+/// vanish downstream.
+#[test]
+fn mpf_first_sample_detected_as_ultrahdr() {
+    let data = include_bytes!("images/mpf_first_attribute_xmp.jpg");
+    let d = Decoder::new(data).expect("Decoder::new must not error on a valid UltraHDR file");
+    assert!(d.is_ultrahdr(), "is_ultrahdr must detect this layout");
+    let meta = d.metadata().expect("hdrgm metadata must parse");
+    assert!(
+        (meta.channels[0].max - 2.072094).abs() < 1e-5,
+        "gain max should be ~2.072094, got {}",
+        meta.channels[0].max
+    );
+    assert!(
+        (meta.alternate_hdr_headroom - 2.300448).abs() < 1e-5,
+        "alternate headroom should be ~2.300448, got {}",
+        meta.alternate_hdr_headroom
+    );
+    let gm = d.decode_gainmap().expect("gain map must decode");
+    assert!(gm.width > 0 && gm.height > 0);
+}

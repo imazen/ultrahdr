@@ -164,8 +164,12 @@ impl<'a> Decoder<'a> {
             }
         }
 
-        // Try to parse MPF to find gain map.
-        let mpf_entries = container::parse_mpf(self.data)?;
+        // Try to parse MPF to find the gain map. MPF is one of several
+        // discovery routes — a malformed or unsupported MPF index (e.g.
+        // zenjpeg#148: valid big-endian `MM` indexes misread as "zero
+        // images") must degrade to the JPEG-boundary fallback below, never
+        // abort detection that the XMP scan above already established.
+        let mpf_entries = container::parse_mpf(self.data).unwrap_or_default();
         if mpf_entries.len() >= 2 {
             // Primary image — locate via JPEG marker scan, NOT MPF's declared
             // size. Some encoders (notably Pixel HDR+ 1.0.*) write a too-short
