@@ -70,3 +70,11 @@ doc = false
 name = "tonemap"
 path = "fuzz_targets/tonemap.rs"
 doc = false
+
+# Same rationale as the workspace-root patch (this fuzz dir is its own
+# workspace, so it doesn't inherit that one): ultrahdr-core's zentone dep is
+# registry-only for git consumability; local/CI fuzz builds must resolve it
+# to the sibling checkout, which carries not-yet-published zentone API the
+# tonemap target exercises.
+[patch.crates-io]
+zentone = { path = "../../zentone" }

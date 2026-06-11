@@ -28,19 +28,20 @@ checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 
 [[package]]
 name = "archmage"
-version = "0.9.21"
+version = "0.9.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55da54b9d7683500eb40dabd2b5244cd851d2db78a8d8a2f7fbca8b6833d63ee"
+checksum = "ae97b09d24389cf3f3a9db9fcc373bfe1cefdabef0d14fb253044a71c0427066"
 dependencies = [
  "archmage-macros",
  "safe_unaligned_simd",
+ "winarm-cpufeatures",
 ]
 
 [[package]]
 name = "archmage-macros"
-version = "0.9.21"
+version = "0.9.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dafc74330e47d946691ac9b2514a9339ee729bb0efb7151c8077fce87ed65a53"
+checksum = "d6ab70b5e2a0c0290d9b8a294378f8a8053e407387a17d8a7b113c7a0b8a2eac"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -131,9 +132,9 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "garb"
-version = "0.2.5"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61ee8d8f5e43a45183480ea077c4e046e43ab9604928c87d6ad2080e666dc519"
+checksum = "8b968bb36272be4662f264fd123e96915e7dd51c8ca529c2d35f621817ff4207"
 dependencies = [
  "archmage",
  "bytemuck",
@@ -203,9 +204,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "linear-srgb"
-version = "0.6.11"
+version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aec728ff58a6af8e67dbab79f479ce908b2eb50d40011df945f287d506bd9e32"
+checksum = "fe0e61c33d85bc56dcaf27cdf48ca32b8e34af7236584eb1d8a47316c49e0be1"
 dependencies = [
  "archmage",
  "bytemuck",
@@ -215,11 +216,12 @@ dependencies = [
 
 [[package]]
 name = "magetypes"
-version = "0.9.21"
+version = "0.9.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "852e70c405753a755fcecebed2c12da4c048916ce912ed555f09446f24fc65eb"
+checksum = "c4d045ccf3f9d697e15f0b438f73b812ef93eb5e9d29cf5f5cb48dcf09f12e10"
 dependencies = [
  "archmage",
+ "rustversion",
 ]
 
 [[package]]
@@ -300,6 +302,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustversion"
+version = "1.0.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
+
+[[package]]
 name = "safe_arch"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -368,7 +376,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "ultrahdr-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "archmage",
  "bytemuck",
@@ -379,21 +387,24 @@ dependencies = [
  "thiserror",
  "wide",
  "zencodec",
- "zenpixels 0.2.11",
+ "zenpixels",
  "zentone",
 ]
 
 [[package]]
 name = "ultrahdr-core"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "964a038e0f75524ef9bd01ee6bda6d2457a3b6c1ca8df22478b9bb94b3547669"
+checksum = "1d65bd22a90785bb7360076b599ffbc201aef2c5817d2e5f37f37357829d476e"
 dependencies = [
  "bytemuck",
  "enough",
  "half",
+ "linear-srgb",
  "thiserror",
  "wide",
+ "zencodec",
+ "zenpixels",
 ]
 
 [[package]]
@@ -401,7 +412,7 @@ name = "ultrahdr-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
- "ultrahdr-core 0.4.1",
+ "ultrahdr-core 0.5.0",
  "ultrahdr-rs",
  "zencodec",
  "zenjpeg",
@@ -419,7 +430,7 @@ dependencies = [
  "moxcms",
  "rgb",
  "thiserror",
- "ultrahdr-core 0.4.1",
+ "ultrahdr-core 0.5.0",
  "wide",
  "zencodec",
  "zenjpeg",
@@ -457,26 +468,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "winarm-cpufeatures"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d107c80dd656e1a2c254dfb1d57ece73b7f515b8a8684c270c23cab68f4a440d"
+
+[[package]]
 name = "wit-bindgen"
 version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 
 [[package]]
+name = "zenanalyze"
+version = "0.2.0"
+source = "git+https://github.com/imazen/zenanalyze?rev=13d40c3be60e#13d40c3be60ecfc3e482476ef068ff773b2c5b8d"
+dependencies = [
+ "archmage",
+ "garb",
+ "linear-srgb",
+ "magetypes",
+ "zenpixels",
+ "zenpixels-convert",
+]
+
+[[package]]
 name = "zencodec"
-version = "0.1.20"
+version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb719d8324f653b14e4aa8c3870e5c48c91a4f46c68981de5b4194df442e4c69"
+checksum = "5125c73491ecfc1a47a721bdb3c9a538b92777463cfcee9aafc0b5dbf1472965"
 dependencies = [
  "almost-enough",
  "enough",
  "whereat",
- "zenpixels 0.2.10",
+ "zenpixels",
 ]
 
 [[package]]
 name = "zenjpeg"
-version = "0.8.4"
+version = "0.8.7"
 dependencies = [
  "aligned-vec",
  "archmage",
@@ -491,19 +521,19 @@ dependencies = [
  "safe_unaligned_simd",
  "thiserror",
  "tinyvec",
- "ultrahdr-core 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ultrahdr-core 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "whereat",
+ "zenanalyze",
  "zencodec",
- "zenpixels 0.2.10",
- "zenpixels-convert",
+ "zenpixels",
  "zenyuv",
 ]
 
 [[package]]
 name = "zenpixels"
-version = "0.2.10"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b45ae17fc05f120bfaef6f80966a929e911bf99fd0174b7f391a7b4b0fea2d1"
+checksum = "37ca9800adc8a4f4c5f270deb961f92eefe9755196058e169a2301b333d2fd45"
 dependencies = [
  "bytemuck",
  "imgref",
@@ -512,18 +542,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "zenpixels"
-version = "0.2.11"
-dependencies = [
- "bytemuck",
- "whereat",
-]
-
-[[package]]
 name = "zenpixels-convert"
-version = "0.2.10"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8448e21cea740838e8d7bde61ce22074e75d98b4b02757af71ac59342a930f6f"
+checksum = "0782d10bc02dab53ee1eae285925c6f42ef0bd4e21c29543fdb591e99ad81513"
 dependencies = [
  "archmage",
  "bytemuck",
@@ -533,7 +555,7 @@ dependencies = [
  "once_cell",
  "paste",
  "whereat",
- "zenpixels 0.2.10",
+ "zenpixels",
 ]
 
 [[package]]
@@ -548,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "zenyuv"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "archmage",
  "libm",
