@@ -82,19 +82,39 @@ impl<'a> Decoder<'a> {
 
     /// Decode the gain map using the bundled zenjpeg codec.
     ///
-    /// Returns a single-channel [`GainMap`] reconstructed from the
-    /// gain-map JPEG codestream. For a different JPEG codec, see
+    /// Returns a [`GainMap`] reconstructed from the gain-map JPEG
+    /// codestream: single-channel for luma-only maps, 3-channel
+    /// (interleaved RGB) for per-channel maps (Adobe exports, iOS 18 —
+    /// issue #27). An RGB-encoded map that is provably achromatic
+    /// (`R == G == B` at every pixel) collapses to single-channel, so
+    /// luma-only producers keep the fast apply path regardless of how
+    /// their JPEG was color-coded. For a different JPEG codec, see
     /// [`Decoder::gainmap_jpeg`].
     pub fn decode_gainmap(&self) -> Result<GainMap> {
         let gainmap_data = self
             .gainmap_jpeg()
             .ok_or_else(|| Error::DecodeError("No gain map found".into()))?;
-        let (width, height, data) = decode_jpeg_to_grayscale_bytes(gainmap_data)?;
+        let (width, height, rgb) = decode_jpeg_to_rgb_bytes(gainmap_data)?;
+
+        // Collapse to single-channel only when provably achromatic — the
+        // same full-scan predicate as zenpixels-convert's load-bearing
+        // analysis. The previous implementation requested grayscale output
+        // unconditionally, which failed outright for some color encodings
+        // ("unsupported color conversion") and would have silently averaged
+        // a true per-channel map down to luma (#27).
+        let achromatic = rgb
+            .chunks_exact(3)
+            .all(|px| px[0] == px[1] && px[1] == px[2]);
+        let (data, channels) = if achromatic {
+            (rgb.chunks_exact(3).map(|px| px[0]).collect(), 1)
+        } else {
+            (rgb, 3)
+        };
 
         Ok(GainMap {
             width,
             height,
-            channels: 1,
+            channels,
             data,
         })
     }
@@ -335,10 +355,16 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<PixelBuffer> {
 /// Used by [`Decoder::decode_gainmap`] to lift the decoded codestream into a
 /// [`GainMap`] without wrapping the byte buffer in a [`PixelBuffer`] (gain
 /// map bytes are log2-quantized gain, not color samples).
-fn decode_jpeg_to_grayscale_bytes(jpeg_data: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
+/// Decode a gain-map JPEG to tight interleaved RGB8 bytes.
+///
+/// Always requests RGB output: it is universally supported (grayscale
+/// codestreams expand to identical channels), where requesting Gray can
+/// fail outright for some color encodings (#27, "unsupported color
+/// conversion") — and per-channel maps must not be flattened to luma.
+fn decode_jpeg_to_rgb_bytes(jpeg_data: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
     use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
     let decoded = JpegDecoder::new()
-        .output_format(JpegPixelFormat::Gray)
+        .output_format(JpegPixelFormat::Rgb)
         .decode(jpeg_data, Unstoppable)
         .map_err(|e| Error::DecodeError(format!("JPEG decode failed: {}", e)))?;
 
@@ -347,28 +373,12 @@ fn decode_jpeg_to_grayscale_bytes(jpeg_data: &[u8]) -> Result<(u32, u32, Vec<u8>
     let pixels = decoded
         .pixels_u8()
         .ok_or_else(|| Error::DecodeError("No pixel data in decoded JPEG".into()))?;
-    let bpp = decoded.bytes_per_pixel();
-
-    let data = if bpp == 1 {
-        pixels.to_vec()
-    } else if bpp == 3 {
-        pixels
-            .chunks(3)
-            .map(|rgb| {
-                let r = rgb[0] as f32;
-                let g = rgb[1] as f32;
-                let b = rgb[2] as f32;
-                (0.2126_f32 * r + 0.7152 * g + 0.0722 * b).clamp(0.0, 255.0) as u8
-            })
-            .collect()
-    } else {
-        return Err(Error::DecodeError(format!(
-            "Unsupported bytes per pixel for grayscale: {}",
-            bpp
-        )));
-    };
-
-    Ok((width, height, data))
+    match decoded.bytes_per_pixel() {
+        3 => Ok((width, height, pixels.to_vec())),
+        bpp => Err(Error::DecodeError(format!(
+            "Unsupported bytes per pixel for RGB gain-map decode: {bpp}"
+        ))),
+    }
 }
 
 #[cfg(test)]

@@ -224,6 +224,16 @@ own section below.
 <!-- Breaking changes queued for the next major (or minor for 0.x) release. -->
 
 #### Fixed
+- **`decode_gainmap` decodes RGB (multi-channel) gain maps** (#27): the
+  gain-map JPEG is now decoded as RGB and collapses to single-channel only
+  when provably achromatic (`R == G == B` at every pixel). Previously it
+  requested grayscale output unconditionally — failing outright for some
+  color encodings ("unsupported color conversion"; e.g. the libavif seine
+  sample, whose hdrgm metadata carries distinct per-channel triples) and
+  silently luma-averaging any RGB map that did decode. Per-channel maps
+  are mainstream (Adobe exports, iOS 18). Regressions in
+  `tests/rgb_gainmap.rs` cover both the 3-channel and the
+  achromatic-collapse paths via fully synthetic round-trips.
 - **`Decoder::new` no longer aborts when the MPF index fails to parse**
   (#26): MPF is one of several gain-map discovery routes, so a malformed or
   unsupported index (e.g. zenjpeg#148 — valid big-endian `MM` MPF read as
