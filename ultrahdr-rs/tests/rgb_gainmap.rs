@@ -90,9 +90,27 @@ fn rgb_gainmap_decodes_three_channels() {
     );
 }
 
+/// Single-channel ISO 21496-1 metadata (all channels identical).
+fn luma_metadata() -> GainMapMetadata {
+    let mut m = GainMapMetadata::default();
+    for ch in &mut m.channels {
+        ch.min = 0.0;
+        ch.max = 1.3;
+        ch.gamma = 1.0;
+        ch.base_offset = 1.0 / 64.0;
+        ch.alternate_offset = 1.0 / 64.0;
+    }
+    m.alternate_hdr_headroom = 1.3;
+    m.use_base_color_space = true;
+    m
+}
+
 #[test]
-fn achromatic_gainmap_collapses_to_single_channel() {
-    // The same path with a gray-coded map must keep the 1-channel form.
+fn single_channel_metadata_keeps_one_channel() {
+    // Channel count follows the metadata: a gray-coded map with
+    // single-channel metadata stays 1-channel (the exact luma plane via
+    // the Gray fast path), immune to any chroma noise a color coding
+    // would have introduced.
     let (w, h) = (16u32, 16u32);
     let gm_px: Vec<u8> = (0..w * h).map(|i| (i % 251) as u8).collect();
     let cfg = EncoderConfig::grayscale(92.0);
@@ -105,13 +123,13 @@ fn achromatic_gainmap_collapses_to_single_channel() {
     let mut encoder = Encoder::new();
     encoder
         .set_sdr_image(sdr_base(32, 32))
-        .set_gainmap_jpeg(gm_jpeg, rgb_metadata());
+        .set_gainmap_jpeg(gm_jpeg, luma_metadata());
     let bytes = encoder.encode().expect("encode UltraHDR with gray gain map");
 
     let gm = Decoder::new(&bytes)
         .expect("decode container")
         .decode_gainmap()
         .expect("gray gain map must decode");
-    assert_eq!(gm.channels, 1, "achromatic map must collapse to 1 channel");
+    assert_eq!(gm.channels, 1, "single-channel metadata must yield 1 channel");
     assert_eq!(gm.data.len(), (w * h) as usize);
 }

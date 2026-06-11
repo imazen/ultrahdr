@@ -85,28 +85,61 @@ impl<'a> Decoder<'a> {
     /// Returns a [`GainMap`] reconstructed from the gain-map JPEG
     /// codestream: single-channel for luma-only maps, 3-channel
     /// (interleaved RGB) for per-channel maps (Adobe exports, iOS 18 —
-    /// issue #27). An RGB-encoded map that is provably achromatic
-    /// (`R == G == B` at every pixel) collapses to single-channel, so
-    /// luma-only producers keep the fast apply path regardless of how
-    /// their JPEG was color-coded. For a different JPEG codec, see
-    /// [`Decoder::gainmap_jpeg`].
+    /// issue #27).
+    ///
+    /// The channel count is driven by the ISO 21496-1 **metadata**
+    /// (`is_single_channel`), not by pixel inspection: a single-channel
+    /// map JPEG-coded as YCbCr picks up ±1 chroma noise from subsampling,
+    /// and treating that noise as per-channel gain would change pixels.
+    /// Only when no metadata is available does a full achromatic scan
+    /// decide. For a different JPEG codec, see [`Decoder::gainmap_jpeg`].
     pub fn decode_gainmap(&self) -> Result<GainMap> {
         let gainmap_data = self
             .gainmap_jpeg()
             .ok_or_else(|| Error::DecodeError("No gain map found".into()))?;
-        let (width, height, rgb) = decode_jpeg_to_rgb_bytes(gainmap_data)?;
 
-        // Collapse to single-channel only when provably achromatic — the
-        // same full-scan predicate as zenpixels-convert's load-bearing
-        // analysis. The previous implementation requested grayscale output
-        // unconditionally, which failed outright for some color encodings
-        // ("unsupported color conversion") and would have silently averaged
-        // a true per-channel map down to luma (#27).
-        let achromatic = rgb
-            .chunks_exact(3)
-            .all(|px| px[0] == px[1] && px[1] == px[2]);
-        let (data, channels) = if achromatic {
-            (rgb.chunks_exact(3).map(|px| px[0]).collect(), 1)
+        let single_channel = self.metadata.as_ref().map(|m| m.is_single_channel());
+
+        if single_channel != Some(false) {
+            // Single-channel per metadata (or unknown): the historical Gray
+            // decode is the exact luma plane — keep it as the fast path.
+            // Some color encodings can't produce Gray output ("unsupported
+            // color conversion", #27); those fall through to the RGB path.
+            if let Ok((width, height, data)) = decode_jpeg_to_grayscale_bytes(gainmap_data) {
+                return Ok(GainMap {
+                    width,
+                    height,
+                    channels: 1,
+                    data,
+                });
+            }
+        }
+
+        let (width, height, rgb) = decode_jpeg_to_rgb_bytes(gainmap_data)?;
+        let collapse = match single_channel {
+            // Metadata says luma-only: collapse regardless of decode noise.
+            Some(true) => true,
+            // Metadata says per-channel: keep all three.
+            Some(false) => false,
+            // No metadata: collapse only when provably achromatic (the
+            // zenpixels load-bearing predicate — full scan, no sampling).
+            None => rgb
+                .chunks_exact(3)
+                .all(|px| px[0] == px[1] && px[1] == px[2]),
+        };
+        let (data, channels) = if collapse {
+            // BT.709 luma — the same weighting the Gray decode applies.
+            (
+                rgb.chunks_exact(3)
+                    .map(|px| {
+                        (0.2126_f32 * f32::from(px[0])
+                            + 0.7152 * f32::from(px[1])
+                            + 0.0722 * f32::from(px[2]))
+                        .clamp(0.0, 255.0) as u8
+                    })
+                    .collect(),
+                1,
+            )
         } else {
             (rgb, 3)
         };
@@ -355,12 +388,37 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<PixelBuffer> {
 /// Used by [`Decoder::decode_gainmap`] to lift the decoded codestream into a
 /// [`GainMap`] without wrapping the byte buffer in a [`PixelBuffer`] (gain
 /// map bytes are log2-quantized gain, not color samples).
+/// Decode a gain-map JPEG to its exact luma plane (Gray output).
+///
+/// The fast path for single-channel maps. Can fail for some color
+/// encodings ("unsupported color conversion", #27) — callers fall back
+/// to [`decode_jpeg_to_rgb_bytes`].
+fn decode_jpeg_to_grayscale_bytes(jpeg_data: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
+    use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
+    let decoded = JpegDecoder::new()
+        .output_format(JpegPixelFormat::Gray)
+        .decode(jpeg_data, Unstoppable)
+        .map_err(|e| Error::DecodeError(format!("JPEG decode failed: {}", e)))?;
+
+    let width = decoded.width();
+    let height = decoded.height();
+    let pixels = decoded
+        .pixels_u8()
+        .ok_or_else(|| Error::DecodeError("No pixel data in decoded JPEG".into()))?;
+    match decoded.bytes_per_pixel() {
+        1 => Ok((width, height, pixels.to_vec())),
+        bpp => Err(Error::DecodeError(format!(
+            "Unsupported bytes per pixel for grayscale gain-map decode: {bpp}"
+        ))),
+    }
+}
+
 /// Decode a gain-map JPEG to tight interleaved RGB8 bytes.
 ///
-/// Always requests RGB output: it is universally supported (grayscale
-/// codestreams expand to identical channels), where requesting Gray can
-/// fail outright for some color encodings (#27, "unsupported color
-/// conversion") — and per-channel maps must not be flattened to luma.
+/// Used for per-channel (multi-channel) maps and as the fallback when
+/// Gray output is unavailable: RGB output is universally supported
+/// (grayscale codestreams expand to identical channels), and per-channel
+/// maps must not be flattened to luma (#27).
 fn decode_jpeg_to_rgb_bytes(jpeg_data: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
     use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
     let decoded = JpegDecoder::new()
