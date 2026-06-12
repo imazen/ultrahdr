@@ -10,6 +10,7 @@ Cargo.lock
 # Exception: test fixtures and fuzz seed corpus
 !test_ultrahdr.jpg
 !fuzz/seed_corpus/**/*.jpg
+!ultrahdr-rs/tests/images/*.jpg
 
 # === Standard exclusions (do not depend on user ~/.gitignore) ===
 
