@@ -390,6 +390,25 @@ impl GainMap {
 /// are stored in **log2 domain** to match the ISO 21496-1 wire format.
 pub type GainMapMetadata = zencodec::GainMapParams;
 
+/// The display boost for a full reconstruction at the gain map's encoded
+/// maximum — the `GainMapRender::ReconstructHdr { target_headroom: None }`
+/// semantics: the alternate image's linear headroom, clamped to ≥ 1.0.
+///
+/// This is the **canonical rounding route**: f64 `exp2` of the log2
+/// headroom ([`linear_alternate_headroom`]), rounded to f32 once. Adapters
+/// must use this (not `2f32.powf(stops as f32)`, which double-rounds and
+/// can land 1 ULP away) so reconstructions of the same parameters are
+/// bit-identical across codecs (imazen/heic#20: the corpus 1520 file's
+/// stops value rounds to `0x40caa5da` via `powf` but `0x40caa5db` via this
+/// route, flipping 0.32% of PQ16 samples by one LSB downstream).
+///
+/// [`linear_alternate_headroom`]: zencodec::GainMapParams::linear_alternate_headroom
+#[must_use]
+pub fn full_reconstruction_boost(params: &GainMapMetadata) -> f32 {
+    let boost = params.linear_alternate_headroom() as f32;
+    if boost > 1.0 { boost } else { 1.0 }
+}
+
 /// Per-channel gain map parameters.
 ///
 /// Re-exported from [`zencodec::GainMapChannel`].
@@ -954,5 +973,34 @@ mod tests {
             data: alloc::vec![0u8; 4], // expected 16
         };
         assert!(gm.validate().is_err());
+    }
+}
+
+#[cfg(test)]
+mod boost_route_tests {
+    use super::*;
+
+    /// heic#20 pin: the canonical route differs from the double-rounding
+    /// `powf` route by exactly 1 ULP for the corpus 1520 stops value — and
+    /// the helper is the f64-exp2 single-rounding side.
+    #[test]
+    fn canonical_boost_is_single_rounded() {
+        let mut params = GainMapMetadata::default();
+        params.alternate_hdr_headroom = 2.662831178973982_f64;
+        let canonical = full_reconstruction_boost(&params);
+        assert_eq!(canonical.to_bits(), 0x40ca_a5db);
+        let double_rounded = 2.0f32.powf(params.alternate_hdr_headroom as f32);
+        assert_eq!(double_rounded.to_bits(), 0x40ca_a5da);
+        assert_ne!(canonical.to_bits(), double_rounded.to_bits());
+    }
+
+    /// Negative/zero headroom clamps to 1.0 (never darken below the base).
+    #[test]
+    fn boost_clamps_to_one() {
+        let mut params = GainMapMetadata::default();
+        params.alternate_hdr_headroom = -0.5;
+        assert_eq!(full_reconstruction_boost(&params), 1.0);
+        params.alternate_hdr_headroom = 0.0;
+        assert_eq!(full_reconstruction_boost(&params), 1.0);
     }
 }

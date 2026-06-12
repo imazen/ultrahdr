@@ -79,7 +79,10 @@ pub use types::{
 };
 
 // Re-export from zencodec (canonical gain map metadata types)
-pub use types::{Fraction, GainMapChannel, GainMapMetadata, Iso21496Format, UnsignedFraction};
+pub use types::{
+    Fraction, GainMapChannel, GainMapMetadata, Iso21496Format, UnsignedFraction,
+    full_reconstruction_boost,
+};
 pub use zencodec::GainMapParams;
 pub use zencodec::gainmap::{parse_iso21496_fmt, serialize_iso21496_fmt};
 
