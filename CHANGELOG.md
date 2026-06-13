@@ -12,6 +12,15 @@ own section below.
 
 ### [Unreleased]
 
+#### Fixed
+- **bplist parser: bound attacker-controlled allocations.** The Apple binary
+  plist reader (`metadata/bplist.rs`) called `Vec::with_capacity(count)` with an
+  untrusted `count` for arrays/sets/dicts (no preceding length bound) and could
+  overflow `count * 2` / `count * ref_size`, defeating the slice bound. Reservations
+  are now capped by the input length and the multiplies are `checked_*`; the
+  element loops already fail fast on the first out-of-range reference. No
+  behavior change on well-formed input (164 tests pass).
+
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release.
      Batch them here instead of shipping piecemeal. -->
