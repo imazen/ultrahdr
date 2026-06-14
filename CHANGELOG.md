@@ -233,6 +233,9 @@ own section below.
 <!-- Breaking changes queued for the next major (or minor for 0.x) release. -->
 
 #### Fixed
+- `decode.rs` RGB/grayscale→RGBA `Vec::with_capacity` computed `width * height * 4`
+  in `u32` (wraps for large images / sooner on 32-bit); now computed in `usize`.
+- Crate-level doc example used `use ultrahdr::…`; the crate is `ultrahdr_rs`.
 - **`decode_gainmap` decodes RGB (multi-channel) gain maps** (#27), with
   the channel count driven by the ISO 21496-1 **metadata**
   (`is_single_channel`), not pixel inspection: single-channel maps keep

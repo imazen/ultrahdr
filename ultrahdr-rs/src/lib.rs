@@ -21,8 +21,8 @@
 //! # Example
 //!
 //! ```ignore
-//! use ultrahdr::{encode_ultrahdr, Decoder, GainMapMetadata, ColorPrimaries, PixelBuffer};
-//! use ultrahdr::gainmap::compute::{compute_gainmap, GainMapConfig};
+//! use ultrahdr_rs::{encode_ultrahdr, Decoder, GainMapMetadata, ColorPrimaries, PixelBuffer};
+//! use ultrahdr_rs::gainmap::compute::{compute_gainmap, GainMapConfig};
 //!
 //! // 1. Prepare your images (using your own JPEG codec)
 //! let sdr_jpeg = my_encoder.encode_rgb(&sdr_pixels)?;

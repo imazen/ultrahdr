@@ -346,7 +346,7 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<PixelBuffer> {
     // Convert to RGBA if needed
     let data = if bpp == 3 {
         // RGB -> RGBA
-        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
         for chunk in pixels.chunks(3) {
             rgba.push(chunk[0]);
             rgba.push(chunk[1]);
@@ -358,7 +358,7 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<PixelBuffer> {
         pixels.to_vec()
     } else if bpp == 1 {
         // Grayscale -> RGBA
-        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
         for &g in pixels {
             rgba.push(g);
             rgba.push(g);
