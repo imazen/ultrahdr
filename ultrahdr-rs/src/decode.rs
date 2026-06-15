@@ -5,6 +5,7 @@ use ultrahdr_core::{
     ColorPrimaries, Error, GainMap, GainMapMetadata, PixelBuffer, PixelFormat, Result,
     TransferFunction, Unstoppable, pixel_buffer_from_vec,
 };
+use whereat::at;
 use zenjpeg::container::marker::find_jpeg_boundaries;
 use zenjpeg::container::xmp::parse_xmp;
 
@@ -76,7 +77,7 @@ impl<'a> Decoder<'a> {
     pub fn decode_sdr(&self) -> Result<PixelBuffer> {
         let primary_data = self
             .primary_jpeg()
-            .ok_or_else(|| Error::DecodeError("No primary image found".into()))?;
+            .ok_or_else(|| at!(Error::DecodeError("No primary image found".into())))?;
         decode_jpeg_to_rgb(primary_data)
     }
 
@@ -96,7 +97,7 @@ impl<'a> Decoder<'a> {
     pub fn decode_gainmap(&self) -> Result<GainMap> {
         let gainmap_data = self
             .gainmap_jpeg()
-            .ok_or_else(|| Error::DecodeError("No gain map found".into()))?;
+            .ok_or_else(|| at!(Error::DecodeError("No gain map found".into())))?;
 
         let single_channel = self.metadata.as_ref().map(|m| m.is_single_channel());
 
@@ -170,20 +171,20 @@ impl<'a> Decoder<'a> {
         format: HdrOutputFormat,
     ) -> Result<PixelBuffer> {
         if !self.is_ultrahdr {
-            return Err(Error::DecodeError("Not an Ultra HDR image".into()));
+            return Err(at!(Error::DecodeError("Not an Ultra HDR image".into())));
         }
 
         if !display_boost.is_finite() || display_boost < 1.0 {
-            return Err(Error::DecodeError(format!(
+            return Err(at!(Error::DecodeError(format!(
                 "display_boost must be >= 1.0, got {}",
                 display_boost
-            )));
+            ))));
         }
 
         let metadata = self
             .metadata
             .as_ref()
-            .ok_or_else(|| Error::DecodeError("No gain map metadata".into()))?;
+            .ok_or_else(|| at!(Error::DecodeError("No gain map metadata".into())))?;
 
         let sdr = self.decode_sdr()?;
         let gainmap = self.decode_gainmap()?;
@@ -198,7 +199,7 @@ impl<'a> Decoder<'a> {
     fn parse(&mut self) -> Result<()> {
         // Check for valid JPEG
         if self.data.len() < 4 || self.data[0] != 0xFF || self.data[1] != 0xD8 {
-            return Err(Error::DecodeError("Not a valid JPEG".into()));
+            return Err(at!(Error::DecodeError("Not a valid JPEG".into())));
         }
 
         // Scan APP segments efficiently (walks marker-to-marker, not byte-by-byte)
@@ -245,7 +246,9 @@ impl<'a> Decoder<'a> {
             let gm_end = match gm_start.checked_add(gm_entry.size) {
                 Some(end) => end,
                 None => {
-                    return Err(Error::DecodeError("MPF entry offset+size overflows".into()));
+                    return Err(at!(Error::DecodeError(
+                        "MPF entry offset+size overflows".into()
+                    )));
                 }
             };
             if gm_end <= self.data.len() {
@@ -334,13 +337,13 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<PixelBuffer> {
     let decoded = JpegDecoder::new()
         .output_format(JpegPixelFormat::Rgb)
         .decode(jpeg_data, Unstoppable)
-        .map_err(|e| Error::DecodeError(format!("JPEG decode failed: {}", e)))?;
+        .map_err(|e| at!(Error::DecodeError(format!("JPEG decode failed: {}", e))))?;
 
     let width = decoded.width();
     let height = decoded.height();
     let pixels = decoded
         .pixels_u8()
-        .ok_or_else(|| Error::DecodeError("No pixel data in decoded JPEG".into()))?;
+        .ok_or_else(|| at!(Error::DecodeError("No pixel data in decoded JPEG".into())))?;
     let bpp = decoded.bytes_per_pixel();
 
     // Convert to RGBA if needed
@@ -367,10 +370,10 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<PixelBuffer> {
         }
         rgba
     } else {
-        return Err(Error::DecodeError(format!(
+        return Err(at!(Error::DecodeError(format!(
             "Unsupported bytes per pixel: {}",
             bpp
-        )));
+        ))));
     };
 
     pixel_buffer_from_vec(
@@ -398,18 +401,18 @@ fn decode_jpeg_to_grayscale_bytes(jpeg_data: &[u8]) -> Result<(u32, u32, Vec<u8>
     let decoded = JpegDecoder::new()
         .output_format(JpegPixelFormat::Gray)
         .decode(jpeg_data, Unstoppable)
-        .map_err(|e| Error::DecodeError(format!("JPEG decode failed: {}", e)))?;
+        .map_err(|e| at!(Error::DecodeError(format!("JPEG decode failed: {}", e))))?;
 
     let width = decoded.width();
     let height = decoded.height();
     let pixels = decoded
         .pixels_u8()
-        .ok_or_else(|| Error::DecodeError("No pixel data in decoded JPEG".into()))?;
+        .ok_or_else(|| at!(Error::DecodeError("No pixel data in decoded JPEG".into())))?;
     match decoded.bytes_per_pixel() {
         1 => Ok((width, height, pixels.to_vec())),
-        bpp => Err(Error::DecodeError(format!(
+        bpp => Err(at!(Error::DecodeError(format!(
             "Unsupported bytes per pixel for grayscale gain-map decode: {bpp}"
-        ))),
+        )))),
     }
 }
 
@@ -424,18 +427,18 @@ fn decode_jpeg_to_rgb_bytes(jpeg_data: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
     let decoded = JpegDecoder::new()
         .output_format(JpegPixelFormat::Rgb)
         .decode(jpeg_data, Unstoppable)
-        .map_err(|e| Error::DecodeError(format!("JPEG decode failed: {}", e)))?;
+        .map_err(|e| at!(Error::DecodeError(format!("JPEG decode failed: {}", e))))?;
 
     let width = decoded.width();
     let height = decoded.height();
     let pixels = decoded
         .pixels_u8()
-        .ok_or_else(|| Error::DecodeError("No pixel data in decoded JPEG".into()))?;
+        .ok_or_else(|| at!(Error::DecodeError("No pixel data in decoded JPEG".into())))?;
     match decoded.bytes_per_pixel() {
         3 => Ok((width, height, pixels.to_vec())),
-        bpp => Err(Error::DecodeError(format!(
+        bpp => Err(at!(Error::DecodeError(format!(
             "Unsupported bytes per pixel for RGB gain-map decode: {bpp}"
-        ))),
+        )))),
     }
 }
 

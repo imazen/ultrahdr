@@ -13,6 +13,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use enough::StopReason;
 use thiserror::Error;
+use whereat::at;
 
 use crate::limits;
 
@@ -99,7 +100,12 @@ pub enum Error {
 }
 
 /// Result type for Ultra HDR operations.
-pub type Result<T> = core::result::Result<T, Error>;
+///
+/// The error carries a [`whereat::At`] origin trace for server-side
+/// diagnostics. Foreign `?` sites that yield a bare [`enum@Error`] are auto-bridged
+/// by whereat's blanket `From<Error> for At<Error>`; explicit `at!()` at the
+/// literal `Err(Error::…)` origins captures the precise call site.
+pub type Result<T> = core::result::Result<T, whereat::At<Error>>;
 
 impl From<StopReason> for Error {
     fn from(reason: StopReason) -> Self {
@@ -190,24 +196,24 @@ pub use zencodec::Iso21496Format;
 /// the gain map / tone mapping kernels are willing to do.
 pub fn validate_ultrahdr_dimensions(width: u32, height: u32) -> Result<()> {
     if width == 0 || height == 0 {
-        return Err(Error::InvalidDimensions(width, height));
+        return Err(at!(Error::InvalidDimensions(width, height)));
     }
 
     if width > limits::MAX_IMAGE_DIMENSION || height > limits::MAX_IMAGE_DIMENSION {
-        return Err(Error::LimitExceeded(format!(
+        return Err(at!(Error::LimitExceeded(format!(
             "dimension {} exceeds maximum {}",
             width.max(height),
             limits::MAX_IMAGE_DIMENSION
-        )));
+        ))));
     }
 
     let total_pixels = width as u64 * height as u64;
     if total_pixels > limits::MAX_TOTAL_PIXELS {
-        return Err(Error::LimitExceeded(format!(
+        return Err(at!(Error::LimitExceeded(format!(
             "total pixels {} exceeds maximum {}",
             total_pixels,
             limits::MAX_TOTAL_PIXELS
-        )));
+        ))));
     }
 
     Ok(())
@@ -225,7 +231,7 @@ pub fn require_supported_format(format: PixelFormat) -> Result<()> {
         | PixelFormat::RgbaF16
         | PixelFormat::RgbF16
         | PixelFormat::Gray8 => Ok(()),
-        _ => Err(Error::UnsupportedFormat(format)),
+        _ => Err(at!(Error::UnsupportedFormat(format))),
     }
 }
 
@@ -261,7 +267,7 @@ pub fn new_pixel_buffer(
     require_supported_format(format)?;
     let desc = descriptor_for(format, primaries, transfer);
     let buf = PixelBuffer::try_new(width, height, desc)
-        .map_err(|e| Error::AllocationFailed(error_size_hint(&e)))?;
+        .map_err(|e| at!(Error::AllocationFailed(error_size_hint(&e))))?;
     Ok(buf)
 }
 
@@ -286,7 +292,7 @@ pub fn pixel_buffer_from_vec(
     validate_ultrahdr_dimensions(width, height)?;
     require_supported_format(format)?;
     let desc = descriptor_for(format, primaries, transfer);
-    PixelBuffer::from_vec(data, width, height, desc).map_err(Error::from)
+    PixelBuffer::from_vec(data, width, height, desc).map_err(|e| at!(Error::from(e)))
 }
 
 fn error_size_hint<E>(_: &E) -> usize {
@@ -327,25 +333,25 @@ impl GainMap {
     pub fn validate(&self) -> Result<()> {
         validate_ultrahdr_dimensions(self.width, self.height)?;
         if self.channels != 1 && self.channels != 3 {
-            return Err(Error::InvalidPixelData(alloc::format!(
+            return Err(at!(Error::InvalidPixelData(alloc::format!(
                 "gainmap.channels must be 1 or 3, got {}",
                 self.channels
-            )));
+            ))));
         }
         let expected = (self.width as usize)
             .checked_mul(self.height as usize)
             .and_then(|p| p.checked_mul(self.channels as usize))
             .ok_or_else(|| {
-                Error::LimitExceeded(alloc::string::ToString::to_string(
+                at!(Error::LimitExceeded(alloc::string::ToString::to_string(
                     &"gainmap dimensions overflow usize",
-                ))
+                )))
             })?;
         if self.data.len() < expected {
-            return Err(Error::InvalidPixelData(alloc::format!(
+            return Err(at!(Error::InvalidPixelData(alloc::format!(
                 "gainmap data buffer too small: {} < {}",
                 self.data.len(),
                 expected
-            )));
+            ))));
         }
         Ok(())
     }
@@ -356,7 +362,7 @@ impl GainMap {
 
         let size = (width as usize)
             .checked_mul(height as usize)
-            .ok_or_else(|| Error::LimitExceeded("gain map size overflow".into()))?;
+            .ok_or_else(|| at!(Error::LimitExceeded("gain map size overflow".into())))?;
 
         Ok(Self {
             width,
@@ -373,7 +379,7 @@ impl GainMap {
         let size = (width as usize)
             .checked_mul(height as usize)
             .and_then(|s| s.checked_mul(3))
-            .ok_or_else(|| Error::LimitExceeded("gain map size overflow".into()))?;
+            .ok_or_else(|| at!(Error::LimitExceeded("gain map size overflow".into())))?;
 
         Ok(Self {
             width,
@@ -425,15 +431,17 @@ pub use zencodec::GainMapChannel;
 /// enough on its own to prevent `+inf` / `NaN` in the output buffer.
 pub fn validate_gainmap_magnitude(metadata: &GainMapMetadata) -> Result<()> {
     if !metadata.alternate_hdr_headroom.is_finite() || !metadata.base_hdr_headroom.is_finite() {
-        return Err(Error::InvalidMetadata("hdr headroom must be finite".into()));
+        return Err(at!(Error::InvalidMetadata(
+            "hdr headroom must be finite".into()
+        )));
     }
     if metadata.alternate_hdr_headroom.abs() > limits::MAX_HEADROOM_MAGNITUDE
         || metadata.base_hdr_headroom.abs() > limits::MAX_HEADROOM_MAGNITUDE
     {
-        return Err(Error::InvalidMetadata(alloc::format!(
+        return Err(at!(Error::InvalidMetadata(alloc::format!(
             "hdr headroom magnitude exceeds {} (log2 domain)",
             limits::MAX_HEADROOM_MAGNITUDE
-        )));
+        ))));
     }
     for (i, ch) in metadata.channels.iter().enumerate() {
         if !ch.min.is_finite()
@@ -442,35 +450,35 @@ pub fn validate_gainmap_magnitude(metadata: &GainMapMetadata) -> Result<()> {
             || !ch.base_offset.is_finite()
             || !ch.alternate_offset.is_finite()
         {
-            return Err(Error::InvalidMetadata(alloc::format!(
+            return Err(at!(Error::InvalidMetadata(alloc::format!(
                 "channel {i} contains non-finite values"
-            )));
+            ))));
         }
         if ch.min.abs() > limits::MAX_LOG_GAIN_MAGNITUDE
             || ch.max.abs() > limits::MAX_LOG_GAIN_MAGNITUDE
         {
-            return Err(Error::InvalidMetadata(alloc::format!(
+            return Err(at!(Error::InvalidMetadata(alloc::format!(
                 "channel {} min/max magnitude exceeds {} (log2 domain)",
                 i,
                 limits::MAX_LOG_GAIN_MAGNITUDE
-            )));
+            ))));
         }
         if ch.base_offset.abs() > limits::MAX_OFFSET_MAGNITUDE
             || ch.alternate_offset.abs() > limits::MAX_OFFSET_MAGNITUDE
         {
-            return Err(Error::InvalidMetadata(alloc::format!(
+            return Err(at!(Error::InvalidMetadata(alloc::format!(
                 "channel {} offset magnitude exceeds {} (linear domain)",
                 i,
                 limits::MAX_OFFSET_MAGNITUDE
-            )));
+            ))));
         }
         if !(limits::MIN_GAMMA..=limits::MAX_GAMMA).contains(&ch.gamma) {
-            return Err(Error::InvalidMetadata(alloc::format!(
+            return Err(at!(Error::InvalidMetadata(alloc::format!(
                 "channel {} gamma must be within [{}, {}]",
                 i,
                 limits::MIN_GAMMA,
                 limits::MAX_GAMMA
-            )));
+            ))));
         }
     }
     Ok(())
@@ -498,48 +506,50 @@ pub fn validate_gainmap_magnitude(metadata: &GainMapMetadata) -> Result<()> {
 ///   above-spec values either produce a near-step function (`> 100`)
 ///   or saturate `powf` (`< 0.01`).
 pub fn validate_gainmap_metadata(metadata: &GainMapMetadata) -> Result<()> {
-    metadata
-        .validate()
-        .map_err(|e| Error::InvalidMetadata(alloc::string::ToString::to_string(&e)))?;
+    metadata.validate().map_err(|e| {
+        at!(Error::InvalidMetadata(alloc::string::ToString::to_string(
+            &e
+        )))
+    })?;
     if metadata.alternate_hdr_headroom < 0.0 {
-        return Err(Error::InvalidMetadata(
+        return Err(at!(Error::InvalidMetadata(
             "alternate_hdr_headroom must be >= 0.0 (log2 domain)".into(),
-        ));
+        )));
     }
     if metadata.alternate_hdr_headroom.abs() > limits::MAX_HEADROOM_MAGNITUDE
         || metadata.base_hdr_headroom.abs() > limits::MAX_HEADROOM_MAGNITUDE
     {
-        return Err(Error::InvalidMetadata(alloc::format!(
+        return Err(at!(Error::InvalidMetadata(alloc::format!(
             "hdr headroom magnitude exceeds {} (log2 domain)",
             limits::MAX_HEADROOM_MAGNITUDE
-        )));
+        ))));
     }
     for (i, ch) in metadata.channels.iter().enumerate() {
         if ch.min.abs() > limits::MAX_LOG_GAIN_MAGNITUDE
             || ch.max.abs() > limits::MAX_LOG_GAIN_MAGNITUDE
         {
-            return Err(Error::InvalidMetadata(alloc::format!(
+            return Err(at!(Error::InvalidMetadata(alloc::format!(
                 "channel {} min/max magnitude exceeds {} (log2 domain)",
                 i,
                 limits::MAX_LOG_GAIN_MAGNITUDE
-            )));
+            ))));
         }
         if ch.base_offset.abs() > limits::MAX_OFFSET_MAGNITUDE
             || ch.alternate_offset.abs() > limits::MAX_OFFSET_MAGNITUDE
         {
-            return Err(Error::InvalidMetadata(alloc::format!(
+            return Err(at!(Error::InvalidMetadata(alloc::format!(
                 "channel {} offset magnitude exceeds {} (linear domain)",
                 i,
                 limits::MAX_OFFSET_MAGNITUDE
-            )));
+            ))));
         }
         if !(limits::MIN_GAMMA..=limits::MAX_GAMMA).contains(&ch.gamma) {
-            return Err(Error::InvalidMetadata(alloc::format!(
+            return Err(at!(Error::InvalidMetadata(alloc::format!(
                 "channel {} gamma must be within [{}, {}]",
                 i,
                 limits::MIN_GAMMA,
                 limits::MAX_GAMMA
-            )));
+            ))));
         }
     }
     Ok(())
@@ -675,16 +685,15 @@ mod tests {
         );
 
         // Reject unsupported formats.
-        assert!(matches!(
-            new_pixel_buffer(
-                16,
-                16,
-                PixelFormat::Cmyk8,
-                ColorPrimaries::Bt709,
-                TransferFunction::Srgb
-            ),
-            Err(Error::UnsupportedFormat(_))
-        ));
+        let err = new_pixel_buffer(
+            16,
+            16,
+            PixelFormat::Cmyk8,
+            ColorPrimaries::Bt709,
+            TransferFunction::Srgb,
+        )
+        .unwrap_err();
+        assert!(matches!(err.error(), Error::UnsupportedFormat(_)));
     }
 
     #[test]

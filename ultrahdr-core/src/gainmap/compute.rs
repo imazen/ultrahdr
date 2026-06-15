@@ -7,9 +7,10 @@ use crate::color::gamut::rgb_to_luminance;
 use crate::color::transfer::{hlg_eotf, pq_eotf, srgb_eotf};
 use crate::types::TransferFunction;
 use crate::types::{
-    ColorPrimaries, GainMap, GainMapMetadata, PixelBuffer, PixelFormat, PixelSlice, Result,
+    ColorPrimaries, Error, GainMap, GainMapMetadata, PixelBuffer, PixelFormat, PixelSlice, Result,
 };
 use enough::Stop;
+use whereat::at;
 
 /// Configuration for gain map computation.
 ///
@@ -86,12 +87,12 @@ pub fn compute_gainmap_slice(
     let sdr_h = sdr.rows();
 
     if hdr_w != sdr_w || hdr_h != sdr_h {
-        return Err(crate::types::Error::DimensionMismatch {
+        return Err(at!(crate::types::Error::DimensionMismatch {
             hdr_w,
             hdr_h,
             sdr_w,
             sdr_h,
-        });
+        }));
     }
 
     let scale = config.scale_factor.max(1) as u32;
@@ -178,7 +179,7 @@ fn compute_luminance_gainmap(
 
     for gy in 0..gm_height {
         // Check for cancellation once per row
-        stop.check()?;
+        stop.check().map_err(|r| at!(Error::Stopped(r)))?;
 
         // Sample center pixel of each block on this row.
         let y = (gy * scale + scale / 2).min(hdr_h - 1);
@@ -324,7 +325,7 @@ fn compute_multichannel_gainmap(
 
     for gy in 0..gm_height {
         // Check for cancellation once per row
-        stop.check()?;
+        stop.check().map_err(|r| at!(Error::Stopped(r)))?;
 
         for gx in 0..gm_width {
             let x = (gx * scale + scale / 2).min(hdr_w - 1);
@@ -762,7 +763,7 @@ mod tests {
         let result = compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable);
         assert!(result.is_err());
         assert!(matches!(
-            result.unwrap_err(),
+            result.unwrap_err().error(),
             crate::types::Error::DimensionMismatch { .. }
         ));
     }
@@ -847,11 +848,11 @@ mod tests {
         let config = GainMapConfig::default();
 
         // Should return Stopped error due to cancellation
-        let result = compute_gainmap(&hdr, &sdr, &config, ImmediateCancel);
+        let err = compute_gainmap(&hdr, &sdr, &config, ImmediateCancel).unwrap_err();
 
         assert!(matches!(
-            result,
-            Err(crate::Error::Stopped(enough::StopReason::Cancelled))
+            err.error(),
+            crate::Error::Stopped(enough::StopReason::Cancelled)
         ));
     }
 }

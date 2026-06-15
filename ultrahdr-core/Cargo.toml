@@ -44,6 +44,10 @@ bytemuck = { version = "1.14", features = ["derive"] }
 # Error handling - std only for now
 thiserror = "2.0"
 
+# Error location tracking (At<Error> server-side stack traces). no_std-compatible;
+# its `std` feature is gated into this crate's `std` feature below.
+whereat = { version = "0.1.5", default-features = false }
+
 # Transfer functions (sRGB, PQ, HLG) — mandatory. These are load-bearing
 # for every meaningful gain map path; the old `transfer` feature flag was
 # removed in favour of always pulling linear-srgb.
@@ -85,7 +89,7 @@ required-features = ["simd"]
 
 [features]
 default = ["std", "tonemap"]
-std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone?/std"]
+std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone?/std", "whereat/std"]
 # Gates the zentone-backed re-exports (LumaToneMap, LumaGainMapSplitter,
 # Bt2408Yrgb, HableFilmic, ExtendedReinhardLuma, LumaFn, SplitConfig,
 # SplitStats) at the crate root, plus the `color::tonemap` and

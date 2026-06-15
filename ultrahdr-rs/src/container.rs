@@ -15,6 +15,7 @@
 
 use std::ops::Range;
 use ultrahdr_core::{Error, Result};
+use whereat::at;
 use zenjpeg::container::marker::{MarkerKind, MarkerSpan, find_jpeg_boundaries, iter};
 
 /// MPF directory entry.
@@ -129,7 +130,7 @@ pub fn parse_mpf(data: &[u8]) -> Result<Vec<MpfEntry>> {
     match zen_parse_mpf(data) {
         Ok(entries) => Ok(entries),
         Err(MpfError::NotFound) => Ok(Vec::new()),
-        Err(e) => Err(Error::MpfParse(e.to_string())),
+        Err(e) => Err(at!(Error::MpfParse(e.to_string()))),
     }
 }
 

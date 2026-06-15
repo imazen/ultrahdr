@@ -9,6 +9,7 @@ use ultrahdr_core::{PixelFormat, TransferFunction, Unstoppable};
 
 use ultrahdr_core::{GainMap, PixelBuffer, clone_pixel_buffer, pixel_buffer_from_vec};
 
+use whereat::at;
 use zencodec::Iso21496Format;
 use zencodec::gainmap::{ISO_21496_1_PRIMARY_APP2_BODY, serialize_iso21496_fmt};
 use zenjpeg::container::mpf::create_mpf_header;
@@ -353,9 +354,9 @@ impl Encoder {
                 let gamut = sdr.descriptor().primaries;
                 (self.encode_base_jpeg(&sdr)?, gamut)
             } else {
-                return Err(Error::EncodeError(
+                return Err(at!(Error::EncodeError(
                     "Either HDR image, SDR image, or compressed SDR is required".into(),
-                ));
+                )));
             };
 
             return encode_ultrahdr(&base_jpeg, gainmap_jpeg, metadata, gamut);
@@ -365,7 +366,7 @@ impl Encoder {
         let hdr = self
             .hdr_image
             .as_ref()
-            .ok_or_else(|| Error::EncodeError("HDR image is required".into()))?;
+            .ok_or_else(|| at!(Error::EncodeError("HDR image is required".into())))?;
 
         // Generate or use provided SDR
         let sdr: PixelBuffer = if let Some(ref sdr_img) = self.sdr_image {
@@ -422,17 +423,17 @@ impl Encoder {
         let base_jpeg = self
             .compressed_sdr
             .as_ref()
-            .ok_or_else(|| Error::EncodeError("Base JPEG not set".into()))?;
+            .ok_or_else(|| at!(Error::EncodeError("Base JPEG not set".into())))?;
 
         let gainmap_jpeg = self
             .existing_gainmap_jpeg
             .as_ref()
-            .ok_or_else(|| Error::EncodeError("Gainmap JPEG not set".into()))?;
+            .ok_or_else(|| at!(Error::EncodeError("Gainmap JPEG not set".into())))?;
 
         let metadata = self
             .existing_metadata
             .as_ref()
-            .ok_or_else(|| Error::EncodeError("Metadata not set".into()))?;
+            .ok_or_else(|| at!(Error::EncodeError("Metadata not set".into())))?;
 
         encode_ultrahdr(base_jpeg, gainmap_jpeg, metadata, ColorPrimaries::Bt709)
     }
@@ -475,20 +476,21 @@ impl Encoder {
             }
             PixelFormat::Rgb8 => (PixelLayout::Rgb8Srgb, std::borrow::Cow::Borrowed(src_data)),
             _ => {
-                return Err(Error::EncodeError(format!(
+                return Err(at!(Error::EncodeError(format!(
                     "Unsupported SDR pixel format: {:?}",
                     format
-                )));
+                ))));
             }
         };
 
         let config = EncoderConfig::ycbcr(self.base_quality as f32, ChromaSubsampling::Quarter);
         let mut enc = config
             .encode_from_bytes(sdr.width(), sdr.height(), pixel_layout)
-            .map_err(|e| Error::JpegEncode(e.to_string()))?;
+            .map_err(|e| at!(Error::JpegEncode(e.to_string())))?;
         enc.push_packed(&data, Unstoppable)
-            .map_err(|e| Error::JpegEncode(e.to_string()))?;
-        enc.finish().map_err(|e| Error::JpegEncode(e.to_string()))
+            .map_err(|e| at!(Error::JpegEncode(e.to_string())))?;
+        enc.finish()
+            .map_err(|e| at!(Error::JpegEncode(e.to_string())))
     }
 
     /// Encode gain map to JPEG.
@@ -498,10 +500,11 @@ impl Encoder {
         let config = EncoderConfig::grayscale(self.gainmap_quality as f32);
         let mut enc = config
             .encode_from_bytes(gainmap.width, gainmap.height, PixelLayout::Gray8Srgb)
-            .map_err(|e| Error::JpegEncode(e.to_string()))?;
+            .map_err(|e| at!(Error::JpegEncode(e.to_string())))?;
         enc.push_packed(&gainmap.data, Unstoppable)
-            .map_err(|e| Error::JpegEncode(e.to_string()))?;
-        enc.finish().map_err(|e| Error::JpegEncode(e.to_string()))
+            .map_err(|e| at!(Error::JpegEncode(e.to_string())))?;
+        enc.finish()
+            .map_err(|e| at!(Error::JpegEncode(e.to_string())))
     }
 }
 

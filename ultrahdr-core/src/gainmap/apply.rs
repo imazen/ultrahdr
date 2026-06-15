@@ -5,10 +5,11 @@ use alloc::vec;
 
 use crate::color::transfer::{srgb_eotf, srgb_oetf};
 use crate::types::{
-    GainMap, GainMapMetadata, PixelBuffer, PixelFormat, PixelSlice, Result, TransferFunction,
-    new_pixel_buffer, validate_gainmap_magnitude,
+    Error, GainMap, GainMapMetadata, PixelBuffer, PixelFormat, PixelSlice, Result,
+    TransferFunction, new_pixel_buffer, validate_gainmap_magnitude,
 };
 use enough::Stop;
+use whereat::at;
 
 /// Defense-in-depth clamp for an LUT-decoded gain multiplier.
 ///
@@ -243,7 +244,7 @@ pub fn apply_gainmap_slice(
     // Process each row, checking for cancellation periodically
     for y in 0..height {
         // Check for cancellation once per row (not per pixel for performance)
-        stop.check()?;
+        stop.check().map_err(|r| at!(Error::Stopped(r)))?;
 
         read_sdr_row_linear(&sdr, y, &mut sdr_row);
         sample_gainmap_row_lut(
@@ -1423,18 +1424,19 @@ mod tests {
         let metadata = GainMapMetadata::default();
 
         // Should return Stopped error due to cancellation
-        let result = apply_gainmap(
+        let err = apply_gainmap(
             &sdr,
             &gainmap,
             &metadata,
             4.0,
             HdrOutputFormat::Srgb8,
             ImmediateCancel,
-        );
+        )
+        .unwrap_err();
 
         assert!(matches!(
-            result,
-            Err(crate::Error::Stopped(enough::StopReason::Cancelled))
+            err.error(),
+            crate::Error::Stopped(enough::StopReason::Cancelled)
         ));
     }
 
