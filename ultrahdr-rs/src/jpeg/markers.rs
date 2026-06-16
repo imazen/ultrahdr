@@ -1,6 +1,7 @@
 //! JPEG marker handling utilities.
 
 use ultrahdr_core::{Error, Result};
+use whereat::at;
 
 /// JPEG marker types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,7 +57,9 @@ pub fn parse_jpeg_segments(data: &[u8]) -> Result<Vec<JpegSegment>> {
 
     // Check for SOI
     if data.len() < 2 || data[0] != 0xFF || data[1] != 0xD8 {
-        return Err(Error::JpegDecode("Not a valid JPEG (missing SOI)".into()));
+        return Err(at!(Error::JpegDecode(
+            "Not a valid JPEG (missing SOI)".into()
+        )));
     }
 
     segments.push(JpegSegment {
@@ -123,10 +126,10 @@ pub fn parse_jpeg_segments(data: &[u8]) -> Result<Vec<JpegSegment>> {
 
         let length = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
         if length < 2 || pos + length > data.len() {
-            return Err(Error::JpegDecode(format!(
+            return Err(at!(Error::JpegDecode(format!(
                 "Invalid segment length {} at offset {}",
                 length, offset
-            )));
+            ))));
         }
 
         let segment_data = data[pos + 2..pos + length].to_vec();
@@ -199,7 +202,7 @@ pub fn reconstruct_jpeg(segments: &[JpegSegment]) -> Vec<u8> {
 /// Insert a segment after the SOI marker.
 pub fn insert_segment_after_soi(jpeg: &[u8], segment: &JpegSegment) -> Result<Vec<u8>> {
     if jpeg.len() < 2 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 {
-        return Err(Error::JpegDecode("Not a valid JPEG".into()));
+        return Err(at!(Error::JpegDecode("Not a valid JPEG".into())));
     }
 
     let mut result = Vec::with_capacity(jpeg.len() + segment.data.len() + 4);

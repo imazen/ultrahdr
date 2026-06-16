@@ -53,6 +53,11 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
+// Crate-info getter required by `whereat::at!()` for server-side error stack
+// traces, so this crate's `Err(Error::…)` origins capture their precise call
+// site (matching ultrahdr-core's instrumentation across the boundary).
+whereat::define_at_crate_info!();
+
 // Re-export everything from ultrahdr-core
 pub use ultrahdr_core::color;
 pub use ultrahdr_core::gainmap;

@@ -31,6 +31,7 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
+use whereat::at;
 
 use crate::color::gamut::{convert_gamut, rgb_to_luminance, soft_clip_gamut};
 use crate::color::transfer::{hlg_eotf, pq_eotf, srgb_eotf, srgb_oetf};
@@ -399,12 +400,12 @@ impl AdaptiveTonemapper {
         crate::types::validate_ultrahdr_slice(&sdr_slice)?;
 
         if hdr_slice.width() != sdr_slice.width() || hdr_slice.rows() != sdr_slice.rows() {
-            return Err(Error::DimensionMismatch {
+            return Err(at!(Error::DimensionMismatch {
                 hdr_w: hdr_slice.width(),
                 hdr_h: hdr_slice.rows(),
                 sdr_w: sdr_slice.width(),
                 sdr_h: sdr_slice.rows(),
-            });
+            }));
         }
 
         match config.mode {
@@ -614,9 +615,9 @@ impl AdaptiveTonemapper {
         }
 
         if pairs.is_empty() {
-            return Err(Error::InvalidPixelData(
+            return Err(at!(Error::InvalidPixelData(
                 "no valid pixel pairs for fitting".into(),
-            ));
+            )));
         }
 
         // Sort by HDR luminance
@@ -899,17 +900,17 @@ pub fn crop_gainmap(
     crate::types::validate_ultrahdr_dimensions(sdr_width, sdr_height)?;
     let (crop_x, crop_y, crop_w, crop_h) = crop_rect;
     if crop_w == 0 || crop_h == 0 {
-        return Err(Error::InvalidDimensions(crop_w, crop_h));
+        return Err(at!(Error::InvalidDimensions(crop_w, crop_h)));
     }
     // Reject crop rects that overflow or extend past `sdr_*` bounds.
     let crop_x_end = crop_x
         .checked_add(crop_w)
-        .ok_or(Error::InvalidDimensions(crop_x, crop_w))?;
+        .ok_or_else(|| at!(Error::InvalidDimensions(crop_x, crop_w)))?;
     let crop_y_end = crop_y
         .checked_add(crop_h)
-        .ok_or(Error::InvalidDimensions(crop_y, crop_h))?;
+        .ok_or_else(|| at!(Error::InvalidDimensions(crop_y, crop_h)))?;
     if crop_x_end > sdr_width || crop_y_end > sdr_height {
-        return Err(Error::InvalidDimensions(crop_x_end, crop_y_end));
+        return Err(at!(Error::InvalidDimensions(crop_x_end, crop_y_end)));
     }
 
     // Calculate corresponding gain map region. `sdr_width` / `sdr_height` are
