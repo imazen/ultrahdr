@@ -267,6 +267,23 @@ pub fn apply_gainmap_slice(
     }
 
     drop(out_slice);
+
+    // Tag the reconstruction's absolute-luminance anchor. Gain-map HDR is
+    // reconstructed relative to SDR diffuse white = BT.2408 (203 cd/m²), so a
+    // relative-linear `1.0` maps to 203 nits. Carrying it on the buffer's
+    // `ColorContext` lets a downstream PQ/HLG encode read the real anchor
+    // instead of assuming the default — every codec that reconstructs through
+    // `apply_gainmap` (heic/zenjpeg/zenavif/zenjxl) inherits this. Linear
+    // outputs only: the `Srgb8` path is gamma-encoded SDR, not relative-linear.
+    let output = match output_format {
+        HdrOutputFormat::LinearFloat | HdrOutputFormat::LinearF16 => {
+            output.with_color_context(alloc::sync::Arc::new(
+                zenpixels::ColorContext::default()
+                    .with_diffuse_white(zenpixels::DiffuseWhite::BT2408),
+            ))
+        }
+        HdrOutputFormat::Srgb8 => output,
+    };
     Ok(output)
 }
 
@@ -872,6 +889,63 @@ mod tests {
         assert_eq!(result.width(), 4);
         assert_eq!(result.height(), 4);
         assert_eq!(result.descriptor().pixel_format(), PixelFormat::Rgba8);
+    }
+
+    /// Linear (HDR) reconstruction carries the SDR diffuse-white anchor
+    /// (BT.2408 = 203 cd/m²) on its `ColorContext` so a downstream PQ/HLG
+    /// encode reads the real anchor; the Srgb8 (SDR) path does not.
+    #[test]
+    fn apply_gainmap_tags_diffuse_white_on_linear_output() {
+        let sdr = crate::types::new_pixel_buffer(
+            2,
+            2,
+            PixelFormat::Rgba8,
+            ColorPrimaries::Bt709,
+            TransferFunction::Srgb,
+        )
+        .unwrap();
+        let gainmap = GainMap::new(1, 1).unwrap();
+        let metadata = crate::types::metadata_from_arrays(
+            [0.0; 3],
+            [2.0; 3],
+            [1.0; 3],
+            [0.015625; 3],
+            [0.015625; 3],
+            0.0,
+            2.0,
+            true,
+            false,
+        );
+
+        let linear = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            4.0,
+            HdrOutputFormat::LinearFloat,
+            enough::Unstoppable,
+        )
+        .unwrap();
+        assert_eq!(
+            linear.color_context().and_then(|c| c.diffuse_white),
+            Some(zenpixels::DiffuseWhite::BT2408),
+            "linear reconstruction must carry the 203-nit anchor"
+        );
+
+        let srgb = apply_gainmap(
+            &sdr,
+            &gainmap,
+            &metadata,
+            4.0,
+            HdrOutputFormat::Srgb8,
+            enough::Unstoppable,
+        )
+        .unwrap();
+        assert_eq!(
+            srgb.color_context().and_then(|c| c.diffuse_white),
+            None,
+            "the gamma-encoded SDR path is not relative-linear; no anchor"
+        );
     }
 
     // ========================================================================
