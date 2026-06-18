@@ -28,7 +28,7 @@ grep -r --include="*.rs" "<symbol>" /home/lilith/work/ \
 |----------|-----------|
 | `hdr-corpus-convert/src/main.rs` | `color::pq_oetf`, `gainmap::apply::apply_gainmap`, `ColorPrimaries`, `GainMap`, `HdrOutputFormat`, `PixelBuffer`, `PixelFormat`, `TransferFunction`, `Unstoppable`, `from_apple_headroom`, `parse_exif_for_apple_hdr`, `pixel_buffer_from_vec` |
 | `zenmetrics/zenhdr-corpus/src/main.rs` | `gainmap::apply::apply_gainmap`, `ColorPrimaries`, `GainMap`, `HdrOutputFormat`, `Iso21496Format`, `PixelBuffer`, `PixelFormat`, `TransferFunction`, `parse_iso21496_fmt`, `pixel_buffer_from_vec` |
-| `zenmetrics/zen-metrics-cli/src/hdr.rs` | `gainmap::apply::apply_gainmap`, `ColorPrimaries`, `GainMap`, `HdrOutputFormat`, `Iso21496Format`, `PixelFormat`, `TransferFunction`, `parse_iso21496_fmt`, `pixel_buffer_from_vec`, `Unstoppable`, `PixelBuffer` |
+| `zenmetrics/zenmetrics-cli/src/hdr.rs` | `gainmap::apply::apply_gainmap`, `ColorPrimaries`, `GainMap`, `HdrOutputFormat`, `Iso21496Format`, `PixelFormat`, `TransferFunction`, `parse_iso21496_fmt`, `pixel_buffer_from_vec`, `Unstoppable`, `PixelBuffer` |
 | `jxl-encoder/src/hdr/from_sdr.rs` | `GainMapParams` (= `GainMapMetadata`), `Iso21496Format`, `gainmap::GainMapConfig`, `ColorPrimaries`, `TransferFunction`, `GainMapEncodingFormat`, `descriptor_for`, `pixel_buffer_from_vec`, `serialize_iso21496_fmt` |
 | `zenjpeg/zenjpeg/tests/` | `pixel_buffer_from_vec`, `gainmap::HdrOutputFormat`, `ColorPrimaries`, `PixelBuffer` |
 | Today's Apple MakerNote work (fresh) | `metadata::apple::AppleHdrInfo`, `parse_apple_makernote`, `parse_exif_for_apple_hdr`, `from_apple_headroom`, `metadata::apple::tags::*` |

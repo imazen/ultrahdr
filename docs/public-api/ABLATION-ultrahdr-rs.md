@@ -29,7 +29,7 @@ grep -r --include="*.rs" "<symbol>" /home/lilith/work/ \
 |----------|-----------|
 | `hdr-corpus-convert/src/main.rs` | `ultrahdr_rs::Decoder::new` |
 | `zenmetrics/zenhdr-corpus/src/main.rs` | `ultrahdr_rs::Decoder` |
-| `zenmetrics/zen-metrics-cli/src/hdr.rs` | `ultrahdr_rs::Decoder::new` |
+| `zenmetrics/zenmetrics-cli/src/hdr.rs` | `ultrahdr_rs::Decoder::new` |
 | `zenjpeg/tests/bundled/ultrahdr_roundtrip.rs` | `ultrahdr_rs::Decoder::new`, `ultrahdr_rs::Decoder::*` methods |
 | `zenmetrics/zenhdr-corpus/examples/make_distorted.rs` | `ultrahdr_rs::{Decoder, Encoder}` |
 | zencodecs (via `codec::UltraHdrDecoderConfig`) | (zencodecs depends on ultrahdr-rs for its codec registry) |
