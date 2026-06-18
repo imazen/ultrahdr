@@ -54,6 +54,30 @@ fn decode(bytes: &[u8]) -> ultrahdr_rs::Result<()> {
 }
 ```
 
+### Errors (for a server)
+
+Decode/encode return `ultrahdr_rs::Result<T>` over a **bare**
+`ultrahdr_rs::Error` (a `#[non_exhaustive]` enum — this crate does not wrap
+errors in `whereat::At<…>`, so match it directly). Map it to an HTTP status:
+
+```rust
+use ultrahdr_rs::{Decoder, Error};
+
+fn http_status(bytes: &[u8]) -> u16 {
+    match Decoder::new(bytes).and_then(|d| d.decode_hdr(4.0)) {
+        Ok(_hdr) => 200,
+        Err(e) => match e {
+            Error::LimitExceeded(_) | Error::AllocationFailed(_) => 413, // Payload Too Large
+            Error::UnsupportedFormat(_) => 415,                          // Unsupported Media Type
+            Error::NotUltraHdr => 415,  // valid JPEG but no gain map — decode it as plain SDR
+            Error::Stopped(_) => 499,   // cancelled
+            // malformed: DecodeError, IsoParse, JpegDecode, MpfParse, XmpParse, InvalidMetadata, ...
+            _ => 400,                   // Bad Request
+        },
+    }
+}
+```
+
 ### Encode HDR + SDR into an Ultra HDR JPEG
 
 ```rust

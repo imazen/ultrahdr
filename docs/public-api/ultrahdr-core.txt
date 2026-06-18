@@ -6,14 +6,14 @@
 # impls omitted; re-export duplicates annotated `[also: path]`.
 # DO NOT EDIT BY HAND — commit regenerated changes with the code.
 #
-# files: ultrahdr-core.txt 305 lines (supported surface) | ultrahdr-core.features.txt 1 added (features: archmage,magetypes,resize,simd,std,tonemap) | ultrahdr-core.internal.txt 113 lines (132 hidden + 0 excluded-feature)
+# files: ultrahdr-core.txt 306 lines (supported surface) | ultrahdr-core.features.txt 1 added (features: archmage,magetypes,resize,simd,std,tonemap) | ultrahdr-core.internal.txt 113 lines (132 hidden + 0 excluded-feature)
 
 ## summary
 #
 #   pub modules                                15
 #   pub types (struct/enum/trait/alias)        40
 #   pub consts/statics                         23
-#   free functions                             72
+#   free functions                             73
 #   inherent methods                           53
 #   struct fields                              63
 #   enum variants                              48
@@ -22,14 +22,14 @@
 #   auto-trait-complete types                  19
 #
 # per-module pub lines:
-#   (root)                           98
+#   (root)                           99
 #   color                           131
 #   gainmap                          63
 #   limits                           10
 #   luminance                         4
 #   metadata                         30
 
-## items (285 lines)
+## items (286 lines)
 
 pub mod ultrahdr_core
 pub use Bt2408Yrgb
@@ -302,6 +302,7 @@ pub fn clone_pixel_buffer(&zenpixels::buffer::PixelBuffer) -> zenpixels::buffer:
 pub fn compute_gain_row(&[f32], &[f32], u8, zenpixels::descriptor::ColorPrimaries, zenpixels::descriptor::ColorPrimaries, &mut [u8], &gainmap::GainMapConfig, &mut (f32, f32)) [also: gainmap, gainmap::compute]
 pub fn descriptor_for(zenpixels::descriptor::PixelFormat, zenpixels::descriptor::ColorPrimaries, zenpixels::descriptor::TransferFunction) -> zenpixels::descriptor::PixelDescriptor
 pub fn from_apple_headroom(&metadata::apple::AppleHdrInfo) -> core::option::Option<GainMapMetadata> [also: metadata::apple]
+pub fn full_reconstruction_boost(&GainMapMetadata) -> f32
 pub fn new_pixel_buffer(u32, u32, zenpixels::descriptor::PixelFormat, zenpixels::descriptor::ColorPrimaries, zenpixels::descriptor::TransferFunction) -> Result<zenpixels::buffer::PixelBuffer>
 pub fn parse_apple_makernote(&[u8]) -> core::option::Option<metadata::apple::AppleHdrInfo> [also: metadata::apple]
 pub fn parse_exif_for_apple_hdr(&[u8]) -> core::option::Option<metadata::apple::AppleHdrInfo> [also: metadata::apple]
@@ -314,7 +315,7 @@ pub fn validate_ultrahdr_image(&zenpixels::buffer::PixelBuffer) -> Result<()>
 pub fn validate_ultrahdr_slice(&zenpixels::buffer::PixelSlice<'_>) -> Result<()>
 pub type Fraction = zencodec::gainmap::Fraction
 pub type GainMapMetadata = zencodec::gainmap::GainMapParams
-pub type Result<T> = core::result::Result<T, Error>
+pub type Result<T> = core::result::Result<T, whereat::at::At<Error>>
 pub type UnsignedFraction = zencodec::gainmap::UFraction
 
 ## trait impls (19 types)

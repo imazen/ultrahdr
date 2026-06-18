@@ -13,6 +13,25 @@ own section below.
 ### [Unreleased]
 
 #### QUEUED BREAKING CHANGES
+<!-- Ship in the next 0.x-minor (0.6.0). Consumers that [patch.crates-io]=git
+     track HEAD (zenpipe) must bump in lockstep at merge time; pinned-rev
+     consumers (zenjpeg/heic) are unaffected until they advance the rev. -->
+- `Result<T>` now carries a source location: `Result<T, whereat::At<Error>>`
+  (was `Result<T, Error>`), for server-side error stack traces. Match the inner
+  error with `e.error()` (borrow) or `e.decompose().0` (owned); read the capture
+  site with `e.location()`. The bare `Error` type is unchanged, so `#[from]
+  ultrahdr_core::Error` keeps working. `ultrahdr-rs` is instrumented in lockstep.
+
+#### Fixed
+- **bplist parser: bound attacker-controlled allocations.** The Apple binary
+  plist reader (`metadata/bplist.rs`) called `Vec::with_capacity(count)` with an
+  untrusted `count` for arrays/sets/dicts (no preceding length bound) and could
+  overflow `count * 2` / `count * ref_size`, defeating the slice bound. Reservations
+  are now capped by the input length and the multiplies are `checked_*`; the
+  element loops already fail fast on the first out-of-range reference. No
+  behavior change on well-formed input (164 tests pass).
+
+#### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release.
      Batch them here instead of shipping piecemeal. -->
 
@@ -224,6 +243,9 @@ own section below.
 <!-- Breaking changes queued for the next major (or minor for 0.x) release. -->
 
 #### Fixed
+- `decode.rs` RGB/grayscale→RGBA `Vec::with_capacity` computed `width * height * 4`
+  in `u32` (wraps for large images / sooner on 32-bit); now computed in `usize`.
+- Crate-level doc example used `use ultrahdr::…`; the crate is `ultrahdr_rs`.
 - **`decode_gainmap` decodes RGB (multi-channel) gain maps** (#27), with
   the channel count driven by the ISO 21496-1 **metadata**
   (`is_single_channel`), not pixel inspection: single-channel maps keep

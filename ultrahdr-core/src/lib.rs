@@ -64,6 +64,11 @@
 
 extern crate alloc;
 
+// Crate-info getter required by `whereat::at!()` for server-side error stack
+// traces (the `At<Error>` pattern). Generates `crate::at_crate_info()`, which
+// every `at!()` invocation resolves at the crate root regardless of module.
+whereat::define_at_crate_info!();
+
 pub mod color;
 pub mod gainmap;
 pub mod metadata;

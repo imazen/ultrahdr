@@ -61,6 +61,7 @@ use alloc::format;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
+use whereat::at;
 
 use crate::color::gamut::rgb_to_luminance;
 use crate::types::{ColorPrimaries, Error, GainMap, GainMapMetadata, Result};
@@ -186,17 +187,19 @@ impl RowDecoder {
         let actual_rows = num_rows.min(remaining);
 
         if actual_rows == 0 {
-            return Err(Error::InvalidPixelData("all rows already processed".into()));
+            return Err(at!(Error::InvalidPixelData(
+                "all rows already processed".into()
+            )));
         }
 
         let input_stride = self.width as usize * 3; // RGB
         let expected_len = input_stride * actual_rows as usize;
         if sdr_linear.len() < expected_len {
-            return Err(Error::InvalidPixelData(format!(
+            return Err(at!(Error::InvalidPixelData(format!(
                 "input data too short: {} < {} floats",
                 sdr_linear.len(),
                 expected_len
-            )));
+            ))));
         }
 
         let output_stride = self.width as usize * 4; // RGBA
@@ -394,9 +397,9 @@ impl StreamDecoder {
         crate::types::validate_ultrahdr_dimensions(gm_width, gm_height)?;
         crate::types::validate_gainmap_magnitude(&metadata)?;
         if gm_channels != 1 && gm_channels != 3 {
-            return Err(Error::InvalidPixelData(format!(
+            return Err(at!(Error::InvalidPixelData(format!(
                 "gainmap channels must be 1 or 3, got {gm_channels}"
-            )));
+            ))));
         }
         let weight = super::apply::calculate_weight(display_boost, &metadata);
         let lut = super::apply::GainMapLut::new(&metadata, weight);
@@ -440,9 +443,9 @@ impl StreamDecoder {
     /// Push a gainmap row into the buffer.
     pub fn push_gainmap_row(&mut self, data: &[u8]) -> Result<()> {
         if self.current_gm_row >= self.gm_height {
-            return Err(Error::InvalidPixelData(
+            return Err(at!(Error::InvalidPixelData(
                 "all gainmap rows already received".into(),
-            ));
+            )));
         }
 
         self.gm_buffer.push(self.current_gm_row, data);
@@ -457,7 +460,9 @@ impl StreamDecoder {
             let start = i as usize * row_bytes;
             let end = start + row_bytes;
             if end > data.len() {
-                return Err(Error::InvalidPixelData("gainmap data too short".into()));
+                return Err(at!(Error::InvalidPixelData(
+                    "gainmap data too short".into()
+                )));
             }
             self.push_gainmap_row(&data[start..end])?;
         }
@@ -496,25 +501,25 @@ impl StreamDecoder {
         let actual_rows = num_rows.min(remaining);
 
         if actual_rows == 0 {
-            return Err(Error::InvalidPixelData(
+            return Err(at!(Error::InvalidPixelData(
                 "all SDR rows already processed".into(),
-            ));
+            )));
         }
 
         if !self.can_process(actual_rows) {
-            return Err(Error::InvalidPixelData(
+            return Err(at!(Error::InvalidPixelData(
                 "insufficient gainmap data buffered".into(),
-            ));
+            )));
         }
 
         let input_stride = self.sdr_width as usize * 3;
         let expected_len = input_stride * actual_rows as usize;
         if sdr_linear.len() < expected_len {
-            return Err(Error::InvalidPixelData(format!(
+            return Err(at!(Error::InvalidPixelData(format!(
                 "SDR data too short: {} < {} floats",
                 sdr_linear.len(),
                 expected_len
-            )));
+            ))));
         }
 
         let output_stride = self.sdr_width as usize * 4;
@@ -717,12 +722,18 @@ impl RowEncoder {
 
         let buffer_size = (scale as usize + 16).max(32);
         let channels = if config.multi_channel { 3 } else { 1 };
-        let gm_row_stride = (gm_width as usize)
-            .checked_mul(channels)
-            .ok_or_else(|| Error::LimitExceeded("gainmap row stride overflow".to_string()))?;
+        let gm_row_stride = (gm_width as usize).checked_mul(channels).ok_or_else(|| {
+            at!(Error::LimitExceeded(
+                "gainmap row stride overflow".to_string()
+            ))
+        })?;
         let alloc_size = gm_row_stride
             .checked_mul(gm_height as usize)
-            .ok_or_else(|| Error::LimitExceeded("gainmap allocation overflow".to_string()))?;
+            .ok_or_else(|| {
+                at!(Error::LimitExceeded(
+                    "gainmap allocation overflow".to_string()
+                ))
+            })?;
         let gainmap_data = vec![0u8; alloc_size];
 
         Ok(Self {
@@ -1006,9 +1017,11 @@ impl StreamEncoder {
         let gm_height = height.div_ceil(scale);
         crate::types::validate_ultrahdr_dimensions(gm_width, gm_height)?;
 
-        let row_floats = (width as usize)
-            .checked_mul(3)
-            .ok_or_else(|| Error::LimitExceeded("encoder row stride overflow".to_string()))?;
+        let row_floats = (width as usize).checked_mul(3).ok_or_else(|| {
+            at!(Error::LimitExceeded(
+                "encoder row stride overflow".to_string()
+            ))
+        })?;
         let buffer_capacity = (scale + 16).min(32);
 
         Ok(Self {
@@ -1041,7 +1054,7 @@ impl StreamEncoder {
             let start = i as usize * stride;
             let end = start + stride;
             if end > data.len() {
-                return Err(Error::InvalidPixelData("HDR data too short".into()));
+                return Err(at!(Error::InvalidPixelData("HDR data too short".into())));
             }
             self.hdr_rows.push(self.next_hdr_row + i, &data[start..end]);
         }
@@ -1054,9 +1067,9 @@ impl StreamEncoder {
     /// Push a single HDR row.
     pub fn push_hdr_row(&mut self, data: &[f32]) -> Result<()> {
         if self.next_hdr_row >= self.height {
-            return Err(Error::InvalidPixelData(
+            return Err(at!(Error::InvalidPixelData(
                 "all HDR rows already received".into(),
-            ));
+            )));
         }
         self.hdr_rows.push(self.next_hdr_row, data);
         self.next_hdr_row += 1;
@@ -1074,7 +1087,7 @@ impl StreamEncoder {
             let start = i as usize * stride;
             let end = start + stride;
             if end > data.len() {
-                return Err(Error::InvalidPixelData("SDR data too short".into()));
+                return Err(at!(Error::InvalidPixelData("SDR data too short".into())));
             }
             self.sdr_rows.push(self.next_sdr_row + i, &data[start..end]);
         }
@@ -1087,9 +1100,9 @@ impl StreamEncoder {
     /// Push a single SDR row.
     pub fn push_sdr_row(&mut self, data: &[f32]) -> Result<()> {
         if self.next_sdr_row >= self.height {
-            return Err(Error::InvalidPixelData(
+            return Err(at!(Error::InvalidPixelData(
                 "all SDR rows already received".into(),
-            ));
+            )));
         }
         self.sdr_rows.push(self.next_sdr_row, data);
         self.next_sdr_row += 1;
@@ -1198,11 +1211,11 @@ impl StreamEncoder {
         all_rows.append(&mut self.pending_gm_rows);
 
         if all_rows.len() != self.gm_height as usize {
-            return Err(Error::InvalidPixelData(format!(
+            return Err(at!(Error::InvalidPixelData(format!(
                 "incomplete gainmap: {} of {} rows",
                 all_rows.len(),
                 self.gm_height
-            )));
+            ))));
         }
 
         let channels = if self.config.multi_channel { 3u8 } else { 1u8 };

@@ -151,7 +151,10 @@ impl Ctx<'_> {
             0x6 => {
                 // UTF-16BE string: `count` UTF-16 code units (2 bytes each).
                 let (count, base) = self.read_count(off, lo)?;
-                let end = base + count * 2;
+                // `count` is attacker-controlled; checked arithmetic so a huge
+                // count cannot overflow usize and wrap past the data.get bound
+                // (which then bounds the Vec reservation to `count <= len/2`).
+                let end = count.checked_mul(2).and_then(|n| base.checked_add(n))?;
                 let bytes = self.data.get(base..end)?;
                 let mut units = Vec::with_capacity(count);
                 for c in bytes.chunks_exact(2) {
@@ -170,7 +173,10 @@ impl Ctx<'_> {
             0xA | 0xC => {
                 // Array (0xA) or set (0xC): `count` object refs.
                 let (count, base) = self.read_count(off, lo)?;
-                let mut out = Vec::with_capacity(count);
+                // `count` is attacker-controlled; cap the upfront reservation by
+                // the input length (each ref needs >=1 byte). The loop fails fast
+                // via read_ref on the first out-of-range reference.
+                let mut out = Vec::with_capacity(count.min(self.data.len()));
                 for i in 0..count {
                     let r = self.read_ref(base + i * self.ref_size)?;
                     out.push(self.read_object(r, depth + 1)?);
@@ -181,8 +187,12 @@ impl Ctx<'_> {
                 // Dict: `count` key refs followed by `count` value refs.
                 let (count, base) = self.read_count(off, lo)?;
                 let keys_base = base;
-                let vals_base = base + count * self.ref_size;
-                let mut out = Vec::with_capacity(count);
+                // checked + capped: `count` is attacker-controlled. The loop
+                // self-limits via read_ref; this just bounds the reservation.
+                let vals_base = count
+                    .checked_mul(self.ref_size)
+                    .and_then(|n| base.checked_add(n))?;
+                let mut out = Vec::with_capacity(count.min(self.data.len()));
                 for i in 0..count {
                     let k = self.read_ref(keys_base + i * self.ref_size)?;
                     let v = self.read_ref(vals_base + i * self.ref_size)?;

@@ -44,6 +44,10 @@ half = { workspace = true }
 # Error handling
 thiserror = { workspace = true }
 
+# Error location tracking (At<Error> server-side stack traces), matching
+# ultrahdr-core's instrumentation so origins are captured across the boundary.
+whereat = "0.1.5"
+
 # Cooperative cancellation
 enough = { workspace = true }
 
