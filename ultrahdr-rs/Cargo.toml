@@ -51,13 +51,6 @@ whereat = "0.1.5"
 # Cooperative cancellation
 enough = { workspace = true }
 
-# Reference implementation comparison (optional, for FFI parity tests).
-# Pinned to the imazen fork of libultrahdr-rs for build-stability
-# improvements we haven't tried to upstream yet. Imported as
-# `libultrahdr_rs` (hyphen → underscore) to match the fork's repo name
-# and leave a clear audit trail in test code.
-libultrahdr_rs = { package = "ultrahdr", version = "0.1.3", git = "https://github.com/imazen/libultrahdr-rs.git", rev = "b820575b0029bfe6684c8d14fe66a655016e9c72", optional = true }
-
 [dev-dependencies]
 # Testing (WASM-compatible)
 fast-ssim2 = { workspace = true }
@@ -95,7 +88,6 @@ simd = ["ultrahdr-core/simd"]  # Enable explicit SIMD optimizations
 # Default-off to keep transitive deps minimal; opt-in for HDR→SDR display
 # paths.
 tonemap-bt2446a = ["ultrahdr-core/tonemap-bt2446a"]
-ffi-tests = ["dep:libultrahdr_rs"]  # FFI parity tests against libultrahdr (C++).
 # Pixel-level parity tests against Google's `ultrahdr_app` subprocess. Gated
 # because the binary is not available on most developer machines; CI enables
 # this in the Gain Map Interop workflow where `ultrahdr_app` is installed.

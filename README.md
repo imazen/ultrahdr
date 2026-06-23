@@ -257,7 +257,7 @@ Bit-exact `applyGain` and `applyGainCore` parity against libultrahdr and libavif
 `ultrahdr-rs`:
 
 - `simd` — forwards to `ultrahdr-core/simd`.
-- `ffi-tests` — pulls in a libultrahdr Rust binding for FFI parity tests (CI only).
+- `tonemap-bt2446a` — forwards to `ultrahdr-core/tonemap-bt2446a`. Adds `Decoder::decode_full_sdr` (HDR→SDR via the audited-winner Bt2446A curve + `measure_max` peak measurement) and pulls in `zenpixels-convert` at the audited HDR commit. Default-off to keep transitive deps minimal.
 - `__pixel-parity` — runs pixel-parity tests against Google's `ultrahdr_app` subprocess (CI only, requires the binary on `PATH`).
 - `zencodec` — opt-in `zencodec` trait integration for the unified codec dispatch in `zencodecs`.
 

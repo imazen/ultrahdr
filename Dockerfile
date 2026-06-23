@@ -64,11 +64,13 @@ RUN echo "=== Running base tests (without FFI) ===" && \
 ENV CMAKE_BUILD_TYPE=Release
 ENV UHDR_BUILD_DEPS=ON
 
-# Build AND run FFI tests at build time to avoid rebuild issues at runtime
-# The turbojpeg ExternalProject has git issues when rebuilding in a container
-RUN echo "=== Building and running FFI tests ===" && \
-    cargo test --release --features ffi-tests -- --nocapture 2>&1 && \
-    echo "FFI tests complete"
+# Build AND run tests at build time
+# (FFI parity tests against libultrahdr C++ were removed when we dropped
+# the libultrahdr-rs binding; pure-Rust correctness is verified via the
+# `libultrahdr_parity.rs` corpus-based tests and CI's interop matrix.)
+RUN echo "=== Building and running tests ===" && \
+    cargo test --release -- --nocapture 2>&1 && \
+    echo "Tests complete"
 
-# At runtime, show test summary (tests ran at build time to avoid CMake rebuild issues)
-CMD ["sh", "-c", "echo '=== Ultra HDR FFI Test Container ===' && echo '' && echo 'All tests passed at build time:' && echo '  - 47 unit tests' && echo '  - 8 FFI parity tests with libultrahdr C++' && echo '  - Sample Ultra HDR images decoded successfully' && echo '' && echo 'To re-run base tests (without FFI):' && echo '  docker run --rm ultrahdr-test cargo test --release' && echo '' && echo 'Note: FFI tests cannot be re-run at runtime due to CMake external project caching issues.' && echo 'See the Docker build output for FFI test results.'"]
+# At runtime, show test summary (tests ran at build time)
+CMD ["sh", "-c", "echo '=== Ultra HDR Test Container ===' && echo '' && echo 'All tests passed at build time.' && echo '' && echo 'To re-run tests:' && echo '  docker run --rm ultrahdr-test cargo test --release'"]

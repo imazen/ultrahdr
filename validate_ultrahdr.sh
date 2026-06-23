@@ -103,24 +103,10 @@ else
 fi
 
 # ============================================================================
-section "4. FFI parity tests (Rust encoder → libultrahdr decoder)"
-# ============================================================================
-
-if cargo test --release --features ffi-tests -- --nocapture 2>&1 | tee "${OUTDIR}/ffi_tests.log" | tail -10; then
-    test_line=$(grep "^test result:" "${OUTDIR}/ffi_tests.log" | tail -1)
-    if [ -n "$test_line" ]; then
-        if echo "$test_line" | grep -q "0 failed"; then
-            pass "FFI parity: $test_line"
-        else
-            fail "FFI parity: $test_line"
-        fi
-    else
-        skip "FFI parity: no test results found"
-    fi
-else
-    skip "FFI parity tests not available (build may have failed)"
-fi
-
+# (FFI parity section removed when we dropped the libultrahdr-rs binding —
+# the parity coverage was for libultrahdr C++ via the Rust binding crate.
+# Pure-Rust correctness is verified in the previous test sections plus the
+# `libultrahdr_parity.rs` corpus-based tests using real producer files.)
 # ============================================================================
 section "5. Validate real Ultra HDR samples"
 # ============================================================================

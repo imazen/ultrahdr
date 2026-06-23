@@ -508,7 +508,7 @@ zencodec = ["dep:zenpixels", "dep:zencodec"]  # zen* ecosystem interop
 [features]
 default = []
 simd = ["ultrahdr-core/simd"]           # Enable explicit SIMD optimizations
-ffi-tests = ["libultrahdr"]             # Enable FFI parity tests with libultrahdr C++
+tonemap-bt2446a = ["ultrahdr-core/tonemap-bt2446a"]  # Decoder::decode_full_sdr via audited Bt2446A
 zencodec = ["ultrahdr-core/zencodec", "dep:zencodec", "dep:zenpixels", "dep:zenjpeg"]
 ```
 
