@@ -89,6 +89,12 @@ tempfile = "3.27.0"
 [features]
 default = []
 simd = ["ultrahdr-core/simd"]  # Enable explicit SIMD optimizations
+# Forwarded to ultrahdr-core: adds `Decoder::decode_full_sdr` (HDR→SDR via
+# the audited-winner Bt2446A curve + measure_max peak measurement, all in
+# one call). See the ultrahdr-core docs for the empirical citation.
+# Default-off to keep transitive deps minimal; opt-in for HDR→SDR display
+# paths.
+tonemap-bt2446a = ["ultrahdr-core/tonemap-bt2446a"]
 ffi-tests = ["dep:libultrahdr_rs"]  # FFI parity tests against libultrahdr (C++).
 # Pixel-level parity tests against Google's `ultrahdr_app` subprocess. Gated
 # because the binary is not available on most developer machines; CI enables

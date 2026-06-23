@@ -36,6 +36,8 @@ own section below.
      Batch them here instead of shipping piecemeal. -->
 
 #### Added
+- `color::audited` — production-recommended HDR→SDR primitives behind the new `tonemap-bt2446a` Cargo feature (default-off). Re-exports `Bt2446A` (ITU-R BT.2446 Method A tone curve), `CllMeasure` + `LightLevelMethod` (`measure_max` peak measurement), `ContentLightLevel`, and `DiffuseWhite` from `zenpixels-convert::hdr`. Empirical basis: the 2026-06-22 audited HDR→SDR shootout (76 imazen-26 samples × 20 curves × 4 peak methods) — `Bt2446A` wins mean ΔE2000 by 2-5× over every channel-independent curve tested; `measure_max` wins 3 of 6 ranking criteria including `pct_above_de5` by 11 % over the closest alternative. See `zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md`. Default-off because `zenpixels-convert` brings `archmage` / `magetypes` / `garb` / `libm` beyond the crate's minimal-deps mandate.
+- Crate root re-exports for `Bt2446A`, `CllMeasure`, `LightLevelMethod`, `ContentLightLevel`, `DiffuseWhite` under the same feature gate, so consumers can `use ultrahdr_core::Bt2446A;` directly.
 - `metadata::apple` — Apple iOS MakerNote HDR headroom parser. Extracts `0x21 HDRHeadroom`, `0x30 HDRGain`, `0x0a HDRImageType` (per exiftool `Apple.pm`) from EXIF TIFF bytes, computes HDR headroom via the Apple stops formula, and maps to `GainMapMetadata` (`from_apple_headroom`). Validated against 49 real iPhone 8/13/16/17 HEIC captures (parsed values match exiftool, tol 1e-3). `no_std` + `alloc`, zero new deps. Public API: `parse_exif_for_apple_hdr`, `parse_apple_makernote`, `from_apple_headroom`, `AppleHdrInfo`.
 - `metadata::bplist` — minimal `bplist00` (Apple binary property list) reader for bplist-encoded MakerNote values (`RunTime`, AE state, …). Depth-bounded against cyclic refs. Public API: `parse_bplist`, `PlistValue`.
 
@@ -241,6 +243,21 @@ own section below.
 
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release. -->
+
+#### Added
+- `Decoder::decode_full_sdr(target_primaries)` — one-call HDR→SDR decode
+  for display paths. Reconstructs linear-light HDR via `apply_gainmap` at
+  the metadata's full `alternate_hdr_headroom`, auto-measures the source
+  peak via the audited-winner `CllMeasure::measure_max` (MaxRgb, BT.2408),
+  applies the audited-winner `Bt2446A` tone curve, and writes 8-bit sRGB
+  RGBA. Skips the public HDR-roundtrip API for callers who only need SDR.
+  Empirical basis: the 2026-06-22 audited shootout
+  (`zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md`) —
+  `Bt2446A` wins mean ΔE2000 by 2-5× over every channel-independent curve;
+  `measure_max` wins 3 of 6 ranking criteria including `pct_above_de5`
+  by 11 %. Gated behind the new `tonemap-bt2446a` Cargo feature (forwards
+  to `ultrahdr-core/tonemap-bt2446a`; default-off, pulls archmage/
+  magetypes/garb/libm via `zenpixels-convert`).
 
 #### Fixed
 - `decode.rs` RGB/grayscale→RGBA `Vec::with_capacity` computed `width * height * 4`

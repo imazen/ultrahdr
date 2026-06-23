@@ -68,6 +68,17 @@ criterion = "0.8"
 # path in ultrahdr-core's own manifest, which would break consumers that
 # depend on ultrahdr-core via `git = "https://github.com/imazen/ultrahdr"`.
 # CI clones ../zentone alongside this repo; registry builds (cargo publish,
-# git consumers) ignore this section entirely.
+# git consumers) ignore this section entirely. Same pattern for
+# zenpixels-convert: the BT.2446A re-export needs a published 0.2.15
+# (queued); this patch points at the sibling checkout where the audited
+# `Bt2446A` lives now. Drop the patch once the registry release lands.
 [patch.crates-io]
 zentone = { path = "../zentone" }
+# zenpixels-convert + zenpixels: pinned at the clean
+# imazen/zenpixels@69bb400a (deprecate(hdr) commit) where the audited
+# `Bt2446A` re-exports + the 0.2.15 ContentLightLevel surface live.
+# Switch to a registry version pin once 0.2.15 ships to crates.io.
+# Git-pinning (not a sibling path) lets concurrent sessions edit the
+# sibling worktree without breaking this build.
+zenpixels-convert = { git = "https://github.com/imazen/zenpixels.git", rev = "69bb400a99d489aac4c62fc82920a6a70272b59c" }
+zenpixels = { git = "https://github.com/imazen/zenpixels.git", rev = "69bb400a99d489aac4c62fc82920a6a70272b59c" }

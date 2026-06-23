@@ -76,6 +76,14 @@ impl Default for ToneMapConfig {
 // `zentone` crate: BT.2408 PQ-domain tonemapper, standard curves (Reinhard
 // variants, Hable, ACES, AgX, BT.2390, filmic Narkowicz), and the filmic
 // spline compiler. zentone is a hard dependency.
+//
+// **Discouraged for new code.** The 2026-06-22 audited shootout
+// (`zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md`) confirmed
+// every channel-independent curve here loses to
+// [`crate::Bt2446A`](crate::Bt2446A) (`tonemap-bt2446a` feature) by 2-5× mean
+// ΔE2000 on graded content. Kept for back-compat with existing code that
+// matches a specific look these curves produce; use `Bt2446A` for any
+// new HDR→SDR pipeline.
 
 /// Re-exported from [`zentone`]. BT.2408 PQ-domain tonemapper.
 ///

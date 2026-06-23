@@ -73,6 +73,17 @@ zentone = { version = "0.1.0", default-features = false, features = ["experiment
 # High-quality gain map resampling (optional)
 zenresize = { workspace = true, optional = true }
 
+# BT.2446 Method A tone-mapping + content-light-level measurement. Optional:
+# this is the production-recommended HDR→SDR curve per the 2026-06-22 audited
+# shootout (`zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md` —
+# Bt2446A wins mean ΔE2000 by 2-5× over every channel-independent curve;
+# `measure_max` wins 3 of 6 ranking criteria for peak measurement). Gated
+# behind `tonemap-bt2446a` (default-off — pulls archmage/magetypes/garb/libm
+# beyond ultrahdr-core's minimal-deps mandate). Pulls `hdr-experimental` from
+# zenpixels-convert; the underlying math is stable, the gate covers expected
+# 0.3.0 surface churn (the `measure_robust` → `measure` rename).
+zenpixels-convert = { version = "0.2.15", default-features = false, features = ["hdr-experimental"], optional = true }
+
 # Native-only: proptest uses rusty-fork/wait-timeout (no wasm32 support)
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 proptest = "1.10"
@@ -89,13 +100,21 @@ required-features = ["simd"]
 
 [features]
 default = ["std", "tonemap"]
-std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone?/std", "whereat/std"]
+std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone?/std", "whereat/std", "zenpixels-convert?/std"]
 # Gates the zentone-backed re-exports (LumaToneMap, LumaGainMapSplitter,
 # Bt2408Yrgb, HableFilmic, ExtendedReinhardLuma, LumaFn, SplitConfig,
 # SplitStats) at the crate root, plus the `color::tonemap` and
 # `color::streaming_tonemap` modules. Default-on; turn off with
 # `--no-default-features --features std` to drop the transitive zentone dep.
 tonemap = ["dep:zentone"]
+# Gates re-export of `Bt2446A` (production-recommended HDR→SDR tone curve per
+# the 2026-06-22 audited shootout) + `CllMeasure::measure_max` /
+# `LightLevelMethod` (production-recommended peak measurement). Default-off:
+# pulls archmage/magetypes/garb/libm via zenpixels-convert, beyond
+# ultrahdr-core's minimal-deps mandate. Opt-in with
+# `features = ["tonemap-bt2446a"]` to access the audited-winner curve and
+# measurement primitives without depending on zenpixels-convert directly.
+tonemap-bt2446a = ["dep:zenpixels-convert"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
 resize = ["dep:zenresize"]  # High-quality gain map downsampling via zenresize.
 # Future: alloc-only support

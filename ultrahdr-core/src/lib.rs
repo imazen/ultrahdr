@@ -13,6 +13,22 @@
 //! This crate has **no JPEG codec dependency**. For full Ultra HDR encode/decode,
 //! use the `ultrahdr` crate which provides codec integration.
 //!
+//! # Production HDR→SDR (audited)
+//!
+//! The 2026-06-22 audited shootout established `Bt2446A` as the
+//! production-recommended HDR→SDR tone curve (wins mean ΔE2000 by 2-5× over
+//! every channel-independent curve) and `CllMeasure::measure_max` as the
+//! production-recommended peak measurement (wins 3 of 6 ranking criteria).
+//! Both are exposed through [`color::audited`] / re-exported at the crate
+//! root behind the `tonemap-bt2446a` Cargo feature:
+//!
+//! ```toml
+//! ultrahdr-core = { version = "0.5", features = ["tonemap-bt2446a"] }
+//! ```
+//!
+//! See `zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md` for the
+//! full empirical citation.
+//!
 //! # no_std Support
 //!
 //! This crate is `no_std` compatible with alloc. Disable default features:
@@ -110,6 +126,15 @@ pub use zentone::{
     Bt2408Yrgb, ExtendedReinhardLuma, HableFilmic, LumaFn, LumaGainMapSplitter, LumaToneMap,
     SplitConfig, SplitStats,
 };
+
+// Production-recommended HDR→SDR primitives (audited 2026-06-22 shootout).
+// `Bt2446A` won by 2-5× mean ΔE2000 over every channel-independent curve;
+// `measure_max` won 3 of 6 ranking criteria for peak measurement
+// (including `pct_above_de5` by 11 %). See [`color::audited`] for the
+// full citation. Gated behind `tonemap-bt2446a` (default-off — pulls
+// archmage/magetypes/garb/libm via zenpixels-convert).
+#[cfg(feature = "tonemap-bt2446a")]
+pub use color::audited::{Bt2446A, CllMeasure, ContentLightLevel, DiffuseWhite, LightLevelMethod};
 
 /// Safety limits for parsing and allocation.
 pub mod limits {

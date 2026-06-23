@@ -192,6 +192,151 @@ impl<'a> Decoder<'a> {
         apply_gainmap(&sdr, &gainmap, metadata, display_boost, format, Unstoppable)
     }
 
+    /// Decode the UltraHDR JPEG and apply the **audited-default HDR→SDR
+    /// tone map** in one call, returning an SDR `Rgba8` `PixelBuffer` ready
+    /// for sRGB display.
+    ///
+    /// Pipeline:
+    /// 1. Decode the SDR base + gain map and reconstruct linear-light HDR
+    ///    (`apply_gainmap` → `HdrOutputFormat::LinearFloat`,
+    ///    `1.0` = BT.2408 SDR white = 203 nits).
+    /// 2. Auto-measure the source peak via
+    ///    [`CllMeasure::measure_max`](ultrahdr_core::CllMeasure::measure_max)
+    ///    (MaxRgb reduction, BT.2408 anchor) — the audited-winner peak
+    ///    measurement that won 3 of 6 ranking criteria in the 2026-06-22
+    ///    shootout.
+    /// 3. Apply the [`Bt2446A`](ultrahdr_core::Bt2446A) tone curve in
+    ///    linear-light BT.2020 — the audited-winner curve that won mean
+    ///    ΔE2000 by 2-5× over every channel-independent curve tested.
+    /// 4. Encode through the sRGB OETF and write 8-bit RGBA.
+    ///
+    /// `target_primaries` is currently informational — the SDR output is
+    /// always tagged with [`ColorPrimaries::Bt709`] (the BT.2446 §4 output
+    /// gamut and the de-facto SDR display gamut). Accepting it here so the
+    /// parameter shape stays stable when a BT.2020-SDR or DCI-P3 output
+    /// surface lands in 0.6.0 or later.
+    ///
+    /// Skips the public HDR-roundtrip API entirely if all the caller needs
+    /// is SDR display.
+    ///
+    /// Gated behind the `tonemap-bt2446a` Cargo feature (forwards to
+    /// `ultrahdr-core/tonemap-bt2446a`).
+    #[cfg(feature = "tonemap-bt2446a")]
+    pub fn decode_full_sdr(
+        &self,
+        target_primaries: ColorPrimaries,
+    ) -> Result<PixelBuffer> {
+        use ultrahdr_core::color::transfer::srgb_oetf;
+        use ultrahdr_core::{
+            Bt2446A, CllMeasure, ContentLightLevel, DiffuseWhite, LightLevelMethod,
+            new_pixel_buffer,
+        };
+
+        let _ = target_primaries; // informational for now; see docs
+
+        if !self.is_ultrahdr {
+            return Err(at!(Error::DecodeError("Not an Ultra HDR image".into())));
+        }
+
+        // Step 1: reconstruct linear-light HDR. Use the metadata's full
+        // `alternate_hdr_headroom` boost so the buffer carries the full
+        // dynamic range we then tone-map down. `1.0` in the resulting buffer
+        // = BT.2408 SDR white = 203 nits per the apply_gainmap contract.
+        let metadata = self
+            .metadata
+            .as_ref()
+            .ok_or_else(|| at!(Error::DecodeError("No gain map metadata".into())))?;
+        let display_boost = 2.0f32
+            .powf((metadata.alternate_hdr_headroom as f32).max(0.0))
+            .max(1.0);
+        let hdr = self.decode_hdr_with_format(display_boost, HdrOutputFormat::LinearFloat)?;
+
+        // Step 2: measure peak via audited-winner `measure_max` (MaxRgb /
+        // BT.2408). The reconstructed buffer is RgbaF32 linear, so this hits
+        // the `CllMeasure::measure_max` happy path directly.
+        let cll: ContentLightLevel = ContentLightLevel::measure_max(
+            hdr.as_slice(),
+            DiffuseWhite::BT2408,
+            LightLevelMethod::MaxRgb,
+        )
+        .ok_or_else(|| {
+            at!(Error::DecodeError(
+                "measure_max returned None on RgbaF32 HDR buffer".into(),
+            ))
+        })?;
+        // `measure_max` writes the MaxCLL field directly in cd/m². Clamp to
+        // SDR peak so peaks below 100 nits don't break the curve.
+        let hdr_peak_nits = (cll.max_content_light_level as f32).max(100.0);
+
+        // Step 3: apply Bt2446A. The curve expects normalized
+        // `1.0 = hdr_peak_nits` in, normalized `1.0 = sdr_peak_nits` out.
+        // Our buffer is normalized `1.0 = 203 nits`, so scale by
+        // `203 / hdr_peak_nits` before the curve and scale by
+        // `100 / 203` * (target SDR peak 100) afterward — combined: the
+        // curve's output is `1.0 = 100 nits`, which is `100 / 255 ≈ 0.39`
+        // in the sRGB-display convention. We renormalize so 100 nits → 1.0
+        // (SDR-display 100% white) before sRGB encoding.
+        let sdr_peak_nits: f32 = 100.0;
+        let curve = Bt2446A::new(hdr_peak_nits, sdr_peak_nits);
+        let to_curve = DiffuseWhite::BT2408.nits() / hdr_peak_nits;
+        let width = hdr.width();
+        let height = hdr.height();
+
+        // Step 4: re-encode through sRGB OETF and write 8-bit RGBA. Tag the
+        // output as Bt709 + Srgb (the BT.2446 §4 output gamut + standard
+        // SDR display transfer).
+        let mut out = new_pixel_buffer(
+            width,
+            height,
+            PixelFormat::Rgba8,
+            ColorPrimaries::Bt709,
+            TransferFunction::Srgb,
+        )?;
+        let hdr_slice = hdr.as_slice();
+        let hdr_stride = hdr_slice.stride();
+        let hdr_bytes = hdr_slice.as_strided_bytes();
+        let out_stride = out.stride();
+        let mut out_view = out.as_slice_mut();
+        let out_bytes = out_view.as_strided_bytes_mut();
+
+        for y in 0..height as usize {
+            let in_row = y * hdr_stride;
+            let out_row = y * out_stride;
+            for x in 0..width as usize {
+                let idx = in_row + x * 16;
+                let r = f32::from_le_bytes([
+                    hdr_bytes[idx],
+                    hdr_bytes[idx + 1],
+                    hdr_bytes[idx + 2],
+                    hdr_bytes[idx + 3],
+                ]);
+                let g = f32::from_le_bytes([
+                    hdr_bytes[idx + 4],
+                    hdr_bytes[idx + 5],
+                    hdr_bytes[idx + 6],
+                    hdr_bytes[idx + 7],
+                ]);
+                let b = f32::from_le_bytes([
+                    hdr_bytes[idx + 8],
+                    hdr_bytes[idx + 9],
+                    hdr_bytes[idx + 10],
+                    hdr_bytes[idx + 11],
+                ]);
+                let mapped = curve.map_rgb([r * to_curve, g * to_curve, b * to_curve]);
+                let r_srgb = srgb_oetf(mapped[0].clamp(0.0, 1.0));
+                let g_srgb = srgb_oetf(mapped[1].clamp(0.0, 1.0));
+                let b_srgb = srgb_oetf(mapped[2].clamp(0.0, 1.0));
+                let o = out_row + x * 4;
+                out_bytes[o] = (r_srgb * 255.0).round() as u8;
+                out_bytes[o + 1] = (g_srgb * 255.0).round() as u8;
+                out_bytes[o + 2] = (b_srgb * 255.0).round() as u8;
+                out_bytes[o + 3] = 255;
+            }
+        }
+        drop(out_view);
+        Ok(out)
+    }
+
     /// Parse the Ultra HDR structure.
     ///
     /// Uses `container::scan_segments` for efficient marker-to-marker scanning
