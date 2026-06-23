@@ -25,9 +25,9 @@ Add `ultrahdr-rs` if you want a JPEG codec bundled, or `ultrahdr-core` if you br
 
 ```toml
 [dependencies]
-ultrahdr-rs = "0.3"        # full encoder + decoder, zenjpeg included
+ultrahdr-rs = "0.4"        # full encoder + decoder, zenjpeg included
 # or
-ultrahdr-core = "0.5"      # math + metadata only, BYO codec
+ultrahdr-core = "0.6"      # math + metadata only, BYO codec
 ```
 
 ### Decode an Ultra HDR JPEG
@@ -56,9 +56,11 @@ fn decode(bytes: &[u8]) -> ultrahdr_rs::Result<()> {
 
 ### Errors (for a server)
 
-Decode/encode return `ultrahdr_rs::Result<T>` over a **bare**
-`ultrahdr_rs::Error` (a `#[non_exhaustive]` enum — this crate does not wrap
-errors in `whereat::At<…>`, so match it directly). Map it to an HTTP status:
+Decode/encode return `ultrahdr_rs::Result<T>` = `Result<T, whereat::At<Error>>` —
+a `#[non_exhaustive]` `Error` enum wrapped in a [`whereat::At`] that captures the
+call site for server-side stack traces. Get the inner error with `e.error()`
+(borrow) or `e.into_inner()` / `e.decompose().0` (owned). Map it to an HTTP
+status:
 
 ```rust
 use ultrahdr_rs::{Decoder, Error};
@@ -66,7 +68,7 @@ use ultrahdr_rs::{Decoder, Error};
 fn http_status(bytes: &[u8]) -> u16 {
     match Decoder::new(bytes).and_then(|d| d.decode_hdr(4.0)) {
         Ok(_hdr) => 200,
-        Err(e) => match e {
+        Err(at_err) => match at_err.error() {
             Error::LimitExceeded(_) | Error::AllocationFailed(_) => 413, // Payload Too Large
             Error::UnsupportedFormat(_) => 415,                          // Unsupported Media Type
             Error::NotUltraHdr => 415,  // valid JPEG but no gain map — decode it as plain SDR
@@ -251,6 +253,7 @@ Bit-exact `applyGain` and `applyGainCore` parity against libultrahdr and libavif
 
 - `std` (default) — enables `std`-dependent transitive features in `enough`, `linear-srgb`, `archmage`, `magetypes`, `zentone`.
 - `tonemap` (default) — gates the `zentone` re-exports at the crate root and the `color::tonemap` module. Decoder-only consumers can build with `--no-default-features --features std` to drop the transitive `zentone` dep.
+- `tonemap-bt2446a` — gates the `color::audited` module + crate-root re-exports of `Bt2446A` / `CllMeasure` / `LightLevelMethod` / `ContentLightLevel` / `DiffuseWhite` (production-recommended HDR→SDR primitives per the 2026-06-22 audited shootout). Default-off because it pulls `zenpixels-convert` / `archmage` / `magetypes` / `garb` / `libm`.
 - `simd` — enables explicit SIMD via `archmage` / `magetypes` (NEON, SSE4, AVX2, AVX-512, WASM SIMD128).
 - `resize` — high-quality gain map downsampling via `zenresize`.
 

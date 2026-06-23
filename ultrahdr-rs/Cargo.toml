@@ -94,6 +94,14 @@ tonemap-bt2446a = ["ultrahdr-core/tonemap-bt2446a"]
 # The caller (CI) decides whether to run these — no runtime "silent skip".
 __pixel-parity = []
 zencodec = ["dep:zenpixels"]  # zencodec trait integration (zencodec itself is already unconditional)
+# Soft-removed `ffi-tests` (libultrahdr C++ parity tests against the imazen
+# fork at `imazen/libultrahdr-rs`). The optional `libultrahdr_rs` dep and the
+# `tests/parity_libultrahdr.rs` harness were removed in commit `bc0e12f4`;
+# this empty stub keeps `cargo build --features ffi-tests` from erroring for
+# one release so any CI that still passes the flag does nothing instead of
+# breaking outright. The feature itself does not enable anything and will
+# disappear in the next breaking release.
+ffi-tests = []
 
 [dependencies.zenjpeg]
 workspace = true

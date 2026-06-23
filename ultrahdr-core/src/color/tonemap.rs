@@ -1243,7 +1243,7 @@ fn sample_gainmap_at(
     }
 }
 
-/// Decode gain value from normalized [0,1] to linear multiplier.
+/// Decode gain value from normalized `[0,1]` to linear multiplier.
 ///
 /// Output is clamped to a finite, sane range (`2^±30`) — see
 /// [`crate::limits::MAX_LOG_GAIN_MAGNITUDE`]. This is a defense-in-depth

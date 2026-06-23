@@ -13,36 +13,31 @@ own section below.
 ### [Unreleased]
 
 #### QUEUED BREAKING CHANGES
-<!-- Ship in the next 0.x-minor (0.6.0). Consumers that [patch.crates-io]=git
-     track HEAD (zenpipe) must bump in lockstep at merge time; pinned-rev
-     consumers (zenjpeg/heic) are unaffected until they advance the rev. -->
-- `Result<T>` now carries a source location: `Result<T, whereat::At<Error>>`
-  (was `Result<T, Error>`), for server-side error stack traces. Match the inner
-  error with `e.error()` (borrow) or `e.decompose().0` (owned); read the capture
-  site with `e.location()`. The bare `Error` type is unchanged, so `#[from]
-  ultrahdr_core::Error` keeps working. `ultrahdr-rs` is instrumented in lockstep.
-
-#### Fixed
-- **bplist parser: bound attacker-controlled allocations.** The Apple binary
-  plist reader (`metadata/bplist.rs`) called `Vec::with_capacity(count)` with an
-  untrusted `count` for arrays/sets/dicts (no preceding length bound) and could
-  overflow `count * 2` / `count * ref_size`, defeating the slice bound. Reservations
-  are now capped by the input length and the multiplies are `checked_*`; the
-  element loops already fail fast on the first out-of-range reference. No
-  behavior change on well-formed input (164 tests pass).
-
-#### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release.
      Batch them here instead of shipping piecemeal. -->
+- Move `gainmap::apply_simd` module to `pub(crate)` (6 items: 3 in submodule + 3 flat `gainmap::apply_gain_row_*` re-exports). Zero external consumers per the 2026-06-11 ablation (`docs/public-api/ABLATION-ultrahdr-core.md`); high-level `apply_gainmap` / `apply_gainmap_slice` cover every public use.
+- Move `metadata::bplist` module to `pub(crate)` (10 items: `PlistValue` enum + `parse_bplist`). Apple plist parsing is an implementation detail of `metadata::apple::parse_apple_makernote`; zero external consumers per the same ablation.
+
+### [0.6.0] - 2026-06-23
+
+#### Breaking changes
+- `Result<T>` now carries a source location: `Result<T, whereat::At<Error>>` (was `Result<T, Error>`), for server-side error stack traces. Match the inner error with `e.error()` (borrow) or `e.decompose().0` (owned); read the capture site with `e.location()`. The bare `Error` type is unchanged, so `#[from] ultrahdr_core::Error` keeps working. `ultrahdr-rs` is instrumented in lockstep. (commit 60b642f)
 
 #### Added
-- `color::audited` — production-recommended HDR→SDR primitives behind the new `tonemap-bt2446a` Cargo feature (default-off). Re-exports `Bt2446A` (ITU-R BT.2446 Method A tone curve), `CllMeasure` + `LightLevelMethod` (`measure_max` peak measurement), `ContentLightLevel`, and `DiffuseWhite` from `zenpixels-convert::hdr`. Empirical basis: the 2026-06-22 audited HDR→SDR shootout (76 imazen-26 samples × 20 curves × 4 peak methods) — `Bt2446A` wins mean ΔE2000 by 2-5× over every channel-independent curve tested; `measure_max` wins 3 of 6 ranking criteria including `pct_above_de5` by 11 % over the closest alternative. See `zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md`. Default-off because `zenpixels-convert` brings `archmage` / `magetypes` / `garb` / `libm` beyond the crate's minimal-deps mandate.
-- Crate root re-exports for `Bt2446A`, `CllMeasure`, `LightLevelMethod`, `ContentLightLevel`, `DiffuseWhite` under the same feature gate, so consumers can `use ultrahdr_core::Bt2446A;` directly.
-- `metadata::apple` — Apple iOS MakerNote HDR headroom parser. Extracts `0x21 HDRHeadroom`, `0x30 HDRGain`, `0x0a HDRImageType` (per exiftool `Apple.pm`) from EXIF TIFF bytes, computes HDR headroom via the Apple stops formula, and maps to `GainMapMetadata` (`from_apple_headroom`). Validated against 49 real iPhone 8/13/16/17 HEIC captures (parsed values match exiftool, tol 1e-3). `no_std` + `alloc`, zero new deps. Public API: `parse_exif_for_apple_hdr`, `parse_apple_makernote`, `from_apple_headroom`, `AppleHdrInfo`.
-- `metadata::bplist` — minimal `bplist00` (Apple binary property list) reader for bplist-encoded MakerNote values (`RunTime`, AE state, …). Depth-bounded against cyclic refs. Public API: `parse_bplist`, `PlistValue`.
+- `color::audited` — production-recommended HDR→SDR primitives behind the new `tonemap-bt2446a` Cargo feature (default-off). Re-exports `Bt2446A` (ITU-R BT.2446 Method A tone curve), `CllMeasure` + `LightLevelMethod` (`measure_max` peak measurement), `ContentLightLevel`, and `DiffuseWhite` from `zenpixels-convert::hdr`. Empirical basis: the 2026-06-22 audited HDR→SDR shootout (76 imazen-26 samples × 20 curves × 4 peak methods) — `Bt2446A` wins mean ΔE2000 by 2-5× over every channel-independent curve tested; `measure_max` wins 3 of 6 ranking criteria including `pct_above_de5` by 11 % over the closest alternative. See `zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md`. Default-off because `zenpixels-convert` brings `archmage` / `magetypes` / `garb` / `libm` beyond the crate's minimal-deps mandate. (commit 602d2152)
+- Crate root re-exports for `Bt2446A`, `CllMeasure`, `LightLevelMethod`, `ContentLightLevel`, `DiffuseWhite` under the same feature gate, so consumers can `use ultrahdr_core::Bt2446A;` directly. (commit 602d2152)
+- `metadata::apple` — Apple iOS MakerNote HDR headroom parser. Extracts `0x21 HDRHeadroom`, `0x30 HDRGain`, `0x0a HDRImageType` (per exiftool `Apple.pm`) from EXIF TIFF bytes, computes HDR headroom via the Apple stops formula, and maps to `GainMapMetadata` (`from_apple_headroom`). Validated against 49 real iPhone 8/13/16/17 HEIC captures (parsed values match exiftool, tol 1e-3). `no_std` + `alloc`, zero new deps. Public API: `parse_exif_for_apple_hdr`, `parse_apple_makernote`, `from_apple_headroom`, `AppleHdrInfo`. (commit 4ab18d5)
+- `metadata::bplist` — minimal `bplist00` (Apple binary property list) reader for bplist-encoded MakerNote values (`RunTime`, AE state, …). Depth-bounded against cyclic refs. Public API: `parse_bplist`, `PlistValue`. (commit 4ab18d5)
+- `full_reconstruction_boost(&GainMapMetadata) -> f32` — canonical f32 boost route for the `GainMapRender::ReconstructHdr { target_headroom: None }` semantics. Adapters must use this (not `2f32.powf(stops as f32)`) so reconstructions of the same parameters are bit-identical across codecs (heic#20). (commit 3ac20f9)
+
+#### Fixed
+- **bplist parser: bound attacker-controlled allocations.** The Apple binary plist reader (`metadata/bplist.rs`) called `Vec::with_capacity(count)` with an untrusted `count` for arrays/sets/dicts (no preceding length bound) and could overflow `count * 2` / `count * ref_size`, defeating the slice bound. Reservations are now capped by the input length and the multiplies are `checked_*`; the element loops already fail fast on the first out-of-range reference. No behavior change on well-formed input. (commit 2eb5329)
+- Bound gain-map metadata magnitudes via `validate_gainmap_magnitude` and `validate_gainmap_metadata`; the gain-map LUT and decode pipeline now reject non-spec-compliant metadata whose `f64` values would cast to `f32` `±inf` / `NaN` and silently poison the HDR output buffer (#21). (commit cd8b785)
+- Tag reconstruction output with the BT.2408 diffuse-white anchor so downstream tone-mapping math (e.g. `Bt2446A` + `measure_max` in `decode_full_sdr`) reads the canonical 203 cd/m² white point instead of guessing. (commit a5461cc)
+- Fixed two broken intra-doc-links (`[color::audited]` in the crate root and `[0,1]` in `color::tonemap::decode_gain_value` — markdown intent, not a doc reference). (this prep)
 
 #### Changed
-- Exclude `tests/` and `benches/` from published package to slim the tarball; local `cargo test`/`cargo bench` are unaffected (target declarations kept intact)
+- Exclude `tests/` and `benches/` from published package to slim the tarball; local `cargo test`/`cargo bench` are unaffected (target declarations kept intact).
 
 ### [0.5.0] - 2026-04-26
 
@@ -243,61 +238,29 @@ own section below.
 
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release. -->
+- Remove the `ffi-tests` Cargo feature stub (soft-removed in 0.4.0; was the gate for the now-deleted `libultrahdr_rs` C++ parity tests).
+
+### [0.4.0] - 2026-06-23
+
+#### Breaking changes
+- `Result<T>` re-export now carries the `whereat::At<Error>` location annotation that `ultrahdr-core` adopted in lockstep. Match `e.error()` (borrow) or `e.into_inner()` (owned) on the returned error; bare `#[from] ultrahdr_rs::Error` still works for downstream error enums (the inner `Error` type is unchanged). (commit 60b642f)
+- Dropped the `libultrahdr_rs` FFI binding dep (the Google libultrahdr Rust binding at `imazen/libultrahdr-rs`) and the `tests/parity_libultrahdr.rs` C++ parity harness. The pure-Rust impl stands alone — parity is validated through the corpus-based parity tests + the CI Gain Map Interop workflow (which runs Google's `ultrahdr_app` subprocess against our output). The `ffi-tests` Cargo feature is now an empty stub (soft-removal) so `cargo build --features ffi-tests` is a no-op for one release; the stub will be deleted in the next breaking release. (commit bc0e12f4 + this prep)
 
 #### Added
-- `Decoder::decode_full_sdr(target_primaries)` — one-call HDR→SDR decode
-  for display paths. Reconstructs linear-light HDR via `apply_gainmap` at
-  the metadata's full `alternate_hdr_headroom`, auto-measures the source
-  peak via the audited-winner `CllMeasure::measure_max` (MaxRgb, BT.2408),
-  applies the audited-winner `Bt2446A` tone curve, and writes 8-bit sRGB
-  RGBA. Skips the public HDR-roundtrip API for callers who only need SDR.
-  Empirical basis: the 2026-06-22 audited shootout
-  (`zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md`) —
-  `Bt2446A` wins mean ΔE2000 by 2-5× over every channel-independent curve;
-  `measure_max` wins 3 of 6 ranking criteria including `pct_above_de5`
-  by 11 %. Gated behind the new `tonemap-bt2446a` Cargo feature (forwards
-  to `ultrahdr-core/tonemap-bt2446a`; default-off, pulls archmage/
-  magetypes/garb/libm via `zenpixels-convert`).
+- `Decoder::decode_full_sdr(target_primaries)` — one-call HDR→SDR decode for display paths. Reconstructs linear-light HDR via `apply_gainmap` at the metadata's full `alternate_hdr_headroom`, auto-measures the source peak via the audited-winner `CllMeasure::measure_max` (MaxRgb, BT.2408), applies the audited-winner `Bt2446A` tone curve, and writes 8-bit sRGB RGBA. Skips the public HDR-roundtrip API for callers who only need SDR. Empirical basis: the 2026-06-22 audited shootout (`zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md`) — `Bt2446A` wins mean ΔE2000 by 2-5× over every channel-independent curve; `measure_max` wins 3 of 6 ranking criteria including `pct_above_de5` by 11 %. Gated behind the new `tonemap-bt2446a` Cargo feature (forwards to `ultrahdr-core/tonemap-bt2446a`; default-off, pulls archmage / magetypes / garb / libm via `zenpixels-convert`). (commit 602d2152)
+- `codec::ZenDecodeError` implements `From<whereat::At<ultrahdr_core::Error>>`, bridging the `whereat`-annotated `Result<T>` that core entry points return onto the zencodec trait's bare-error contract. Lets `Decode::probe` / `decode` use `?` directly without manually unwrapping the location annotation. (this prep)
+- `UltraHdrDecoderConfig::probe` now attaches gain-map presence + metadata to the returned `ZenImageInfo` (`GainMapPresence::Available(GainMapInfo {…})` when Ultra HDR is detected, `Absent` for plain JPEGs). Callers can drive routing decisions before decode without a full decode pass. (this prep)
 
 #### Fixed
-- `decode.rs` RGB/grayscale→RGBA `Vec::with_capacity` computed `width * height * 4`
-  in `u32` (wraps for large images / sooner on 32-bit); now computed in `usize`.
+- `decode.rs` RGB/grayscale→RGBA `Vec::with_capacity` computed `width * height * 4` in `u32` (wraps for large images / sooner on 32-bit); now computed in `usize`.
 - Crate-level doc example used `use ultrahdr::…`; the crate is `ultrahdr_rs`.
-- **`decode_gainmap` decodes RGB (multi-channel) gain maps** (#27), with
-  the channel count driven by the ISO 21496-1 **metadata**
-  (`is_single_channel`), not pixel inspection: single-channel maps keep
-  the historical Gray decode (the exact luma plane — immune to the ±1
-  chroma noise a YCbCr-coded map picks up, which pixel-scanning would
-  promote to spurious per-channel gain), falling back to RGB+BT.709-luma
-  collapse when Gray output is unavailable; per-channel maps decode as
-  3-channel interleaved RGB; the full achromatic scan decides only when
-  no metadata exists. Previously grayscale output was requested
-  unconditionally — failing outright for some color encodings
-  ("unsupported color conversion"; e.g. the libavif seine sample, whose
-  hdrgm metadata carries distinct per-channel triples) and silently
-  luma-averaging any RGB map that did decode. Per-channel maps are
-  mainstream (Adobe exports, iOS 18). Regressions in
-  `tests/rgb_gainmap.rs` cover the 3-channel and single-channel-metadata
-  paths via fully synthetic round-trips.
-- **`Decoder::new` no longer aborts when the MPF index fails to parse**
-  (#26): MPF is one of several gain-map discovery routes, so a malformed or
-  unsupported index (e.g. zenjpeg#148 — valid big-endian `MM` MPF read as
-  "zero images") now degrades to the JPEG-boundary fallback instead of
-  erroring out of detection that the XMP scan already established. Files
-  like the committed 7.6 KB MPF-first fixture previously lost their HDR
-  rendition silently in every consumer; regression-pinned in
-  `tests/decoder_robustness.rs::mpf_first_sample_detected_as_ultrahdr`
-  (asserts detection, exact hdrgm values, and gain-map decode).
+- **`decode_gainmap` decodes RGB (multi-channel) gain maps** (#27), with the channel count driven by the ISO 21496-1 **metadata** (`is_single_channel`), not pixel inspection: single-channel maps keep the historical Gray decode (the exact luma plane — immune to the ±1 chroma noise a YCbCr-coded map picks up, which pixel-scanning would promote to spurious per-channel gain), falling back to RGB+BT.709-luma collapse when Gray output is unavailable; per-channel maps decode as 3-channel interleaved RGB; the full achromatic scan decides only when no metadata exists. Previously grayscale output was requested unconditionally — failing outright for some color encodings ("unsupported color conversion"; e.g. the libavif seine sample, whose hdrgm metadata carries distinct per-channel triples) and silently luma-averaging any RGB map that did decode. Per-channel maps are mainstream (Adobe exports, iOS 18). Regressions in `tests/rgb_gainmap.rs` cover the 3-channel and single-channel-metadata paths via fully synthetic round-trips.
+- **`Decoder::new` no longer aborts when the MPF index fails to parse** (#26): MPF is one of several gain-map discovery routes, so a malformed or unsupported index (e.g. zenjpeg#148 — valid big-endian `MM` MPF read as "zero images") now degrades to the JPEG-boundary fallback instead of erroring out of detection that the XMP scan already established. Files like the committed 7.6 KB MPF-first fixture previously lost their HDR rendition silently in every consumer; regression-pinned in `tests/decoder_robustness.rs::mpf_first_sample_detected_as_ultrahdr` (asserts detection, exact hdrgm values, and gain-map decode).
+- README's HTTP-error matching example was matching against bare `Error` directly; updated to call `e.error()` to reach the inner enum through the `whereat::At` wrapper.
 
 #### Changed
-- Exclude `tests/` from published package; add `version = "0.1.3"` to the `libultrahdr_rs` git-only optional dep (required by `cargo package`)
-- `Encoder::set_hdr_image` / `set_sdr_image` now take `PixelBuffer` (from
-  zenpixels) instead of the former `RawImage`. `Decoder::decode_sdr` /
-  `decode_hdr` / `decode_hdr_with_format` return `PixelBuffer`. See the
-  ultrahdr-core section for the call-site migration table. ultrahdr-rs
-  re-exports `PixelBuffer`, `PixelSlice`, `PixelSliceMut`,
-  `new_pixel_buffer`, `pixel_buffer_from_vec`, `clone_pixel_buffer`,
-  `descriptor_for` at the crate root.
+- Exclude `tests/` from published package.
+- `Encoder::set_hdr_image` / `set_sdr_image` now take `PixelBuffer` (from zenpixels) instead of the former `RawImage`. `Decoder::decode_sdr` / `decode_hdr` / `decode_hdr_with_format` return `PixelBuffer`. See the ultrahdr-core section for the call-site migration table. ultrahdr-rs re-exports `PixelBuffer`, `PixelSlice`, `PixelSliceMut`, `new_pixel_buffer`, `pixel_buffer_from_vec`, `clone_pixel_buffer`, `descriptor_for` at the crate root.
 
 ### [0.3.5] - 2026-04-10
 
@@ -341,13 +304,13 @@ own section below.
 #### QUEUED BREAKING CHANGES
 <!-- None queued. -->
 
-#### Added
-- Versioned public-API surface snapshots: `docs/public-api/<crate>.txt` for `ultrahdr-core` and `ultrahdr-rs`, regenerated by `ultrahdr-core/tests/public_api_doc.rs` on every `cargo test` (`ZEN_API_DOC=check` verified by the new ci.yml `api-doc` job, `=off` elsewhere; `just api-doc` / `api-doc-check` recipes; `just fmt` regenerates). The test-only `ffi-tests` feature is excluded from the all-features section (dev/test deps only, no public surface).
+### 2026-06 — Publish prep
+
+- Versioned public-API surface snapshots: `docs/public-api/<crate>.txt` for `ultrahdr-core` and `ultrahdr-rs`, regenerated by `ultrahdr-core/tests/public_api_doc.rs` on every `cargo test` (`ZEN_API_DOC=check` verified by the new ci.yml `api-doc` job, `=off` elsewhere; `just api-doc` / `api-doc-check` recipes; `just fmt` regenerates).
 - Credits / Acknowledgments section in README for Google's Ultra HDR spec and the libultrahdr reference implementation.
 - `.gitignore` entry for the `.workongoing` agent coordination marker.
-
-#### Changed
 - Cleaned up `unused manifest key` warnings by removing redundant `path =` / `version =` overrides on workspace dependencies in `ultrahdr-core` and `ultrahdr-rs`.
+- Removed the stale `.github/workflows/ffi-tests.yml` workflow — its `cargo test --features ffi-tests` step targeted a feature that no longer enables anything (the soft-removed `ffi-tests` stub) and the platform-matrix `base-tests` job duplicated `ci.yml`. The CI Gain Map Interop workflow remains the live integration test against Google's `ultrahdr_app`.
 
 ### 2026-04 — Tooling
 

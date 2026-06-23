@@ -37,6 +37,7 @@ use alloc::borrow::Cow;
 use zencodec::decode::{
     Decode, DecodeCapabilities, DecodeJob, DecodeOutput, DecoderConfig, OutputInfo,
 };
+use zencodec::gainmap::{GainMapInfo, GainMapPresence};
 use zencodec::{
     ImageFormat as ZenImageFormat, ImageInfo as ZenImageInfo, LimitExceeded, ResourceLimits,
     Unsupported, UnsupportedOperation,
@@ -81,6 +82,18 @@ pub enum ZenDecodeError {
     /// Operation stopped by cooperative cancellation.
     #[error("stopped: {0:?}")]
     Stopped(enough::StopReason),
+}
+
+// Bridge the `whereat::At<Error>` that ultrahdr-core's `Result<T>` carries
+// onto this enum's bare `Core(Error)` arm, so codec entry points can use
+// `?` directly on `Decoder::new(data)` etc. without unwrapping the
+// location annotation manually. The capture site is discarded (the
+// zencodec trait shape uses bare error types); for callers that need the
+// origin trace, use `Decoder` directly.
+impl From<whereat::At<ultrahdr_core::Error>> for ZenDecodeError {
+    fn from(err: whereat::At<ultrahdr_core::Error>) -> Self {
+        ZenDecodeError::Core(err.decompose().0)
+    }
 }
 
 /// Reusable Ultra HDR decoder configuration.
@@ -165,8 +178,28 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
                 }
             }
 
-            // Ultra HDR always has a gain map (detected via is_ultrahdr above)
-            // Gain map metadata is available via UltraHdrExtras after decode
+            // Attach gain-map presence + metadata so callers can drive
+            // routing decisions before decode. Width/height/channels come
+            // from the gain-map JPEG header (cheap, no pixel decode);
+            // params come from the parsed XMP/ISO metadata.
+            if let Some(metadata) = decoder.metadata().cloned()
+                && let Some(gainmap_bytes) = decoder.gainmap_jpeg()
+                && let Ok(gainmap_jpeg_info) =
+                    zenjpeg::decoder::Decoder::new().read_info(gainmap_bytes)
+            {
+                let gw = gainmap_jpeg_info.dimensions.width;
+                let gh = gainmap_jpeg_info.dimensions.height;
+                // ISO 21496-1 metadata's `is_single_channel` is the
+                // authoritative channel count (the same predicate that
+                // drives `Decoder::decode_gainmap` between gray and RGB).
+                let channels: u8 = if metadata.is_single_channel() { 1 } else { 3 };
+                let gm_info = GainMapInfo::new(metadata, gw, gh, channels);
+                info = info.with_gain_map(GainMapPresence::Available(Box::new(gm_info)));
+            }
+        } else {
+            // We parsed the JPEG successfully but found no gain map: this
+            // is a definitive negative, not "unknown".
+            info = info.with_gain_map(GainMapPresence::Absent);
         }
         Ok(info)
     }

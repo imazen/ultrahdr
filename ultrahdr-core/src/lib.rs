@@ -19,11 +19,11 @@
 //! production-recommended HDR→SDR tone curve (wins mean ΔE2000 by 2-5× over
 //! every channel-independent curve) and `CllMeasure::measure_max` as the
 //! production-recommended peak measurement (wins 3 of 6 ranking criteria).
-//! Both are exposed through [`color::audited`] / re-exported at the crate
+//! Both are exposed through `color::audited` / re-exported at the crate
 //! root behind the `tonemap-bt2446a` Cargo feature:
 //!
 //! ```toml
-//! ultrahdr-core = { version = "0.5", features = ["tonemap-bt2446a"] }
+//! ultrahdr-core = { version = "0.6", features = ["tonemap-bt2446a"] }
 //! ```
 //!
 //! See `zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md` for the
@@ -33,7 +33,7 @@
 //!
 //! This crate is `no_std` compatible with alloc. Disable default features:
 //! ```toml
-//! ultrahdr-core = { version = "0.1", default-features = false }
+//! ultrahdr-core = { version = "0.6", default-features = false }
 //! ```
 //!
 //! # Cooperative Cancellation

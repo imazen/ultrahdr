@@ -7,8 +7,9 @@
 //! that did decode. It now decodes RGB and collapses to single-channel
 //! only when the map is provably achromatic.
 
-use ultrahdr_core::{ColorPrimaries, GainMapMetadata, PixelFormat, TransferFunction,
-    pixel_buffer_from_vec};
+use ultrahdr_core::{
+    ColorPrimaries, GainMapMetadata, PixelFormat, TransferFunction, pixel_buffer_from_vec,
+};
 use ultrahdr_rs::{Decoder, Encoder};
 use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
 
@@ -114,22 +115,26 @@ fn single_channel_metadata_keeps_one_channel() {
     let (w, h) = (16u32, 16u32);
     let gm_px: Vec<u8> = (0..w * h).map(|i| (i % 251) as u8).collect();
     let cfg = EncoderConfig::grayscale(92.0);
-    let mut enc = cfg
-        .encode_from_bytes(w, h, PixelLayout::Gray8Srgb)
+    let mut enc = cfg.encode_from_bytes(w, h, PixelLayout::Gray8Srgb).unwrap();
+    enc.push(&gm_px, h as usize, w as usize, Unstoppable)
         .unwrap();
-    enc.push(&gm_px, h as usize, w as usize, Unstoppable).unwrap();
     let gm_jpeg = enc.finish().unwrap();
 
     let mut encoder = Encoder::new();
     encoder
         .set_sdr_image(sdr_base(32, 32))
         .set_gainmap_jpeg(gm_jpeg, luma_metadata());
-    let bytes = encoder.encode().expect("encode UltraHDR with gray gain map");
+    let bytes = encoder
+        .encode()
+        .expect("encode UltraHDR with gray gain map");
 
     let gm = Decoder::new(&bytes)
         .expect("decode container")
         .decode_gainmap()
         .expect("gray gain map must decode");
-    assert_eq!(gm.channels, 1, "single-channel metadata must yield 1 channel");
+    assert_eq!(
+        gm.channels, 1,
+        "single-channel metadata must yield 1 channel"
+    );
     assert_eq!(gm.data.len(), (w * h) as usize);
 }

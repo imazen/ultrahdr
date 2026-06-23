@@ -222,10 +222,7 @@ impl<'a> Decoder<'a> {
     /// Gated behind the `tonemap-bt2446a` Cargo feature (forwards to
     /// `ultrahdr-core/tonemap-bt2446a`).
     #[cfg(feature = "tonemap-bt2446a")]
-    pub fn decode_full_sdr(
-        &self,
-        target_primaries: ColorPrimaries,
-    ) -> Result<PixelBuffer> {
+    pub fn decode_full_sdr(&self, target_primaries: ColorPrimaries) -> Result<PixelBuffer> {
         use ultrahdr_core::color::transfer::srgb_oetf;
         use ultrahdr_core::{
             Bt2446A, CllMeasure, ContentLightLevel, DiffuseWhite, LightLevelMethod,

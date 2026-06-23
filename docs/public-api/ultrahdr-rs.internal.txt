@@ -1,5 +1,5 @@
 # ultrahdr-rs public API — doc(hidden) items and excluded-feature surface
-# excluded features: __pixel-parity,ffi-tests
+# excluded features: __pixel-parity
 # (regenerated on every `cargo test` by zenutils-apidoc; ZEN_API_DOC=check verifies, =off skips).
 # Encodings: crate-name prefix stripped; auto traits collapse to a
 # count + exceptions; trait impls collapse to one roster line per

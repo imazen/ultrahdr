@@ -1,5 +1,5 @@
 # ultrahdr-rs public API — additions from non-default features
-# features: simd,zencodec
+# features: ffi-tests,simd,tonemap-bt2446a,zencodec
 # (regenerated on every `cargo test` by zenutils-apidoc; ZEN_API_DOC=check verifies, =off skips).
 # Encodings: crate-name prefix stripped; auto traits collapse to a
 # count + exceptions; trait impls collapse to one roster line per
@@ -11,17 +11,18 @@
 #
 #   pub modules                                 1
 #   pub types (struct/enum/trait/alias)         5
+#   inherent methods                            1
 #   struct fields                               2
 #   enum variants                               6
-#   trait roster entries (type × trait)        10
+#   trait roster entries (type × trait)        11
 #   auto-trait-complete types                   2
 #   auto-trait exceptions                       3
 #
 # per-module pub lines:
-#   (root)                            1
+#   (root)                            2
 #   codec                            13
 
-## items (14 lines)
+## items (15 lines)
 
 pub mod codec
 pub enum codec::ZenDecodeError
@@ -37,13 +38,14 @@ pub struct codec::UltraHdrDecoderConfig
 pub struct codec::UltraHdrExtras
 pub codec::UltraHdrExtras::gainmap_jpeg: alloc::vec::Vec<u8>
 pub codec::UltraHdrExtras::metadata: ultrahdr_core::types::GainMapMetadata
+pub fn Decoder<'a>::decode_full_sdr(&self, zenpixels::descriptor::ColorPrimaries) -> ultrahdr_core::types::Result<zenpixels::buffer::PixelBuffer>
 
 ## trait impls (4 types)
 
 codec::UltraHdrDecodeJob: zencodec::traits::decoding::DecodeJob<'a>
 codec::UltraHdrDecoder<'a>: zencodec::traits::decoder::Decode
 codec::UltraHdrDecoderConfig: Clone, zencodec::traits::decoding::DecoderConfig
-codec::ZenDecodeError: Debug, Display, Error, From<ultrahdr_core::types::Error>, From<zencodec::capabilities::UnsupportedOperation>, From<zencodec::limits::LimitExceeded>
+codec::ZenDecodeError: Debug, Display, Error, From<ultrahdr_core::types::Error>, From<whereat::at::At<ultrahdr_core::types::Error>>, From<zencodec::capabilities::UnsupportedOperation>, From<zencodec::limits::LimitExceeded>
 
 ## auto traits
 

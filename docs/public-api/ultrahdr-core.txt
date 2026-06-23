@@ -6,7 +6,7 @@
 # impls omitted; re-export duplicates annotated `[also: path]`.
 # DO NOT EDIT BY HAND — commit regenerated changes with the code.
 #
-# files: ultrahdr-core.txt 306 lines (supported surface) | ultrahdr-core.features.txt 1 added (features: archmage,magetypes,resize,simd,std,tonemap) | ultrahdr-core.internal.txt 113 lines (132 hidden + 0 excluded-feature)
+# files: ultrahdr-core.txt 306 lines (supported surface) | ultrahdr-core.features.txt 17 added (features: archmage,magetypes,resize,simd,std,tonemap,tonemap-bt2446a) | ultrahdr-core.internal.txt 113 lines (132 hidden + 0 excluded-feature)
 
 ## summary
 #

@@ -6,7 +6,7 @@
 # impls omitted; re-export duplicates annotated `[also: path]`.
 # DO NOT EDIT BY HAND — commit regenerated changes with the code.
 #
-# files: ultrahdr-rs.txt 123 lines (supported surface) | ultrahdr-rs.features.txt 22 added (features: simd,zencodec) | ultrahdr-rs.internal.txt 1 lines (2 hidden + 0 excluded-feature)
+# files: ultrahdr-rs.txt 123 lines (supported surface) | ultrahdr-rs.features.txt 23 added (features: ffi-tests,simd,tonemap-bt2446a,zencodec) | ultrahdr-rs.internal.txt 1 lines (2 hidden + 0 excluded-feature)
 
 ## summary
 #
