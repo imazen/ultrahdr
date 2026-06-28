@@ -16,7 +16,7 @@ use whereat::at;
 /// Mirrors the bound in [`crate::limits::MAX_LOG_GAIN_MAGNITUDE`]:
 /// `exp(±30 * ln(2)) ≈ 2^±30 ≈ [9.3e-10, 1.07e9]`. Anything outside
 /// this range or non-finite is replaced with a neutral `1.0` so the
-/// [`HdrOutputFormat::LinearFloat`] / [`HdrOutputFormat::LinearF16`]
+/// [`HdrOutputFormat::LinearFloat`] / `HdrOutputFormat::LinearF16`
 /// arms cannot emit `+inf` / `NaN` pixels even if a caller skipped
 /// metadata validation.
 #[inline]
@@ -115,8 +115,8 @@ impl GainMapLut {
 /// - [`LinearFloat`](Self::LinearFloat) ↔ `UHDR_IMG_FMT_64bppRGBAHalfFloat`
 ///   semantically (same linear-light content), but at f32 precision instead
 ///   of f16. Use when downstream wants float math.
-/// - [`LinearF16`](Self::LinearF16) ↔ `UHDR_IMG_FMT_64bppRGBAHalfFloat` exactly.
-///   Use for direct compositor / GPU-texture handoff.
+/// - `LinearF16` (requires the `f16` feature) ↔ `UHDR_IMG_FMT_64bppRGBAHalfFloat`
+///   exactly. Use for direct compositor / GPU-texture handoff.
 /// - [`Srgb8`](Self::Srgb8) ↔ `UHDR_IMG_FMT_32bppRGBA8888` with sRGB transfer.
 ///   Use when downstream wants SDR (display_boost = 1.0 typical).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
