@@ -4,6 +4,11 @@
 
 - 2026-01-31: User requested porting C++ libultrahdr test logic. Implemented: ISO 21496-1 multi-channel roundtrip tests, transfer function reference values, gain map math reference tests, metadata validation tests, decoder parameter validation, README comparison table.
 - 2026-03-05: Code review + 6 recommendations implemented (branch: refactor/review-fixes). Test coverage expanded 207 → 318 tests across all modules.
+- 2026-06-27: User requested "use magetypes instead of the wide crate, and make f16/half an opt-in compile feature." Dropped the unused `wide` dep from all manifests (the SIMD path was already on `magetypes`); made `half` an optional dep behind a new default-off `f16` feature gating `RgbaF16`/`RgbF16` I/O + `HdrOutputFormat::LinearF16`. Without `f16`, f16 input is rejected with `UnsupportedFormat` (no silent decode-to-black). Commits 708d68a (refactor) + 6e8bf60 (doc-link fix for the gated variant under `cargo doc -D warnings`).
+
+## Known Bugs
+
+- **Fuzz CI workflow is pre-existing-RED (since commit 602d215), independent of crate code.** Two sibling-version-skew causes, both in the standalone `fuzz/` workspace (which does NOT inherit the workspace-root `[patch.crates-io]`): (1) a sibling requires the unpublished `zenpixels-convert = "0.2.15"` — `fuzz/Cargo.toml` lacks the git-rev patch the root has, so resolution fails; (2) `fuzz_targets/tonemap.rs` calls `Bt2408Tonemapper::map_rgb` via `zentone::ToneMap`, but `ultrahdr-core` pins `zentone = "0.1.0"` (registry) while `fuzz`'s direct `zentone` path dep is the sibling `0.2.0` — two different `zentone` crates, so the trait method doesn't apply ("no method `map_rgb`"). Real fixes need publishing decisions (publish `zenpixels-convert 0.2.15`; reconcile `zentone` 0.1↔0.2), not a code change. The main `CI` workflow (all platforms, WASM, docs, MSRV, clippy, coverage) is green.
 
 ## Untracked Files
 
