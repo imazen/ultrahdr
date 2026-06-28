@@ -37,10 +37,6 @@ imgref = { workspace = true }
 rgb = { workspace = true }
 bytemuck = { workspace = true }
 
-# Math (re-exported from core, but needed for container)
-wide = { workspace = true }
-half = { workspace = true }
-
 # Error handling
 thiserror = { workspace = true }
 
@@ -78,10 +74,22 @@ codec-corpus = "1.1"
 # Both are gated behind the __pixel-parity feature via tests/ cfg attrs.
 which = "8.0.2"
 tempfile = "3.27.0"
+# Test-only: the libultrahdr pixel-parity suite converts our f32 decode
+# output to f16 to byte-compare against `ultrahdr_app -O 4`
+# (UHDR_IMG_FMT_64bppRGBAHalfFloat). Dev-dependency, so consumers never
+# build it; the crate's runtime `f16` feature (below) forwards to
+# ultrahdr-core instead.
+half = { workspace = true }
 
 [features]
 default = []
 simd = ["ultrahdr-core/simd"]  # Enable explicit SIMD optimizations
+# f16 (IEEE 754 half-precision) pixel support — forwards to ultrahdr-core.
+# Default-off (opt-in). Enables `RgbaF16`/`RgbF16` input and the
+# `HdrOutputFormat::LinearF16` decode output (e.g.
+# `decode_hdr_with_format(boost, HdrOutputFormat::LinearF16)`). Without it,
+# f16 formats are rejected with `Error::UnsupportedFormat`.
+f16 = ["ultrahdr-core/f16"]
 # Forwarded to ultrahdr-core: adds `Decoder::decode_full_sdr` (HDR→SDR via
 # the audited-winner Bt2446A curve + measure_max peak measurement, all in
 # one call). See the ultrahdr-core docs for the empirical citation.

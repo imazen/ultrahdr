@@ -30,9 +30,12 @@ exclude = [
 # Cooperative cancellation
 enough = "0.4"
 
-# Math
-wide = "1.1"
-half = "2.7"
+# Math — f16 (IEEE 754 half-precision) conversion for `RgbaF16`/`RgbF16`
+# pixel I/O and the `HdrOutputFormat::LinearF16` decode output. Optional:
+# gated behind the `f16` feature (default-off) so the crate's minimal-deps
+# baseline drops `half`. `default-features = false` keeps it no_std-clean;
+# its `std` feature is folded into this crate's `std` below.
+half = { version = "2.7", optional = true, default-features = false }
 
 # SIMD (optional - for explicit SIMD optimizations)
 archmage = { version = "0.9.16", default-features = false, features = ["macros"], optional = true }
@@ -100,7 +103,7 @@ required-features = ["simd"]
 
 [features]
 default = ["std", "tonemap"]
-std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone?/std", "whereat/std", "zenpixels-convert?/std"]
+std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone?/std", "whereat/std", "zenpixels-convert?/std", "half?/std"]
 # Gates the zentone-backed re-exports (LumaToneMap, LumaGainMapSplitter,
 # Bt2408Yrgb, HableFilmic, ExtendedReinhardLuma, LumaFn, SplitConfig,
 # SplitStats) at the crate root, plus the `color::tonemap` and
@@ -116,6 +119,11 @@ tonemap = ["dep:zentone"]
 # measurement primitives without depending on zenpixels-convert directly.
 tonemap-bt2446a = ["dep:zenpixels-convert"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
+# f16 (IEEE 754 half-precision) pixel support via the `half` crate. Default-off
+# (opt-in). Enables: reading `RgbaF16`/`RgbF16` SDR/HDR input (otherwise rejected
+# with `Error::UnsupportedFormat`), and the `HdrOutputFormat::LinearF16` decode
+# output (8 bytes/pixel, mirrors libultrahdr's `UHDR_IMG_FMT_64bppRGBAHalfFloat`).
+f16 = ["dep:half"]
 resize = ["dep:zenresize"]  # High-quality gain map downsampling via zenresize.
 # Future: alloc-only support
 # alloc = ["enough/alloc"]

@@ -17,6 +17,13 @@ own section below.
      Batch them here instead of shipping piecemeal. -->
 - Move `gainmap::apply_simd` module to `pub(crate)` (6 items: 3 in submodule + 3 flat `gainmap::apply_gain_row_*` re-exports). Zero external consumers per the 2026-06-11 ablation (`docs/public-api/ABLATION-ultrahdr-core.md`); high-level `apply_gainmap` / `apply_gainmap_slice` cover every public use.
 - Move `metadata::bplist` module to `pub(crate)` (10 items: `PlistValue` enum + `parse_bplist`). Apple plist parsing is an implementation detail of `metadata::apple::parse_apple_makernote`; zero external consumers per the same ablation.
+- f16 pixel support is now gated behind the new default-off `f16` feature. In a default build, `HdrOutputFormat::LinearF16` is no longer compiled (it leaves the default public-API surface) and `RgbaF16`/`RgbF16` input is rejected with `Error::UnsupportedFormat` instead of decoded. Enable `features = ["f16"]` to restore the previous behavior. Queued because removing the `LinearF16` variant from the default surface is a semver break.
+
+#### Added
+- `f16` Cargo feature (default-off) — gates f16 (IEEE 754 half-precision) pixel I/O (`RgbaF16`/`RgbF16` input) and the `HdrOutputFormat::LinearF16` decode output via the `half` crate. `half` is now an **optional** dependency with `default-features = false`, keeping the `--no-default-features --features f16` build no_std-clean (`half`'s `std` folds into the crate's `std` feature). Without the feature, f16 input formats are rejected with a loud `Error::UnsupportedFormat` rather than silently decoded to black.
+
+#### Removed
+- Dropped the unused `wide` dependency. Explicit SIMD is provided by `magetypes` (`gainmap::apply_simd`, behind the `simd` feature); `wide` was declared in the manifest but never referenced in source.
 
 ### [0.6.0] - 2026-06-23
 
@@ -239,6 +246,16 @@ own section below.
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release. -->
 - Remove the `ffi-tests` Cargo feature stub (soft-removed in 0.4.0; was the gate for the now-deleted `libultrahdr_rs` C++ parity tests).
+- f16 decode output requires the new default-off `f16` feature (forwards to `ultrahdr-core/f16`). In a default build, `decode_hdr_with_format(_, HdrOutputFormat::LinearF16)` and `RgbaF16`/`RgbF16` input are unavailable (the variant leaves the default `HdrOutputFormat` surface; f16 input is rejected with `Error::UnsupportedFormat`). Enable `features = ["f16"]` to restore.
+
+#### Added
+- `f16` Cargo feature (default-off) — forwards to `ultrahdr-core/f16`, enabling `RgbaF16`/`RgbF16` input and the `HdrOutputFormat::LinearF16` decode output.
+
+#### Removed
+- Dropped the unused `wide` dependency (it was declared but never referenced in source).
+
+#### Changed
+- `half` moved from a runtime dependency to a test-only dev-dependency (it was only used by the `__pixel-parity` test suite's f16 comparison against `ultrahdr_app -O 4`). Consumers no longer build `half` unless they opt into the `f16` feature, which pulls it transitively through `ultrahdr-core`.
 
 ### [0.4.0] - 2026-06-23
 
@@ -306,6 +323,9 @@ own section below.
 
 #### Changed
 - Overhauled the repo README to the zen-family conventions (inline shields.io badge row, `## Quick start`, absolute links, crosslink footer) and added a generated crates.io variant `README.crates.md` (CI-badge-only, regenerated from `README.md`); both `ultrahdr-core` and `ultrahdr-rs` now point `readme` at it so crates.io renders the trimmed version.
+
+#### Removed
+- Removed the unused `wide` SIMD crate from `[workspace.dependencies]` and both member manifests (`magetypes` is the SIMD path). `half` becomes opt-in via the per-crate `f16` feature — see the `ultrahdr-core` / `ultrahdr-rs` sections above.
 
 ### 2026-06 — Publish prep
 

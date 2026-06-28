@@ -24,8 +24,8 @@ ultrahdr-core = { path = "ultrahdr-core", version = "0.6.0" }
 # Cooperative cancellation
 enough = "0.4"
 
-# Math
-wide = "1.1"
+# Math — f16 conversion. Opt-in via ultrahdr-core's `f16` feature; in
+# ultrahdr-rs it is test-only (libultrahdr pixel-parity comparison).
 half = "2.7"
 
 # Types

@@ -128,6 +128,10 @@ pub enum HdrOutputFormat {
     /// Linear f16 (IEEE 754 half-precision) RGBA where 1.0 = SDR white.
     /// 8 bytes/pixel (`RgbaF16`). Mirrors libultrahdr's
     /// `UHDR_IMG_FMT_64bppRGBAHalfFloat`.
+    ///
+    /// Requires the `f16` Cargo feature (default-off). Without it this
+    /// variant is not compiled and f16 decode output is unavailable.
+    #[cfg(feature = "f16")]
     LinearF16,
     /// sRGB 8-bit (SDR output, no HDR boost). 4 bytes/pixel (`Rgba8`).
     Srgb8,
@@ -202,6 +206,7 @@ pub fn apply_gainmap_slice(
             sdr_primaries,
             TransferFunction::Linear,
         )?,
+        #[cfg(feature = "f16")]
         HdrOutputFormat::LinearF16 => new_pixel_buffer(
             width,
             height,
@@ -275,14 +280,18 @@ pub fn apply_gainmap_slice(
     // instead of assuming the default — every codec that reconstructs through
     // `apply_gainmap` (heic/zenjpeg/zenavif/zenjxl) inherits this. Linear
     // outputs only: the `Srgb8` path is gamma-encoded SDR, not relative-linear.
-    let output = match output_format {
-        HdrOutputFormat::LinearFloat | HdrOutputFormat::LinearF16 => {
-            output.with_color_context(alloc::sync::Arc::new(
-                zenpixels::ColorContext::default()
-                    .with_diffuse_white(zenpixels::DiffuseWhite::BT2408),
-            ))
-        }
-        HdrOutputFormat::Srgb8 => output,
+    let is_linear = match output_format {
+        HdrOutputFormat::LinearFloat => true,
+        #[cfg(feature = "f16")]
+        HdrOutputFormat::LinearF16 => true,
+        HdrOutputFormat::Srgb8 => false,
+    };
+    let output = if is_linear {
+        output.with_color_context(alloc::sync::Arc::new(
+            zenpixels::ColorContext::default().with_diffuse_white(zenpixels::DiffuseWhite::BT2408),
+        ))
+    } else {
+        output
     };
     Ok(output)
 }
@@ -349,6 +358,7 @@ fn write_hdr_row(
                 out_data[idx + 12..idx + 16].copy_from_slice(&1.0f32.to_le_bytes());
             }
         }
+        #[cfg(feature = "f16")]
         HdrOutputFormat::LinearF16 => {
             debug_assert_eq!(out_format, PixelFormat::RgbaF16);
             // 8 bytes/pixel: 4 channels × f16 (2 bytes). Alpha is 1.0 (constant).
@@ -424,6 +434,7 @@ fn get_sdr_linear(sdr: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
                 f32::from_le_bytes([data[idx + 8], data[idx + 9], data[idx + 10], data[idx + 11]]);
             [r, g, b]
         }
+        #[cfg(feature = "f16")]
         PixelFormat::RgbaF16 | PixelFormat::RgbF16 => {
             let bpp = if format == PixelFormat::RgbaF16 { 8 } else { 6 };
             let idx = (y as usize) * stride + (x as usize) * bpp;
@@ -1188,6 +1199,7 @@ mod tests {
         assert_eq!(result.as_slice().as_strided_bytes().len(), 4 * 4 * 16);
     }
 
+    #[cfg(feature = "f16")]
     #[test]
     fn test_apply_gainmap_linear_f16_format() {
         let sdr = make_sdr_4x4(128, 128, 128);

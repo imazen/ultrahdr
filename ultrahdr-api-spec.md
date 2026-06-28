@@ -27,11 +27,11 @@ Pure Rust implementation of Ultra HDR (gain map HDR) computations. This crate ha
 # Cooperative cancellation
 enough = "0.4"
 
-# Math
-wide = "1.1"           # SIMD
-half = "2.7"           # f16 support
+# Math — f16 support (optional, gated behind the `f16` feature)
+half = { version = "2.7", optional = true, default-features = false }
 
-# SIMD (optional)
+# SIMD (optional, gated behind the `simd` feature) — magetypes is the
+# SIMD path; the `wide` crate is not used.
 archmage = { version = "0.9.4", optional = true }
 magetypes = { version = "0.9.4", optional = true }
 
@@ -498,6 +498,7 @@ pub enum Error {
 default = ["std", "transfer"]
 std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb?/std"]
 simd = ["archmage", "magetypes"]        # Enable explicit SIMD optimizations
+f16 = ["dep:half"]                       # f16 RgbaF16/RgbF16 I/O + LinearF16 output (opt-in)
 transfer = ["dep:linear-srgb"]          # Transfer functions (sRGB, PQ, HLG)
 zencodec = ["dep:zenpixels", "dep:zencodec"]  # zen* ecosystem interop
 ```
@@ -508,6 +509,7 @@ zencodec = ["dep:zenpixels", "dep:zencodec"]  # zen* ecosystem interop
 [features]
 default = []
 simd = ["ultrahdr-core/simd"]           # Enable explicit SIMD optimizations
+f16 = ["ultrahdr-core/f16"]             # f16 RgbaF16/RgbF16 I/O + LinearF16 output (opt-in)
 tonemap-bt2446a = ["ultrahdr-core/tonemap-bt2446a"]  # Decoder::decode_full_sdr via audited Bt2446A
 zencodec = ["ultrahdr-core/zencodec", "dep:zencodec", "dep:zenpixels", "dep:zenjpeg"]
 ```

@@ -1,5 +1,5 @@
 # ultrahdr-core public API — additions from non-default features
-# features: archmage,magetypes,resize,simd,std,tonemap,tonemap-bt2446a
+# features: archmage,f16,magetypes,resize,simd,std,tonemap,tonemap-bt2446a
 # (regenerated on every `cargo test` by zenutils-apidoc; ZEN_API_DOC=check verifies, =off skips).
 # Encodings: crate-name prefix stripped; auto traits collapse to a
 # count + exceptions; trait impls collapse to one roster line per
@@ -11,14 +11,15 @@
 #
 #   pub modules                                 1
 #   free functions                              2
+#   enum variants                               3
 #   re-exports                                 15
 #
 # per-module pub lines:
-#   (root)                            5
+#   (root)                            6
 #   color                            11
-#   gainmap                           2
+#   gainmap                           4
 
-## items (17 lines)
+## items (20 lines)
 
 pub use Bt2446A
 pub use CllMeasure
@@ -36,4 +37,7 @@ pub use color::audited::CllMeasure
 pub use color::audited::ContentLightLevel
 pub use color::audited::DiffuseWhite
 pub use color::audited::LightLevelMethod
+pub gainmap::apply::HdrOutputFormat::LinearF16
+pub gainmap::HdrOutputFormat::LinearF16
 pub fn gainmap::apply_gain_row_simd(&[[f32; 3]], &[u8], &[f32; 256], &mut [[f32; 3]]) [also: gainmap::apply_simd]
+pub HdrOutputFormat::LinearF16

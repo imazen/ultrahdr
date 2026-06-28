@@ -409,6 +409,7 @@ fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
             apply_transfer_to_linear([r, g, b], transfer)
         }
 
+        #[cfg(feature = "f16")]
         PixelFormat::RgbaF16 | PixelFormat::RgbF16 => {
             let bpp = if format == PixelFormat::RgbaF16 { 8 } else { 6 };
             let idx = y as usize * stride + x as usize * bpp;

@@ -129,8 +129,8 @@ pub use zenpixels::TransferFunction;
 /// Pixel format for raw images. Re-exported from [`zenpixels::PixelFormat`].
 ///
 /// ultrahdr-core's kernels accept a subset (`Rgba8`, `Rgb8`, `RgbaF32`,
-/// `RgbaF16`, `RgbF16`, `Gray8`). Other formats are rejected by
-/// [`require_supported_format`].
+/// `Gray8`, plus `RgbaF16`/`RgbF16` when the `f16` feature is enabled).
+/// Other formats are rejected by [`require_supported_format`].
 pub use zenpixels::PixelFormat;
 
 /// Owning pixel container. Re-exported from [`zenpixels::PixelBuffer`].
@@ -222,15 +222,17 @@ pub fn validate_ultrahdr_dimensions(width: u32, height: u32) -> Result<()> {
 /// Reject pixel formats the kernels don't understand.
 ///
 /// The gain map / tone mapping kernels accept `Rgba8`, `Rgb8`, `RgbaF32`,
-/// and `Gray8`. Everything else is rejected with [`Error::UnsupportedFormat`].
+/// and `Gray8`. With the `f16` feature, `RgbaF16` and `RgbF16` are also
+/// accepted; without it they are rejected with [`Error::UnsupportedFormat`]
+/// (a loud error — never a silent decode-to-black). Everything else is
+/// always rejected.
 pub fn require_supported_format(format: PixelFormat) -> Result<()> {
     match format {
-        PixelFormat::Rgba8
-        | PixelFormat::Rgb8
-        | PixelFormat::RgbaF32
-        | PixelFormat::RgbaF16
-        | PixelFormat::RgbF16
-        | PixelFormat::Gray8 => Ok(()),
+        PixelFormat::Rgba8 | PixelFormat::Rgb8 | PixelFormat::RgbaF32 | PixelFormat::Gray8 => {
+            Ok(())
+        }
+        #[cfg(feature = "f16")]
+        PixelFormat::RgbaF16 | PixelFormat::RgbF16 => Ok(()),
         _ => Err(at!(Error::UnsupportedFormat(format))),
     }
 }
@@ -694,6 +696,29 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(err.error(), Error::UnsupportedFormat(_)));
+    }
+
+    /// Zero-corruption guarantee: without the `f16` feature, f16 input formats
+    /// are loudly rejected with [`Error::UnsupportedFormat`] — never silently
+    /// decoded to black (which the `_ => [0, 0, 0]` read fallback would do if
+    /// they slipped past validation).
+    #[cfg(not(feature = "f16"))]
+    #[test]
+    fn test_f16_formats_rejected_without_feature() {
+        let err = require_supported_format(PixelFormat::RgbaF16).unwrap_err();
+        assert!(matches!(err.error(), Error::UnsupportedFormat(_)));
+        let err = require_supported_format(PixelFormat::RgbF16).unwrap_err();
+        assert!(matches!(err.error(), Error::UnsupportedFormat(_)));
+        // Control: always-supported formats still pass.
+        assert!(require_supported_format(PixelFormat::Rgba8).is_ok());
+    }
+
+    /// With the `f16` feature, f16 input formats are accepted by the kernels.
+    #[cfg(feature = "f16")]
+    #[test]
+    fn test_f16_formats_accepted_with_feature() {
+        assert!(require_supported_format(PixelFormat::RgbaF16).is_ok());
+        assert!(require_supported_format(PixelFormat::RgbF16).is_ok());
     }
 
     #[test]

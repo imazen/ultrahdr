@@ -1,5 +1,5 @@
 # ultrahdr-rs public API — additions from non-default features
-# features: ffi-tests,simd,tonemap-bt2446a,zencodec
+# features: f16,ffi-tests,simd,tonemap-bt2446a,zencodec
 # (regenerated on every `cargo test` by zenutils-apidoc; ZEN_API_DOC=check verifies, =off skips).
 # Encodings: crate-name prefix stripped; auto traits collapse to a
 # count + exceptions; trait impls collapse to one roster line per

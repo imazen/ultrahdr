@@ -6,7 +6,7 @@
 # impls omitted; re-export duplicates annotated `[also: path]`.
 # DO NOT EDIT BY HAND — commit regenerated changes with the code.
 #
-# files: ultrahdr-core.txt 306 lines (supported surface) | ultrahdr-core.features.txt 17 added (features: archmage,magetypes,resize,simd,std,tonemap,tonemap-bt2446a) | ultrahdr-core.internal.txt 113 lines (132 hidden + 0 excluded-feature)
+# files: ultrahdr-core.txt 303 lines (supported surface) | ultrahdr-core.features.txt 20 added (features: archmage,f16,magetypes,resize,simd,std,tonemap,tonemap-bt2446a) | ultrahdr-core.internal.txt 113 lines (132 hidden + 0 excluded-feature)
 
 ## summary
 #
@@ -16,20 +16,20 @@
 #   free functions                             73
 #   inherent methods                           53
 #   struct fields                              63
-#   enum variants                              48
+#   enum variants                              45
 #   re-exports                                 22
 #   trait roster entries (type × trait)        58
 #   auto-trait-complete types                  19
 #
 # per-module pub lines:
-#   (root)                           99
+#   (root)                           98
 #   color                           131
-#   gainmap                          63
+#   gainmap                          61
 #   limits                           10
 #   luminance                         4
 #   metadata                         30
 
-## items (286 lines)
+## items (283 lines)
 
 pub mod ultrahdr_core
 pub use Bt2408Yrgb
@@ -156,7 +156,6 @@ pub fn color::tonemap_to_sdr([f32; 3], zenpixels::descriptor::TransferFunction, 
 pub fn color::tonemap_to_srgb8([f32; 3], zenpixels::descriptor::TransferFunction, &color::ToneMapConfig) -> [u8; 3] [also: color::tonemap]
 pub mod gainmap
 pub mod gainmap::apply
-pub gainmap::apply::HdrOutputFormat::LinearF16
 pub gainmap::apply::HdrOutputFormat::LinearFloat
 pub gainmap::apply::HdrOutputFormat::Srgb8
 pub fn gainmap::GainMapLut::lookup(&self, u8, usize) -> f32
@@ -176,7 +175,6 @@ pub gainmap::compute::GainMapConfig::max_boost: f32
 pub gainmap::compute::GainMapConfig::min_boost: f32
 pub gainmap::compute::GainMapConfig::multi_channel: bool
 pub gainmap::compute::GainMapConfig::scale_factor: u8
-pub gainmap::HdrOutputFormat::LinearF16
 pub gainmap::HdrOutputFormat::LinearFloat
 pub gainmap::HdrOutputFormat::Srgb8
 pub gainmap::GainMapConfig::alternate_hdr_headroom: f32
@@ -270,7 +268,6 @@ pub GainMapEncodingFormat::Both
 pub GainMapEncodingFormat::Iso21496
 pub GainMapEncodingFormat::Xmp
 #[non_exhaustive] pub enum HdrOutputFormat [also: gainmap, gainmap::apply]
-pub HdrOutputFormat::LinearF16
 pub HdrOutputFormat::LinearFloat
 pub HdrOutputFormat::Srgb8
 pub struct AppleHdrInfo [also: metadata::apple]

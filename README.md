@@ -45,7 +45,8 @@ fn decode(bytes: &[u8]) -> ultrahdr_rs::Result<()> {
     let hdr = decoder.decode_hdr(4.0)?;        // PixelBuffer, RgbaF32, linear
     let sdr = decoder.decode_sdr()?;           // PixelBuffer, Rgba8, sRGB
 
-    // Or hand off f16 directly to a compositor / GPU texture upload:
+    // Or hand off f16 directly to a compositor / GPU texture upload
+    // (requires the `f16` feature):
     let _hdr_f16 = decoder.decode_hdr_with_format(4.0, HdrOutputFormat::LinearF16)?;
 
     let _meta = decoder.metadata().cloned();   // GainMapMetadata, log2 domain
@@ -180,13 +181,15 @@ fn reconstruct(
 
 Pixel inputs (gain map math kernels):
 
-- **HDR**: `RgbaF32`, `RgbF32`, `RgbaF16`, `RgbF16` — linear, sRGB, PQ, or HLG transfer (the descriptor's `TransferFunction` is honored; non-linear inputs are EOTF-decoded first).
-- **SDR**: `Rgba8`, `Rgb8`, `RgbaF32`, `RgbaF16`, `RgbF16`, `Gray8`.
+- **HDR**: `RgbaF32`, `RgbF32` — linear, sRGB, PQ, or HLG transfer (the descriptor's `TransferFunction` is honored; non-linear inputs are EOTF-decoded first). `RgbaF16`/`RgbF16` additionally with the `f16` feature.
+- **SDR**: `Rgba8`, `Rgb8`, `RgbaF32`, `Gray8`, plus `RgbaF16`/`RgbF16` with the `f16` feature.
+
+(Without the `f16` feature, `RgbaF16`/`RgbF16` inputs are rejected with `Error::UnsupportedFormat` — never silently decoded.)
 
 Output formats from `apply_gainmap` (`HdrOutputFormat`):
 
 - `LinearFloat` — linear f32 RGBA, 16 bytes/pixel. 1.0 = SDR white.
-- `LinearF16` — linear f16 RGBA, 8 bytes/pixel. Mirrors libultrahdr's `UHDR_IMG_FMT_64bppRGBAHalfFloat`.
+- `LinearF16` *(requires the `f16` feature)* — linear f16 RGBA, 8 bytes/pixel. Mirrors libultrahdr's `UHDR_IMG_FMT_64bppRGBAHalfFloat`.
 - `Srgb8` — sRGB 8-bit RGBA, clipped to SDR range.
 
 10:10:10:2 packed PQ/HLG (`UHDR_IMG_FMT_32bppRGBA1010102` paired with `UHDR_CT_PQ` / `UHDR_CT_HLG`) and YCbCr P010 input are tracked in [#10](https://github.com/imazen/ultrahdr/issues/10).
@@ -255,11 +258,13 @@ Bit-exact `applyGain` and `applyGainCore` parity against libultrahdr and libavif
 - `tonemap` (default) — gates the `zentone` re-exports at the crate root and the `color::tonemap` module. Decoder-only consumers can build with `--no-default-features --features std` to drop the transitive `zentone` dep.
 - `tonemap-bt2446a` — gates the `color::audited` module + crate-root re-exports of `Bt2446A` / `CllMeasure` / `LightLevelMethod` / `ContentLightLevel` / `DiffuseWhite` (production-recommended HDR→SDR primitives per the 2026-06-22 audited shootout). Default-off because it pulls `zenpixels-convert` / `archmage` / `magetypes` / `garb` / `libm`.
 - `simd` — enables explicit SIMD via `archmage` / `magetypes` (NEON, SSE4, AVX2, AVX-512, WASM SIMD128).
+- `f16` — f16 (IEEE 754 half-precision) pixel support via the `half` crate. Default-off. Enables `RgbaF16`/`RgbF16` input and the `HdrOutputFormat::LinearF16` decode output; without it those formats are rejected with `Error::UnsupportedFormat`.
 - `resize` — high-quality gain map downsampling via `zenresize`.
 
 `ultrahdr-rs`:
 
 - `simd` — forwards to `ultrahdr-core/simd`.
+- `f16` — forwards to `ultrahdr-core/f16`. Enables `RgbaF16`/`RgbF16` input and `decode_hdr_with_format(boost, HdrOutputFormat::LinearF16)`. Default-off.
 - `tonemap-bt2446a` — forwards to `ultrahdr-core/tonemap-bt2446a`. Adds `Decoder::decode_full_sdr` (HDR→SDR via the audited-winner Bt2446A curve + `measure_max` peak measurement) and pulls in `zenpixels-convert` at the audited HDR commit. Default-off to keep transitive deps minimal.
 - `__pixel-parity` — runs pixel-parity tests against Google's `ultrahdr_app` subprocess (CI only, requires the binary on `PATH`).
 - `zencodec` — opt-in `zencodec` trait integration for the unified codec dispatch in `zencodecs`.
