@@ -8,7 +8,7 @@ description = "Core gain map math and metadata for Ultra HDR - no codec dependen
 repository = "https://github.com/imazen/ultrahdr"
 keywords = ["hdr", "gainmap", "ultrahdr", "image", "no_std"]
 categories = ["multimedia::images", "encoding", "no-std"]
-readme = "../README.md"
+readme = "../README.crates.md"
 exclude = [
     "CLAUDE.md",
     "CONTEXT-HANDOFF.md",
