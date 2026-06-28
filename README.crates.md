@@ -1,6 +1,6 @@
 <!-- GENERATED FROM README.md by zenutils gen-readme-crates.sh — DO NOT EDIT. -->
 
-# ultrahdr [![CI](https://img.shields.io/github/actions/workflow/status/imazen/ultrahdr/ci.yml?style=flat-square&label=CI)](https://github.com/imazen/ultrahdr/actions/workflows/ci.yml)
+# ultrahdr
 
 Pure-Rust encoder and decoder for [Ultra HDR](https://developer.android.com/media/platform/hdr-image-format) gain map JPEGs. An Ultra HDR file is a normal SDR JPEG with a second JPEG (the gain map) and a small block of metadata stapled onto it; HDR-capable readers reconstruct an HDR image, everything else sees the SDR base. This workspace ships the gain map math (`ultrahdr-core`) and a JPEG-bundled encoder/decoder (`ultrahdr-rs`) built on [zenjpeg](https://github.com/imazen/zenjpeg).
 
