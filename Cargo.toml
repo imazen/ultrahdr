@@ -41,7 +41,7 @@ thiserror = "2.0"
 # downstream tooling; the path wins locally. Kept on ONE line so
 # `ci.yml`'s `sed '/^zenjpeg/d' Cargo.toml` correctly strips it for the
 # ultrahdr-core-only standalone jobs.
-zenjpeg = { path = "../zenjpeg/zenjpeg", version = "0.8", features = ["decoder"] }
+zenjpeg = { path = "../zenjpeg/zenjpeg", version = "0.9.0", features = ["decoder"] }
 
 # Color management
 moxcms = ">=0.8.1, <0.10"
@@ -82,3 +82,8 @@ zentone = { path = "../zentone" }
 # sibling worktree without breaking this build.
 zenpixels-convert = { git = "https://github.com/imazen/zenpixels.git", rev = "69bb400a99d489aac4c62fc82920a6a70272b59c" }
 zenpixels = { git = "https://github.com/imazen/zenpixels.git", rev = "69bb400a99d489aac4c62fc82920a6a70272b59c" }
+# TEMP: until zencodec 0.1.26 ships (PR #103 — CategorizedError taxonomy).
+# zenjpeg 0.9 (Pattern-B) compiles only against this; pinned to the SAME rev
+# as zenjpeg's own workspace patch so both resolve one zencodec. Drop for the
+# crates.io version once zencodec 0.1.26 publishes.
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "c3220d51d2ef8ec16e8328ada2d5a04c7e6750ee" }
