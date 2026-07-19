@@ -41,7 +41,7 @@ thiserror = "2.0"
 # downstream tooling; the path wins locally. Kept on ONE line so
 # `ci.yml`'s `sed '/^zenjpeg/d' Cargo.toml` correctly strips it for the
 # ultrahdr-core-only standalone jobs.
-zenjpeg = { path = "../zenjpeg/zenjpeg", version = "0.9.0", features = ["decoder"] }
+zenjpeg = { path = "../zenjpeg/zenjpeg", version = "0.9.0" }
 
 # Color management
 moxcms = ">=0.8.1, <0.10"
