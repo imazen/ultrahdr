@@ -20,27 +20,38 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use ultrahdr_rs::{encode_ultrahdr, Decoder, GainMapMetadata, ColorPrimaries, PixelBuffer};
-//! use ultrahdr_rs::gainmap::compute::{compute_gainmap, GainMapConfig};
+//! Decode with the bundled zenjpeg codec, with resource limits for
+//! untrusted input:
 //!
-//! // 1. Prepare your images (using your own JPEG codec)
-//! let sdr_jpeg = my_encoder.encode_rgb(&sdr_pixels)?;
+//! ```no_run
+//! use ultrahdr_rs::{Decoder, ResourceLimits};
 //!
-//! // 2. Compute gain map from HDR and SDR PixelBuffers
-//! let config = GainMapConfig::default();
-//! let (gainmap, metadata) = compute_gainmap(&hdr, &sdr, &config, Unstoppable)?;
-//! let gainmap_jpeg = my_encoder.encode_grayscale(&gainmap.data)?;
-//!
-//! // 3. Assemble Ultra HDR file
-//! let ultrahdr = encode_ultrahdr(&sdr_jpeg, &gainmap_jpeg, &metadata, ColorPrimaries::Bt709)?;
-//!
-//! // 4. Decode: get raw JPEG bytes and decode with your codec
-//! let decoder = Decoder::new(&ultrahdr)?;
-//! let sdr_jpeg = decoder.primary_jpeg().unwrap();
-//! let gainmap_jpeg = decoder.gainmap_jpeg().unwrap();
-//! let metadata = decoder.metadata().unwrap();
+//! # fn main() -> ultrahdr_rs::Result<()> {
+//! let data = std::fs::read("photo_ultrahdr.jpg").expect("read");
+//! let decoder = Decoder::new_with_limits(&data, ResourceLimits::default())?;
+//! if decoder.is_ultrahdr() {
+//!     let sdr = decoder.decode_sdr()?;    // Rgba8 SDR base
+//!     let hdr = decoder.decode_hdr(4.0)?; // linear-float HDR at 4x boost
+//!     let metadata = decoder.metadata();  // gain-map metadata (log2 domain)
+//! }
+//! # Ok(()) }
 //! ```
+//!
+//! Bring-your-own-codec: [`Decoder::primary_jpeg`] and
+//! [`Decoder::gainmap_jpeg`] return the raw JPEG codestreams for your own
+//! decoder, and [`encode_ultrahdr`] assembles an Ultra HDR file from
+//! pre-encoded JPEGs.
+//!
+//! # Resource limits & cancellation
+//!
+//! [`Decoder::new`] decodes uncapped — appropriate for trusted input. For
+//! untrusted input, [`Decoder::new_with_limits`] validates JPEG header
+//! dimensions against a pixel/memory budget ([`ResourceLimits`]) *before*
+//! any pixel allocation; over-budget input yields
+//! [`Error::LimitExceeded`](ultrahdr_core::Error::LimitExceeded). Decode and
+//! encode entry points also have `*_with_stop` variants taking a [`Stop`]
+//! token for cooperative cancellation
+//! ([`Error::Stopped`](ultrahdr_core::Error::Stopped)).
 //!
 //! # Standards
 //!

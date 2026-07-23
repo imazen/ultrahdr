@@ -9,11 +9,19 @@
 
 ## summary
 #
-#   trait roster entries (type × trait)         1
+#   inherent methods                            2
+#   trait roster entries (type × trait)         2
+#
+# per-module pub lines:
+#   (root)                            1
+#   jpeg                              1
 
-## items (0 lines)
+## items (2 lines)
 
+pub fn ResourceLimits::assert_fields_are_eq(&self)
+pub fn jpeg::Marker::assert_fields_are_eq(&self)
 
-## trait impls (1 types)
+## trait impls (2 types)
 
+ResourceLimits: TrivialClone
 jpeg::Marker: TrivialClone

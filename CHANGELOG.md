@@ -249,7 +249,14 @@ own section below.
 - f16 decode output requires the new default-off `f16` feature (forwards to `ultrahdr-core/f16`). In a default build, `decode_hdr_with_format(_, HdrOutputFormat::LinearF16)` and `RgbaF16`/`RgbF16` input are unavailable (the variant leaves the default `HdrOutputFormat` surface; f16 input is rejected with `Error::UnsupportedFormat`). Enable `features = ["f16"]` to restore.
 
 #### Added
+- `ResourceLimits` + `Decoder::new_with_limits` (#28): caller pixel/memory caps for untrusted-input decoding. All decode paths (base JPEG, gain-map JPEG, HDR output) validate JPEG header dimensions via `validate_ultrahdr_dimensions` + the caller caps *before* pixel allocation (header probe + zenjpeg `max_pixels`/`max_memory` + post-decode re-check); over-budget input returns a typed `Error::LimitExceeded`. `Decoder::new` behavior is unchanged (5d1122c).
+- Cooperative cancellation (#28): `Decoder::decode_sdr_with_stop` / `decode_gainmap_with_stop` / `decode_hdr_with_stop` / `decode_hdr_with_format_and_stop` and `Encoder::encode_with_stop`; a cancelled `Stop` token surfaces as a typed `Error::Stopped` from every path (306aa5d).
 - `f16` Cargo feature (default-off) — forwards to `ultrahdr-core/f16`, enabling `RgbaF16`/`RgbF16` input and the `HdrOutputFormat::LinearF16` decode output.
+
+#### Fixed
+- Decode output size arithmetic is now overflow-checked (u64 multiply + `usize::try_from`) and the RGBA expansion allocates via `try_reserve_exact` — a clean `Error::AllocationFailed` instead of an abort on OOM; `chunks` → `chunks_exact` removes trailing-partial-chunk panics (#28, 5d1122c).
+- zenjpeg limit / cancellation / allocation errors keep their types (`LimitExceeded` / `Stopped` / `AllocationFailed`) instead of collapsing into `DecodeError`/`JpegEncode` strings (5d1122c, 306aa5d).
+- Index-guard hardening in `jpeg::icc::extract_icc_profile` and `jpeg::markers::parse_jpeg_segments`: `.get()`-guarded reads so truncated segments or lying length fields can never index past the input (#28, 16818da).
 
 #### Removed
 - Dropped the unused `wide` dependency (it was declared but never referenced in source).

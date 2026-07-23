@@ -55,6 +55,30 @@ fn decode(bytes: &[u8]) -> ultrahdr_rs::Result<()> {
 }
 ```
 
+#### Resource limits (untrusted input)
+
+`Decoder::new` decodes uncapped — fine for trusted files. For server-side /
+user-upload decoding, construct with `Decoder::new_with_limits` so JPEG header
+dimensions are checked against a pixel/memory budget *before* any pixel
+allocation. Over-budget input returns `Error::LimitExceeded`; the caps clamp
+to the crate-wide hard limits (500 MP) and can only tighten them. Every decode
+and encode entry point also has a `*_with_stop` variant taking an
+[`enough::Stop`](https://lib.rs/crates/enough) token for cooperative
+cancellation (`Error::Stopped`).
+
+```rust
+use ultrahdr_rs::{Decoder, ResourceLimits};
+
+fn decode_untrusted(bytes: &[u8]) -> ultrahdr_rs::Result<()> {
+    let limits = ResourceLimits::new()
+        .with_max_pixels(100_000_000)  // 100 MP
+        .with_max_memory(1 << 30);     // 1 GiB output-allocation cap
+    let decoder = Decoder::new_with_limits(bytes, limits)?;
+    let _sdr = decoder.decode_sdr()?;  // bomb => clean Err, never OOM
+    Ok(())
+}
+```
+
 ### Errors (for a server)
 
 Decode/encode return `ultrahdr_rs::Result<T>` = `Result<T, whereat::At<Error>>` —
