@@ -119,20 +119,25 @@ pub fn parse_jpeg_segments(data: &[u8]) -> Result<Vec<JpegSegment>> {
             continue;
         }
 
-        // Read length for other markers
-        if pos + 2 > data.len() {
+        // Read length for other markers — `.get()`-guarded so a truncated
+        // or lying length field can never index past the input.
+        let Some(len_bytes) = data.get(pos..pos + 2) else {
             break;
-        }
-
-        let length = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-        if length < 2 || pos + length > data.len() {
+        };
+        let length = u16::from_be_bytes([len_bytes[0], len_bytes[1]]) as usize;
+        let payload = if length >= 2 {
+            data.get(pos + 2..pos + length)
+        } else {
+            None
+        };
+        let Some(payload) = payload else {
             return Err(at!(Error::JpegDecode(format!(
                 "Invalid segment length {} at offset {}",
                 length, offset
             ))));
-        }
+        };
 
-        let segment_data = data[pos + 2..pos + length].to_vec();
+        let segment_data = payload.to_vec();
         segments.push(JpegSegment {
             marker,
             data: segment_data,

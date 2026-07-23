@@ -479,8 +479,11 @@ impl Encoder {
         let src_data = src_bytes.as_strided_bytes();
         let (pixel_layout, data): (PixelLayout, std::borrow::Cow<[u8]>) = match format {
             PixelFormat::Rgba8 => {
+                // chunks_exact: a trailing partial chunk (corrupt stride /
+                // truncated buffer) must not panic on `rgba[2]` — it is
+                // dropped instead. Also lets LLVM elide the bounds checks.
                 let rgb: Vec<u8> = src_data
-                    .chunks(4)
+                    .chunks_exact(4)
                     .flat_map(|rgba| [rgba[0], rgba[1], rgba[2]])
                     .collect();
                 (PixelLayout::Rgb8Srgb, std::borrow::Cow::Owned(rgb))

@@ -309,17 +309,15 @@ fn rejection_truncated_ultrahdr() {
     let data = std::fs::read(dir.join("truncated_ultrahdr.jpg")).expect("read");
     // Truncated file: the header parse may succeed (we have the first 1 KB)
     // but decode_hdr / decode_gainmap must fail, not produce garbage.
-    match Decoder::new(&data) {
-        Ok(dec) => {
-            // Decoder accepted truncated bytes as a JPEG header; but any
-            // attempt to access the missing gain map must fail.
-            let gm = dec.decode_gainmap();
-            assert!(
-                gm.is_err(),
-                "truncated UltraHDR should fail at gain-map decode"
-            );
-        }
-        Err(_) => {} // Also fine — early rejection.
+    // An Err from Decoder::new is also fine — early rejection.
+    if let Ok(dec) = Decoder::new(&data) {
+        // Decoder accepted truncated bytes as a JPEG header; but any
+        // attempt to access the missing gain map must fail.
+        let gm = dec.decode_gainmap();
+        assert!(
+            gm.is_err(),
+            "truncated UltraHDR should fail at gain-map decode"
+        );
     }
 }
 

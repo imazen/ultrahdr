@@ -53,22 +53,22 @@ pub fn extract_icc_profile(data: &[u8]) -> Option<Vec<u8>> {
     while pos + 4 < data.len() {
         if data[pos] == 0xFF && data[pos + 1] == 0xE2 {
             let length = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
+            let marker_data = &data[pos + 4..];
 
-            if pos + 4 + ICC_IDENTIFIER.len() + 2 < data.len() {
-                let marker_data = &data[pos + 4..];
+            // `.get()`-guarded reads: the chunk-index byte pair after the
+            // identifier may be truncated off the end of the input — skip
+            // the segment instead of indexing past it.
+            if marker_data.starts_with(ICC_IDENTIFIER)
+                && let Some(&chunk_num) = marker_data.get(ICC_IDENTIFIER.len())
+                && marker_data.get(ICC_IDENTIFIER.len() + 1).is_some()
+            {
+                let data_start = ICC_IDENTIFIER.len() + 2;
+                let data_end = length.saturating_sub(2);
 
-                if marker_data.starts_with(ICC_IDENTIFIER) {
-                    let chunk_num = marker_data[ICC_IDENTIFIER.len()];
-                    let _total_chunks = marker_data[ICC_IDENTIFIER.len() + 1];
-
-                    let data_start = ICC_IDENTIFIER.len() + 2;
-                    let data_end = length.saturating_sub(2);
-
-                    if data_start < data_end
-                        && let Some(chunk_data) = marker_data.get(data_start..data_end)
-                    {
-                        chunks.push((chunk_num, chunk_data.to_vec()));
-                    }
+                if data_start < data_end
+                    && let Some(chunk_data) = marker_data.get(data_start..data_end)
+                {
+                    chunks.push((chunk_num, chunk_data.to_vec()));
                 }
             }
 
