@@ -5,7 +5,7 @@ use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8;
 use ultrahdr_core::gainmap::compute::{GainMapConfig, compute_gainmap};
 use ultrahdr_core::{ColorPrimaries, Error, GainMapEncodingFormat, GainMapMetadata, Result};
 
-use ultrahdr_core::{PixelFormat, TransferFunction, Unstoppable};
+use ultrahdr_core::{PixelFormat, Stop, TransferFunction, Unstoppable};
 
 use ultrahdr_core::{GainMap, PixelBuffer, clone_pixel_buffer, pixel_buffer_from_vec};
 
@@ -332,6 +332,16 @@ impl Encoder {
 
     /// Encode to Ultra HDR JPEG.
     pub fn encode(&self) -> Result<Vec<u8>> {
+        self.encode_with_stop(Unstoppable)
+    }
+
+    /// [`encode`](Self::encode) with cooperative cancellation.
+    ///
+    /// The `stop` token is checked throughout gain-map computation and both
+    /// JPEG encodes. Cancellation surfaces as
+    /// [`Error::Stopped`](ultrahdr_core::Error::Stopped).
+    pub fn encode_with_stop(&self, stop: impl Stop) -> Result<Vec<u8>> {
+        stop.check().map_err(|r| at!(Error::Stopped(r)))?;
         // Fast path: if we have raw gain map JPEG bytes, skip gain map processing
         if let (Some(gainmap_jpeg), Some(metadata)) =
             (&self.existing_gainmap_jpeg, &self.existing_metadata)
@@ -340,7 +350,7 @@ impl Encoder {
                 (compressed.clone(), ColorPrimaries::Bt709)
             } else if let Some(ref sdr_img) = self.sdr_image {
                 let gamut = sdr_img.descriptor().primaries;
-                (self.encode_base_jpeg(sdr_img)?, gamut)
+                (self.encode_base_jpeg(sdr_img, &stop)?, gamut)
             } else if let Some(ref hdr) = self.hdr_image {
                 let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorPrimaries::Bt709)?;
                 let sdr = pixel_buffer_from_vec(
@@ -352,7 +362,7 @@ impl Encoder {
                     TransferFunction::Srgb,
                 )?;
                 let gamut = sdr.descriptor().primaries;
-                (self.encode_base_jpeg(&sdr)?, gamut)
+                (self.encode_base_jpeg(&sdr, &stop)?, gamut)
             } else {
                 return Err(at!(Error::EncodeError(
                     "Either HDR image, SDR image, or compressed SDR is required".into(),
@@ -398,21 +408,21 @@ impl Encoder {
                 if width_ok && height_ok {
                     (gm.clone(), meta.clone())
                 } else {
-                    self.compute_new_gainmap(hdr, &sdr)?
+                    self.compute_new_gainmap(hdr, &sdr, &stop)?
                 }
             } else {
-                self.compute_new_gainmap(hdr, &sdr)?
+                self.compute_new_gainmap(hdr, &sdr, &stop)?
             };
 
         // Encode base JPEG
         let base_jpeg = if let Some(ref compressed) = self.compressed_sdr {
             compressed.clone()
         } else {
-            self.encode_base_jpeg(&sdr)?
+            self.encode_base_jpeg(&sdr, &stop)?
         };
 
         // Encode gain map JPEG
-        let gainmap_jpeg = self.encode_gainmap_jpeg(&gainmap)?;
+        let gainmap_jpeg = self.encode_gainmap_jpeg(&gainmap, &stop)?;
 
         let gamut = sdr.descriptor().primaries;
         encode_ultrahdr(&base_jpeg, &gainmap_jpeg, &metadata, gamut)
@@ -443,6 +453,7 @@ impl Encoder {
         &self,
         hdr: &PixelBuffer,
         sdr: &PixelBuffer,
+        stop: impl Stop,
     ) -> Result<(GainMap, GainMapMetadata)> {
         let config = GainMapConfig {
             scale_factor: self.gainmap_scale,
@@ -456,12 +467,12 @@ impl Encoder {
             alternate_hdr_headroom: self.target_display_peak / 203.0,
         };
 
-        compute_gainmap(hdr, sdr, &config, Unstoppable)
+        compute_gainmap(hdr, sdr, &config, stop)
     }
 
     /// Encode base SDR image to JPEG.
-    fn encode_base_jpeg(&self, sdr: &PixelBuffer) -> Result<Vec<u8>> {
-        use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
+    fn encode_base_jpeg(&self, sdr: &PixelBuffer, stop: impl Stop) -> Result<Vec<u8>> {
+        use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout};
 
         let format = sdr.descriptor().pixel_format();
         let src_bytes = sdr.as_slice();
@@ -486,25 +497,39 @@ impl Encoder {
         let config = EncoderConfig::ycbcr(self.base_quality as f32, ChromaSubsampling::Quarter);
         let mut enc = config
             .encode_from_bytes(sdr.width(), sdr.height(), pixel_layout)
-            .map_err(|e| at!(Error::JpegEncode(e.to_string())))?;
-        enc.push_packed(&data, Unstoppable)
-            .map_err(|e| at!(Error::JpegEncode(e.to_string())))?;
-        enc.finish()
-            .map_err(|e| at!(Error::JpegEncode(e.to_string())))
+            .map_err(map_jpeg_encode_error)?;
+        enc.push_packed(&data, stop)
+            .map_err(map_jpeg_encode_error)?;
+        enc.finish().map_err(map_jpeg_encode_error)
     }
 
     /// Encode gain map to JPEG.
-    fn encode_gainmap_jpeg(&self, gainmap: &GainMap) -> Result<Vec<u8>> {
-        use zenjpeg::encoder::{EncoderConfig, PixelLayout, Unstoppable};
+    fn encode_gainmap_jpeg(&self, gainmap: &GainMap, stop: impl Stop) -> Result<Vec<u8>> {
+        use zenjpeg::encoder::{EncoderConfig, PixelLayout};
 
         let config = EncoderConfig::grayscale(self.gainmap_quality as f32);
         let mut enc = config
             .encode_from_bytes(gainmap.width, gainmap.height, PixelLayout::Gray8Srgb)
-            .map_err(|e| at!(Error::JpegEncode(e.to_string())))?;
-        enc.push_packed(&gainmap.data, Unstoppable)
-            .map_err(|e| at!(Error::JpegEncode(e.to_string())))?;
-        enc.finish()
-            .map_err(|e| at!(Error::JpegEncode(e.to_string())))
+            .map_err(map_jpeg_encode_error)?;
+        enc.push_packed(&gainmap.data, stop)
+            .map_err(map_jpeg_encode_error)?;
+        enc.finish().map_err(map_jpeg_encode_error)
+    }
+}
+
+/// Map a zenjpeg encode error to a typed ultrahdr error.
+///
+/// Cancellation keeps its type
+/// ([`Error::Stopped`](ultrahdr_core::Error::Stopped)) instead of
+/// collapsing into a [`Error::JpegEncode`] string. Returns the `At<Error>`
+/// wrapper directly — converting a built `At` back into a bare `Error`
+/// would route through core's `From<zenpixels::At<E>>` impl and stringify
+/// the variant.
+fn map_jpeg_encode_error(e: zenjpeg::encoder::Error) -> whereat::At<Error> {
+    use zenjpeg::encoder::ErrorKind;
+    match e.kind() {
+        ErrorKind::Cancelled(reason) => at!(Error::Stopped(*reason)),
+        _ => at!(Error::JpegEncode(e.to_string())),
     }
 }
 

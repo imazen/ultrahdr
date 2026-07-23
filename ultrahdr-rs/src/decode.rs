@@ -2,7 +2,7 @@
 
 use ultrahdr_core::gainmap::apply::{HdrOutputFormat, apply_gainmap};
 use ultrahdr_core::{
-    ColorPrimaries, Error, GainMap, GainMapMetadata, PixelBuffer, PixelFormat, Result,
+    ColorPrimaries, Error, GainMap, GainMapMetadata, PixelBuffer, PixelFormat, Result, Stop,
     TransferFunction, Unstoppable, limits, pixel_buffer_from_vec, validate_ultrahdr_dimensions,
 };
 use whereat::at;
@@ -225,10 +225,18 @@ impl<'a> Decoder<'a> {
     /// primary JPEG codestream. If you want to decode with a different
     /// JPEG codec, call [`Decoder::primary_jpeg`] for the raw bytes.
     pub fn decode_sdr(&self) -> Result<PixelBuffer> {
+        self.decode_sdr_with_stop(Unstoppable)
+    }
+
+    /// [`decode_sdr`](Self::decode_sdr) with cooperative cancellation.
+    ///
+    /// The `stop` token is checked before and during the JPEG decode.
+    /// Cancellation surfaces as [`Error::Stopped`].
+    pub fn decode_sdr_with_stop(&self, stop: impl Stop) -> Result<PixelBuffer> {
         let primary_data = self
             .primary_jpeg()
             .ok_or_else(|| at!(Error::DecodeError("No primary image found".into())))?;
-        decode_jpeg_to_rgb(primary_data, self.limits.as_ref())
+        decode_jpeg_to_rgb(primary_data, self.limits.as_ref(), stop)
     }
 
     /// Decode the gain map using the bundled zenjpeg codec.
@@ -245,6 +253,15 @@ impl<'a> Decoder<'a> {
     /// Only when no metadata is available does a full achromatic scan
     /// decide. For a different JPEG codec, see [`Decoder::gainmap_jpeg`].
     pub fn decode_gainmap(&self) -> Result<GainMap> {
+        self.decode_gainmap_with_stop(Unstoppable)
+    }
+
+    /// [`decode_gainmap`](Self::decode_gainmap) with cooperative
+    /// cancellation.
+    ///
+    /// The `stop` token is checked before and during the gain-map JPEG
+    /// decode. Cancellation surfaces as [`Error::Stopped`].
+    pub fn decode_gainmap_with_stop(&self, stop: impl Stop) -> Result<GainMap> {
         let gainmap_data = self
             .gainmap_jpeg()
             .ok_or_else(|| at!(Error::DecodeError("No gain map found".into())))?;
@@ -256,8 +273,10 @@ impl<'a> Decoder<'a> {
             // decode is the exact luma plane — keep it as the fast path.
             // Some color encodings can't produce Gray output ("unsupported
             // color conversion", #27); those fall through to the RGB path.
+            // (A cancelled Gray decode also falls through, but the RGB
+            // path's own stop check re-raises `Stopped` immediately.)
             if let Ok((width, height, data)) =
-                decode_jpeg_to_grayscale_bytes(gainmap_data, self.limits.as_ref())
+                decode_jpeg_to_grayscale_bytes(gainmap_data, self.limits.as_ref(), &stop)
             {
                 return Ok(GainMap {
                     width,
@@ -268,7 +287,8 @@ impl<'a> Decoder<'a> {
             }
         }
 
-        let (width, height, rgb) = decode_jpeg_to_rgb_bytes(gainmap_data, self.limits.as_ref())?;
+        let (width, height, rgb) =
+            decode_jpeg_to_rgb_bytes(gainmap_data, self.limits.as_ref(), &stop)?;
         let collapse = match single_channel {
             // Metadata says luma-only: collapse regardless of decode noise.
             Some(true) => true,
@@ -313,7 +333,20 @@ impl<'a> Decoder<'a> {
     /// - 4.0 = Display capable of 4x SDR brightness
     /// - ~49.0 = Full HDR10 (10000 nits / 203 SDR nits)
     pub fn decode_hdr(&self, display_boost: f32) -> Result<PixelBuffer> {
-        self.decode_hdr_with_format(display_boost, HdrOutputFormat::LinearFloat)
+        self.decode_hdr_with_format_and_stop(
+            display_boost,
+            HdrOutputFormat::LinearFloat,
+            Unstoppable,
+        )
+    }
+
+    /// [`decode_hdr`](Self::decode_hdr) with cooperative cancellation.
+    ///
+    /// The `stop` token is checked throughout the base-JPEG decode, the
+    /// gain-map decode, and the gain-map application. Cancellation surfaces
+    /// as [`Error::Stopped`].
+    pub fn decode_hdr_with_stop(&self, display_boost: f32, stop: impl Stop) -> Result<PixelBuffer> {
+        self.decode_hdr_with_format_and_stop(display_boost, HdrOutputFormat::LinearFloat, stop)
     }
 
     /// Decode to HDR with a specific output format.
@@ -321,6 +354,17 @@ impl<'a> Decoder<'a> {
         &self,
         display_boost: f32,
         format: HdrOutputFormat,
+    ) -> Result<PixelBuffer> {
+        self.decode_hdr_with_format_and_stop(display_boost, format, Unstoppable)
+    }
+
+    /// [`decode_hdr_with_format`](Self::decode_hdr_with_format) with
+    /// cooperative cancellation.
+    pub fn decode_hdr_with_format_and_stop(
+        &self,
+        display_boost: f32,
+        format: HdrOutputFormat,
+        stop: impl Stop,
     ) -> Result<PixelBuffer> {
         if !self.is_ultrahdr {
             return Err(at!(Error::DecodeError("Not an Ultra HDR image".into())));
@@ -338,17 +382,21 @@ impl<'a> Decoder<'a> {
             .as_ref()
             .ok_or_else(|| at!(Error::DecodeError("No gain map metadata".into())))?;
 
-        let sdr = self.decode_sdr()?;
-        let gainmap = self.decode_gainmap()?;
+        let sdr = self.decode_sdr_with_stop(&stop)?;
+        let gainmap = self.decode_gainmap_with_stop(&stop)?;
 
         // The HDR output buffer is up to 16 bytes/pixel (RgbaF32) — 4x the
         // SDR decode. Check it against the limits before apply_gainmap
         // allocates it.
         if let Some(lim) = &self.limits {
-            lim.check_output(sdr.width(), sdr.height(), hdr_output_bytes_per_pixel(format))?;
+            lim.check_output(
+                sdr.width(),
+                sdr.height(),
+                hdr_output_bytes_per_pixel(format),
+            )?;
         }
 
-        apply_gainmap(&sdr, &gainmap, metadata, display_boost, format, Unstoppable)
+        apply_gainmap(&sdr, &gainmap, metadata, display_boost, format, stop)
     }
 
     /// Decode the UltraHDR JPEG and apply the **audited-default HDR→SDR
@@ -741,13 +789,18 @@ fn try_vec_with_capacity(len: usize) -> Result<Vec<u8>> {
 }
 
 /// Decode JPEG to RGB.
-fn decode_jpeg_to_rgb(jpeg_data: &[u8], limits: Option<&ResourceLimits>) -> Result<PixelBuffer> {
+fn decode_jpeg_to_rgb(
+    jpeg_data: &[u8],
+    limits: Option<&ResourceLimits>,
+    stop: impl Stop,
+) -> Result<PixelBuffer> {
     use zenjpeg::decoder::PixelFormat as JpegPixelFormat;
+    stop.check().map_err(|r| at!(Error::Stopped(r)))?;
     if let Some(lim) = limits {
         precheck_jpeg_header(jpeg_data, lim, 4)?;
     }
     let decoded = jpeg_decoder_with_limits(JpegPixelFormat::Rgb, limits)
-        .decode(jpeg_data, Unstoppable)
+        .decode(jpeg_data, stop)
         .map_err(map_jpeg_decode_error)?;
 
     let width = decoded.width();
@@ -813,13 +866,15 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8], limits: Option<&ResourceLimits>) -> Resu
 fn decode_jpeg_to_grayscale_bytes(
     jpeg_data: &[u8],
     limits: Option<&ResourceLimits>,
+    stop: impl Stop,
 ) -> Result<(u32, u32, Vec<u8>)> {
     use zenjpeg::decoder::PixelFormat as JpegPixelFormat;
+    stop.check().map_err(|r| at!(Error::Stopped(r)))?;
     if let Some(lim) = limits {
         precheck_jpeg_header(jpeg_data, lim, 1)?;
     }
     let decoded = jpeg_decoder_with_limits(JpegPixelFormat::Gray, limits)
-        .decode(jpeg_data, Unstoppable)
+        .decode(jpeg_data, stop)
         .map_err(map_jpeg_decode_error)?;
 
     let width = decoded.width();
@@ -847,13 +902,15 @@ fn decode_jpeg_to_grayscale_bytes(
 fn decode_jpeg_to_rgb_bytes(
     jpeg_data: &[u8],
     limits: Option<&ResourceLimits>,
+    stop: impl Stop,
 ) -> Result<(u32, u32, Vec<u8>)> {
     use zenjpeg::decoder::PixelFormat as JpegPixelFormat;
+    stop.check().map_err(|r| at!(Error::Stopped(r)))?;
     if let Some(lim) = limits {
         precheck_jpeg_header(jpeg_data, lim, 3)?;
     }
     let decoded = jpeg_decoder_with_limits(JpegPixelFormat::Rgb, limits)
-        .decode(jpeg_data, Unstoppable)
+        .decode(jpeg_data, stop)
         .map_err(map_jpeg_decode_error)?;
 
     let width = decoded.width();

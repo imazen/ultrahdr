@@ -356,3 +356,31 @@ fn test_encode_various_dimensions() {
         assert_eq!(dh, h, "Height mismatch for {}x{}", w, h);
     }
 }
+
+/// Cooperative cancellation (issue #28): a pre-cancelled stop token must
+/// cancel the encode with a typed `Error::Stopped`, and
+/// `encode_with_stop(Unstoppable)` must produce byte-identical output to
+/// `encode()`.
+#[test]
+fn test_encode_with_stop() {
+    let hdr = create_hdr_gradient(64, 64, 4.0);
+    let sdr = create_sdr_gradient(64, 64);
+
+    let mut encoder = Encoder::new();
+    encoder.set_hdr_image(hdr).set_sdr_image(sdr);
+
+    let err = encoder
+        .encode_with_stop(common::AlwaysStop)
+        .expect_err("cancelled encode must error");
+    assert!(
+        matches!(err.error(), ultrahdr_rs::Error::Stopped(_)),
+        "expected Stopped, got: {err:?}"
+    );
+
+    let plain = encoder.encode().unwrap();
+    let with_stop = encoder.encode_with_stop(ultrahdr_rs::Unstoppable).unwrap();
+    assert_eq!(
+        plain, with_stop,
+        "Unstoppable encode must be byte-identical"
+    );
+}

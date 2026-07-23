@@ -251,3 +251,13 @@ pub fn srgb_to_linear(v: f32) -> f32 {
         ((v + 0.055) / 1.055).powf(2.4)
     }
 }
+
+/// A [`ultrahdr_rs::Stop`] implementation that always cancels — for
+/// cooperative-cancellation tests.
+pub struct AlwaysStop;
+
+impl ultrahdr_rs::Stop for AlwaysStop {
+    fn check(&self) -> Result<(), ultrahdr_rs::StopReason> {
+        Err(ultrahdr_rs::StopReason::Cancelled)
+    }
+}

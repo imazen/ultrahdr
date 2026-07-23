@@ -495,3 +495,65 @@ fn encode_small_ultrahdr(w: u32, h: u32) -> Vec<u8> {
     encoder.set_hdr_image(hdr).set_sdr_image(sdr);
     encoder.encode().expect("test encode must succeed")
 }
+
+// ---------------------------------------------------------------------------
+// Cooperative cancellation (issue #28): a cancelled Stop token must surface
+// as a typed Error::Stopped from every decode path.
+// ---------------------------------------------------------------------------
+
+/// A pre-cancelled stop token cancels every decode path with Error::Stopped.
+#[test]
+fn stop_cancels_all_decode_paths() {
+    let encoded = encode_small_ultrahdr(64, 64);
+    let decoder = Decoder::new(&encoded).unwrap();
+
+    let err = decoder
+        .decode_sdr_with_stop(common::AlwaysStop)
+        .expect_err("cancelled SDR decode must error");
+    assert!(
+        matches!(err.error(), Error::Stopped(_)),
+        "expected Stopped, got: {err:?}"
+    );
+
+    let err = decoder
+        .decode_gainmap_with_stop(common::AlwaysStop)
+        .expect_err("cancelled gain-map decode must error");
+    assert!(
+        matches!(err.error(), Error::Stopped(_)),
+        "expected Stopped on gainmap, got: {err:?}"
+    );
+
+    let err = decoder
+        .decode_hdr_with_stop(4.0, common::AlwaysStop)
+        .expect_err("cancelled HDR decode must error");
+    assert!(
+        matches!(err.error(), Error::Stopped(_)),
+        "expected Stopped on HDR, got: {err:?}"
+    );
+}
+
+/// `*_with_stop(Unstoppable)` must decode byte-identically to the plain
+/// methods.
+#[test]
+fn stop_unstoppable_matches_plain_decode() {
+    let encoded = encode_small_ultrahdr(48, 32);
+    let decoder = Decoder::new(&encoded).unwrap();
+
+    let a = decoder.decode_sdr().unwrap();
+    let b = decoder
+        .decode_sdr_with_stop(ultrahdr_rs::Unstoppable)
+        .unwrap();
+    assert_eq!(
+        a.as_slice().as_strided_bytes(),
+        b.as_slice().as_strided_bytes()
+    );
+
+    let h1 = decoder.decode_hdr(4.0).unwrap();
+    let h2 = decoder
+        .decode_hdr_with_stop(4.0, ultrahdr_rs::Unstoppable)
+        .unwrap();
+    assert_eq!(
+        h1.as_slice().as_strided_bytes(),
+        h2.as_slice().as_strided_bytes()
+    );
+}
