@@ -5,7 +5,9 @@
 //! - Malformed data should produce errors, not panics
 //! - Gain map access on plain JPEGs should return None
 
-use ultrahdr_rs::Decoder;
+mod common;
+
+use ultrahdr_rs::{Decoder, Error, ResourceLimits};
 
 /// Helper: Build a JPEG with custom APP segments before EOI.
 fn build_jpeg_with_segments(segments: &[Vec<u8>]) -> Vec<u8> {
@@ -347,4 +349,149 @@ fn mpf_first_sample_detected_as_ultrahdr() {
     );
     let gm = d.decode_gainmap().expect("gain map must decode");
     assert!(gm.width > 0 && gm.height > 0);
+}
+
+// ---------------------------------------------------------------------------
+// Resource limits (issue #28): the front-door Decoder must be able to reject
+// untrusted over-budget input with a clean Err — never a panic and never an
+// unbounded allocation.
+// ---------------------------------------------------------------------------
+
+/// Build a syntactically valid JPEG prefix whose SOF0 header declares the
+/// given (huge) dimensions. The scan data is absent — irrelevant, because a
+/// limited decoder must reject at header-parse time, before allocating
+/// pixel planes.
+fn jpeg_with_sof_dimensions(width: u16, height: u16) -> Vec<u8> {
+    let mut data = vec![0xFF, 0xD8]; // SOI
+    // SOF0: len(17) precision(8) height width 3 components
+    data.extend_from_slice(&[0xFF, 0xC0, 0x00, 0x11, 0x08]);
+    data.extend_from_slice(&height.to_be_bytes());
+    data.extend_from_slice(&width.to_be_bytes());
+    data.extend_from_slice(&[
+        0x03, // 3 components
+        0x01, 0x22, 0x00, // Y:  id 1, 2x2 sampling, quant table 0
+        0x02, 0x11, 0x01, // Cb: id 2, 1x1 sampling, quant table 1
+        0x03, 0x11, 0x01, // Cr: id 3, 1x1 sampling, quant table 1
+    ]);
+    data.extend_from_slice(&[0xFF, 0xD9]); // EOI
+    data
+}
+
+/// A JPEG header declaring 30000x30000 (900 MP — 1.8x the 500 MP hard cap)
+/// must be rejected by the limited path with a clean typed error, at header
+/// cost, without attempting a multi-gigabyte allocation.
+#[test]
+fn limits_reject_huge_sof_dimensions_cleanly() {
+    let bomb = jpeg_with_sof_dimensions(30000, 30000);
+    let decoder = Decoder::new_with_limits(&bomb, ResourceLimits::default())
+        .expect("container parse of a plain JPEG prefix must succeed");
+    let err = decoder
+        .decode_sdr()
+        .expect_err("900 MP header must not decode under default limits");
+    assert!(
+        matches!(err.error(), Error::LimitExceeded(_)),
+        "expected LimitExceeded, got: {err:?}"
+    );
+}
+
+/// Dimensions beyond even the JPEG format cap (65535x65535, ~4.29 GP) must
+/// also come back as a clean Err on the limited path — never a panic or an
+/// attempted multi-gigabyte allocation. (zenjpeg rejects these with its own
+/// format-level dimension error before the pixel-cap check, so the exact
+/// variant is not pinned — only that it is a clean typed error.)
+#[test]
+fn limits_reject_over_format_cap_dimensions_cleanly() {
+    let bomb = jpeg_with_sof_dimensions(65535, 65535);
+    let decoder = Decoder::new_with_limits(&bomb, ResourceLimits::default())
+        .expect("container parse of a plain JPEG prefix must succeed");
+    assert!(decoder.decode_sdr().is_err());
+}
+
+/// A caller-tightened pixel cap rejects an image that the default cap allows.
+#[test]
+fn limits_reject_over_caller_pixel_cap() {
+    let encoded = encode_small_ultrahdr(64, 64);
+    // Base is 64x64 = 4096 px; the gain map at the default 4x scale is
+    // 16x16 = 256 px. Cap at 100 px so BOTH are over budget.
+    let decoder = Decoder::new_with_limits(&encoded, ResourceLimits::new().with_max_pixels(100))
+        .expect("parse must succeed");
+    let err = decoder
+        .decode_sdr()
+        .expect_err("64x64 must be rejected under a 100-pixel cap");
+    assert!(
+        matches!(err.error(), Error::LimitExceeded(_)),
+        "expected LimitExceeded, got: {err:?}"
+    );
+    // The gain map decode path is capped too (16x16 = 256 px > 100).
+    let err = decoder
+        .decode_gainmap()
+        .expect_err("16x16 gain map must be rejected under a 100-pixel cap");
+    assert!(
+        matches!(err.error(), Error::LimitExceeded(_)),
+        "expected LimitExceeded on gainmap, got: {err:?}"
+    );
+    // And the HDR reconstruction path.
+    let err = decoder
+        .decode_hdr(4.0)
+        .expect_err("HDR reconstruction must be rejected under the cap");
+    assert!(
+        matches!(err.error(), Error::LimitExceeded(_)),
+        "expected LimitExceeded on HDR, got: {err:?}"
+    );
+}
+
+/// A caller memory cap bounds the decode output allocation.
+#[test]
+fn limits_reject_over_memory_cap() {
+    let encoded = encode_small_ultrahdr(64, 64);
+    // SDR output is 64x64x4 = 16384 bytes; cap below it.
+    let decoder = Decoder::new_with_limits(&encoded, ResourceLimits::new().with_max_memory(4096))
+        .expect("parse must succeed");
+    let err = decoder
+        .decode_sdr()
+        .expect_err("64x64 RGBA (16 KiB) must be rejected under a 4 KiB memory cap");
+    assert!(
+        matches!(err.error(), Error::LimitExceeded(_)),
+        "expected LimitExceeded, got: {err:?}"
+    );
+}
+
+/// In-budget input must decode byte-identically through the limited path.
+#[test]
+fn limits_valid_input_decodes_byte_identical() {
+    let encoded = encode_small_ultrahdr(64, 48);
+
+    let plain = Decoder::new(&encoded).unwrap();
+    let limited = Decoder::new_with_limits(&encoded, ResourceLimits::default()).unwrap();
+
+    let sdr_plain = plain.decode_sdr().unwrap();
+    let sdr_limited = limited.decode_sdr().unwrap();
+    assert_eq!(sdr_plain.width(), sdr_limited.width());
+    assert_eq!(sdr_plain.height(), sdr_limited.height());
+    assert_eq!(
+        sdr_plain.as_slice().as_strided_bytes(),
+        sdr_limited.as_slice().as_strided_bytes(),
+        "SDR pixels must be byte-identical with and without limits"
+    );
+
+    let gm_plain = plain.decode_gainmap().unwrap();
+    let gm_limited = limited.decode_gainmap().unwrap();
+    assert_eq!(gm_plain.data, gm_limited.data);
+
+    let hdr_plain = plain.decode_hdr(4.0).unwrap();
+    let hdr_limited = limited.decode_hdr(4.0).unwrap();
+    assert_eq!(
+        hdr_plain.as_slice().as_strided_bytes(),
+        hdr_limited.as_slice().as_strided_bytes(),
+        "HDR pixels must be byte-identical with and without limits"
+    );
+}
+
+/// Encode a small real Ultra HDR JPEG for limit tests.
+fn encode_small_ultrahdr(w: u32, h: u32) -> Vec<u8> {
+    let hdr = common::create_hdr_gradient(w, h, 4.0);
+    let sdr = common::create_sdr_gradient(w, h);
+    let mut encoder = ultrahdr_rs::Encoder::new();
+    encoder.set_hdr_image(hdr).set_sdr_image(sdr);
+    encoder.encode().expect("test encode must succeed")
 }

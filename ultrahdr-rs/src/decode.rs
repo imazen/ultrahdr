@@ -3,13 +3,115 @@
 use ultrahdr_core::gainmap::apply::{HdrOutputFormat, apply_gainmap};
 use ultrahdr_core::{
     ColorPrimaries, Error, GainMap, GainMapMetadata, PixelBuffer, PixelFormat, Result,
-    TransferFunction, Unstoppable, pixel_buffer_from_vec,
+    TransferFunction, Unstoppable, limits, pixel_buffer_from_vec, validate_ultrahdr_dimensions,
 };
 use whereat::at;
 use zenjpeg::container::marker::find_jpeg_boundaries;
 use zenjpeg::container::xmp::parse_xmp;
 
 use crate::container::{self, AppSegment};
+
+/// Caller-supplied resource limits for [`Decoder`] decode paths.
+///
+/// Bounds what the bundled zenjpeg codec and the HDR reconstruction are
+/// allowed to allocate when decoding untrusted input. Attach limits with
+/// [`Decoder::new_with_limits`]; the plain [`Decoder::new`] keeps the
+/// historical uncapped behavior.
+///
+/// Two independent caps:
+/// - **Pixel cap** ([`with_max_pixels`](Self::with_max_pixels)): maximum
+///   `width * height` for any decoded image — the base JPEG, the gain-map
+///   JPEG, and the reconstructed HDR output. Enforced against the JPEG
+///   header dimensions *before* pixel allocation, and always clamped to the
+///   crate-wide hard caps ([`limits::MAX_TOTAL_PIXELS`],
+///   [`limits::MAX_IMAGE_DIMENSION`]) — caller limits can tighten the caps,
+///   never loosen them. Defaults to [`limits::MAX_TOTAL_PIXELS`] (500 MP).
+/// - **Memory cap** ([`with_max_memory`](Self::with_max_memory)): maximum
+///   bytes for any single decode output allocation, and forwarded to the
+///   JPEG codec's internal memory limit. Unset by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceLimits {
+    max_pixels: u64,
+    max_memory_bytes: Option<u64>,
+}
+
+impl Default for ResourceLimits {
+    /// Pixel cap at [`limits::MAX_TOTAL_PIXELS`] (500 MP), no memory cap.
+    fn default() -> Self {
+        Self {
+            max_pixels: limits::MAX_TOTAL_PIXELS,
+            max_memory_bytes: None,
+        }
+    }
+}
+
+impl ResourceLimits {
+    /// Create limits with the default caps (same as [`Default`]).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the maximum decoded pixel count (`width * height`).
+    ///
+    /// Values above [`limits::MAX_TOTAL_PIXELS`] are clamped down to it at
+    /// enforcement time — the crate-wide hard cap always applies.
+    #[must_use]
+    pub fn with_max_pixels(mut self, max_pixels: u64) -> Self {
+        self.max_pixels = max_pixels;
+        self
+    }
+
+    /// Set the maximum bytes for any single decode output allocation.
+    #[must_use]
+    pub fn with_max_memory(mut self, max_bytes: u64) -> Self {
+        self.max_memory_bytes = Some(max_bytes);
+        self
+    }
+
+    /// The configured pixel cap (before hard-cap clamping).
+    pub fn max_pixels(&self) -> u64 {
+        self.max_pixels
+    }
+
+    /// The configured memory cap in bytes, if any.
+    pub fn max_memory(&self) -> Option<u64> {
+        self.max_memory_bytes
+    }
+
+    /// The pixel cap that is actually enforced: the caller's value clamped
+    /// to the crate-wide hard cap.
+    fn effective_max_pixels(&self) -> u64 {
+        self.max_pixels.min(limits::MAX_TOTAL_PIXELS)
+    }
+
+    /// Validate decoded dimensions and the projected output allocation.
+    ///
+    /// Runs [`validate_ultrahdr_dimensions`] (non-zero, per-dimension cap,
+    /// 500 MP hard cap) and then the caller's tighter pixel/memory caps.
+    fn check_output(&self, width: u32, height: u32, bytes_per_pixel: u64) -> Result<()> {
+        validate_ultrahdr_dimensions(width, height)?;
+        let px = u64::from(width) * u64::from(height);
+        if px > self.effective_max_pixels() {
+            return Err(at!(Error::LimitExceeded(format!(
+                "decoded pixel count {} ({}x{}) exceeds configured limit {}",
+                px,
+                width,
+                height,
+                self.effective_max_pixels()
+            ))));
+        }
+        if let Some(max_mem) = self.max_memory_bytes {
+            let bytes = px.saturating_mul(bytes_per_pixel);
+            if bytes > max_mem {
+                return Err(at!(Error::LimitExceeded(format!(
+                    "decoded output of {} bytes ({}x{}x{}) exceeds configured memory limit {}",
+                    bytes, width, height, bytes_per_pixel, max_mem
+                ))));
+            }
+        }
+        Ok(())
+    }
+}
 
 /// Ultra HDR decoder.
 ///
@@ -18,29 +120,77 @@ use crate::container::{self, AppSegment};
 /// brightness levels.
 ///
 /// The decoder borrows the input data to avoid an unconditional copy.
+///
+/// # Resource limits
+///
+/// [`Decoder::new`] decodes with no resource caps — appropriate for trusted
+/// input. For untrusted input (servers, user uploads), construct with
+/// [`Decoder::new_with_limits`] so JPEG header dimensions are validated
+/// against a pixel/memory budget *before* any pixel allocation happens:
+///
+/// ```no_run
+/// use ultrahdr_rs::{Decoder, ResourceLimits};
+///
+/// # fn main() -> ultrahdr_rs::Result<()> {
+/// let data = std::fs::read("untrusted.jpg").expect("read");
+/// // 100 MP pixel cap + 1 GiB output-allocation cap
+/// let limits = ResourceLimits::new()
+///     .with_max_pixels(100_000_000)
+///     .with_max_memory(1 << 30);
+/// let decoder = Decoder::new_with_limits(&data, limits)?;
+/// let sdr = decoder.decode_sdr()?; // over-budget input => clean Err
+/// # Ok(()) }
+/// ```
 pub struct Decoder<'a> {
     data: &'a [u8],
     metadata: Option<GainMapMetadata>,
     primary_jpeg: Option<(usize, usize)>,
     gainmap_jpeg: Option<(usize, usize)>,
     is_ultrahdr: bool,
+    limits: Option<ResourceLimits>,
 }
 
 impl<'a> Decoder<'a> {
     /// Create a new decoder from JPEG data.
     ///
     /// The decoder borrows the data — no copy is made.
+    ///
+    /// No resource limits are applied on this path; for untrusted input use
+    /// [`Decoder::new_with_limits`].
     pub fn new(data: &'a [u8]) -> Result<Self> {
+        Self::build(data, None)
+    }
+
+    /// Create a new decoder with caller-supplied [`ResourceLimits`].
+    ///
+    /// All decode paths ([`decode_sdr`](Self::decode_sdr),
+    /// [`decode_gainmap`](Self::decode_gainmap),
+    /// [`decode_hdr`](Self::decode_hdr) and variants) validate JPEG header
+    /// dimensions against the limits before allocating pixel buffers, and
+    /// the bundled JPEG codec enforces the same caps internally. Over-budget
+    /// input yields [`Error::LimitExceeded`] — never an unbounded
+    /// allocation.
+    pub fn new_with_limits(data: &'a [u8], limits: ResourceLimits) -> Result<Self> {
+        Self::build(data, Some(limits))
+    }
+
+    fn build(data: &'a [u8], limits: Option<ResourceLimits>) -> Result<Self> {
         let mut decoder = Self {
             data,
             metadata: None,
             primary_jpeg: None,
             gainmap_jpeg: None,
             is_ultrahdr: false,
+            limits,
         };
 
         decoder.parse()?;
         Ok(decoder)
+    }
+
+    /// The resource limits this decoder was constructed with, if any.
+    pub fn resource_limits(&self) -> Option<&ResourceLimits> {
+        self.limits.as_ref()
     }
 
     /// Check if this is a valid Ultra HDR image.
@@ -78,7 +228,7 @@ impl<'a> Decoder<'a> {
         let primary_data = self
             .primary_jpeg()
             .ok_or_else(|| at!(Error::DecodeError("No primary image found".into())))?;
-        decode_jpeg_to_rgb(primary_data)
+        decode_jpeg_to_rgb(primary_data, self.limits.as_ref())
     }
 
     /// Decode the gain map using the bundled zenjpeg codec.
@@ -106,7 +256,9 @@ impl<'a> Decoder<'a> {
             // decode is the exact luma plane — keep it as the fast path.
             // Some color encodings can't produce Gray output ("unsupported
             // color conversion", #27); those fall through to the RGB path.
-            if let Ok((width, height, data)) = decode_jpeg_to_grayscale_bytes(gainmap_data) {
+            if let Ok((width, height, data)) =
+                decode_jpeg_to_grayscale_bytes(gainmap_data, self.limits.as_ref())
+            {
                 return Ok(GainMap {
                     width,
                     height,
@@ -116,7 +268,7 @@ impl<'a> Decoder<'a> {
             }
         }
 
-        let (width, height, rgb) = decode_jpeg_to_rgb_bytes(gainmap_data)?;
+        let (width, height, rgb) = decode_jpeg_to_rgb_bytes(gainmap_data, self.limits.as_ref())?;
         let collapse = match single_channel {
             // Metadata says luma-only: collapse regardless of decode noise.
             Some(true) => true,
@@ -188,6 +340,13 @@ impl<'a> Decoder<'a> {
 
         let sdr = self.decode_sdr()?;
         let gainmap = self.decode_gainmap()?;
+
+        // The HDR output buffer is up to 16 bytes/pixel (RgbaF32) — 4x the
+        // SDR decode. Check it against the limits before apply_gainmap
+        // allocates it.
+        if let Some(lim) = &self.limits {
+            lim.check_output(sdr.width(), sdr.height(), hdr_output_bytes_per_pixel(format))?;
+        }
 
         apply_gainmap(&sdr, &gainmap, metadata, display_boost, format, Unstoppable)
     }
@@ -473,16 +632,129 @@ fn find_xmp_in_segments(segments: &[AppSegment]) -> Option<String> {
     None
 }
 
+/// Bytes per pixel for an [`HdrOutputFormat`] output buffer.
+fn hdr_output_bytes_per_pixel(format: HdrOutputFormat) -> u64 {
+    match format {
+        HdrOutputFormat::LinearFloat => 16,
+        #[cfg(feature = "f16")]
+        HdrOutputFormat::LinearF16 => 8,
+        HdrOutputFormat::Srgb8 => 4,
+        // `HdrOutputFormat` is non_exhaustive: assume the widest layout so a
+        // future variant can never under-count against a memory cap.
+        _ => 16,
+    }
+}
+
+/// Map a zenjpeg decode error to a typed ultrahdr error.
+///
+/// Limit rejections and cancellations keep their types
+/// ([`Error::LimitExceeded`] / [`Error::Stopped`] /
+/// [`Error::AllocationFailed`]) instead of collapsing into a
+/// [`Error::DecodeError`] string.
+///
+/// Returns the `At<Error>` wrapper directly: converting the built `At` back
+/// into a bare `Error` would route through core's
+/// `From<zenpixels::At<E>> for Error` blanket impl, which stringifies the
+/// variant into `InvalidPixelData` and loses the type.
+fn map_jpeg_decode_error(e: zenjpeg::decoder::Error) -> whereat::At<Error> {
+    use zenjpeg::decoder::ErrorKind;
+    match e.kind() {
+        ErrorKind::Cancelled(reason) => at!(Error::Stopped(*reason)),
+        ErrorKind::ImageTooLarge { pixels, limit } => at!(Error::LimitExceeded(format!(
+            "JPEG header declares {} pixels, over the configured limit {}",
+            pixels, limit
+        ))),
+        ErrorKind::AllocationFailed { bytes, .. } => at!(Error::AllocationFailed(*bytes)),
+        _ => at!(Error::DecodeError(format!("JPEG decode failed: {}", e))),
+    }
+}
+
+/// Validate the JPEG header dimensions against the limits *before* the
+/// decode allocates anything.
+///
+/// A header-only probe ([`zenjpeg::decoder::Decoder::read_info`]) reads the
+/// SOF dimensions at parse cost. Probe failures are ignored — the real
+/// decode immediately after will report the parse error properly — but if
+/// the dimensions are readable, an over-budget image is rejected here with
+/// a typed [`Error::LimitExceeded`], before any pixel allocation.
+fn precheck_jpeg_header(
+    jpeg_data: &[u8],
+    limits: &ResourceLimits,
+    output_bytes_per_pixel: u64,
+) -> Result<()> {
+    if let Ok(info) = zenjpeg::decoder::Decoder::new().read_info(jpeg_data) {
+        limits.check_output(
+            info.dimensions.width,
+            info.dimensions.height,
+            output_bytes_per_pixel,
+        )?;
+    }
+    Ok(())
+}
+
+/// Construct a zenjpeg decoder with the caller's resource limits applied.
+///
+/// zenjpeg enforces `max_pixels` against the JPEG header (SOF) dimensions
+/// *before* allocating pixel planes, so an over-budget bomb is rejected at
+/// header-parse cost.
+fn jpeg_decoder_with_limits(
+    format: zenjpeg::decoder::PixelFormat,
+    limits: Option<&ResourceLimits>,
+) -> zenjpeg::decoder::Decoder {
+    let mut dec = zenjpeg::decoder::Decoder::new().output_format(format);
+    if let Some(lim) = limits {
+        dec = dec.max_pixels(lim.effective_max_pixels());
+        if let Some(max_mem) = lim.max_memory() {
+            dec = dec.max_memory(max_mem);
+        }
+    }
+    dec
+}
+
+/// `width * height * bytes_per_pixel` in overflow-checked arithmetic.
+///
+/// The historical code multiplied in fixed-width integers, which can wrap
+/// for attacker-controlled dimensions (and at a much smaller threshold on
+/// 32-bit targets). A wrap here would produce an undersized capacity hint —
+/// harmless for `Vec` growth but a symptom of unchecked size math — so the
+/// product is computed in u64 and range-checked into usize.
+fn checked_output_len(width: u32, height: u32, bytes_per_pixel: u64) -> Result<usize> {
+    u64::from(width)
+        .checked_mul(u64::from(height))
+        .and_then(|px| px.checked_mul(bytes_per_pixel))
+        .and_then(|bytes| usize::try_from(bytes).ok())
+        .ok_or_else(|| {
+            at!(Error::LimitExceeded(format!(
+                "output size {}x{}x{} overflows addressable memory",
+                width, height, bytes_per_pixel
+            )))
+        })
+}
+
+/// Allocate a `Vec<u8>` of exactly `len` capacity, failing with a clean
+/// [`Error::AllocationFailed`] instead of aborting the process on OOM.
+fn try_vec_with_capacity(len: usize) -> Result<Vec<u8>> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(len)
+        .map_err(|_| at!(Error::AllocationFailed(len)))?;
+    Ok(v)
+}
+
 /// Decode JPEG to RGB.
-fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<PixelBuffer> {
-    use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
-    let decoded = JpegDecoder::new()
-        .output_format(JpegPixelFormat::Rgb)
+fn decode_jpeg_to_rgb(jpeg_data: &[u8], limits: Option<&ResourceLimits>) -> Result<PixelBuffer> {
+    use zenjpeg::decoder::PixelFormat as JpegPixelFormat;
+    if let Some(lim) = limits {
+        precheck_jpeg_header(jpeg_data, lim, 4)?;
+    }
+    let decoded = jpeg_decoder_with_limits(JpegPixelFormat::Rgb, limits)
         .decode(jpeg_data, Unstoppable)
-        .map_err(|e| at!(Error::DecodeError(format!("JPEG decode failed: {}", e))))?;
+        .map_err(map_jpeg_decode_error)?;
 
     let width = decoded.width();
     let height = decoded.height();
+    if let Some(lim) = limits {
+        lim.check_output(width, height, 4)?;
+    }
     let pixels = decoded
         .pixels_u8()
         .ok_or_else(|| at!(Error::DecodeError("No pixel data in decoded JPEG".into())))?;
@@ -491,8 +763,8 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<PixelBuffer> {
     // Convert to RGBA if needed
     let data = if bpp == 3 {
         // RGB -> RGBA
-        let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
-        for chunk in pixels.chunks(3) {
+        let mut rgba = try_vec_with_capacity(checked_output_len(width, height, 4)?)?;
+        for chunk in pixels.chunks_exact(3) {
             rgba.push(chunk[0]);
             rgba.push(chunk[1]);
             rgba.push(chunk[2]);
@@ -503,7 +775,7 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<PixelBuffer> {
         pixels.to_vec()
     } else if bpp == 1 {
         // Grayscale -> RGBA
-        let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
+        let mut rgba = try_vec_with_capacity(checked_output_len(width, height, 4)?)?;
         for &g in pixels {
             rgba.push(g);
             rgba.push(g);
@@ -538,15 +810,23 @@ fn decode_jpeg_to_rgb(jpeg_data: &[u8]) -> Result<PixelBuffer> {
 /// The fast path for single-channel maps. Can fail for some color
 /// encodings ("unsupported color conversion", #27) — callers fall back
 /// to [`decode_jpeg_to_rgb_bytes`].
-fn decode_jpeg_to_grayscale_bytes(jpeg_data: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
-    use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
-    let decoded = JpegDecoder::new()
-        .output_format(JpegPixelFormat::Gray)
+fn decode_jpeg_to_grayscale_bytes(
+    jpeg_data: &[u8],
+    limits: Option<&ResourceLimits>,
+) -> Result<(u32, u32, Vec<u8>)> {
+    use zenjpeg::decoder::PixelFormat as JpegPixelFormat;
+    if let Some(lim) = limits {
+        precheck_jpeg_header(jpeg_data, lim, 1)?;
+    }
+    let decoded = jpeg_decoder_with_limits(JpegPixelFormat::Gray, limits)
         .decode(jpeg_data, Unstoppable)
-        .map_err(|e| at!(Error::DecodeError(format!("JPEG decode failed: {}", e))))?;
+        .map_err(map_jpeg_decode_error)?;
 
     let width = decoded.width();
     let height = decoded.height();
+    if let Some(lim) = limits {
+        lim.check_output(width, height, 1)?;
+    }
     let pixels = decoded
         .pixels_u8()
         .ok_or_else(|| at!(Error::DecodeError("No pixel data in decoded JPEG".into())))?;
@@ -564,15 +844,23 @@ fn decode_jpeg_to_grayscale_bytes(jpeg_data: &[u8]) -> Result<(u32, u32, Vec<u8>
 /// Gray output is unavailable: RGB output is universally supported
 /// (grayscale codestreams expand to identical channels), and per-channel
 /// maps must not be flattened to luma (#27).
-fn decode_jpeg_to_rgb_bytes(jpeg_data: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
-    use zenjpeg::decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
-    let decoded = JpegDecoder::new()
-        .output_format(JpegPixelFormat::Rgb)
+fn decode_jpeg_to_rgb_bytes(
+    jpeg_data: &[u8],
+    limits: Option<&ResourceLimits>,
+) -> Result<(u32, u32, Vec<u8>)> {
+    use zenjpeg::decoder::PixelFormat as JpegPixelFormat;
+    if let Some(lim) = limits {
+        precheck_jpeg_header(jpeg_data, lim, 3)?;
+    }
+    let decoded = jpeg_decoder_with_limits(JpegPixelFormat::Rgb, limits)
         .decode(jpeg_data, Unstoppable)
-        .map_err(|e| at!(Error::DecodeError(format!("JPEG decode failed: {}", e))))?;
+        .map_err(map_jpeg_decode_error)?;
 
     let width = decoded.width();
     let height = decoded.height();
+    if let Some(lim) = limits {
+        lim.check_output(width, height, 3)?;
+    }
     let pixels = decoded
         .pixels_u8()
         .ok_or_else(|| at!(Error::DecodeError("No pixel data in decoded JPEG".into())))?;
@@ -731,6 +1019,73 @@ mod tests {
             offset: 0,
         }];
         assert!(find_xmp_in_segments(&segments).is_none());
+    }
+
+    #[test]
+    fn test_checked_output_len_normal() {
+        assert_eq!(checked_output_len(64, 64, 4).unwrap(), 64 * 64 * 4);
+        assert_eq!(checked_output_len(1, 1, 16).unwrap(), 16);
+    }
+
+    #[test]
+    fn test_checked_output_len_overflow_is_err_not_panic() {
+        // u32::MAX * u32::MAX * 4 overflows u64::try_from(usize) on every
+        // target — must be a clean Err, never a wrap or panic.
+        let r = checked_output_len(u32::MAX, u32::MAX, 4);
+        assert!(matches!(r.unwrap_err().error(), Error::LimitExceeded(_)));
+    }
+
+    #[test]
+    fn test_resource_limits_defaults() {
+        let lim = ResourceLimits::default();
+        assert_eq!(lim.max_pixels(), ultrahdr_core::limits::MAX_TOTAL_PIXELS);
+        assert_eq!(lim.max_memory(), None);
+        // In-budget dims pass
+        assert!(lim.check_output(1920, 1080, 4).is_ok());
+        // Over the 500 MP hard cap fails even at default
+        assert!(matches!(
+            lim.check_output(30000, 30000, 4).unwrap_err().error(),
+            Error::LimitExceeded(_)
+        ));
+    }
+
+    #[test]
+    fn test_resource_limits_pixel_cap() {
+        let lim = ResourceLimits::new().with_max_pixels(16);
+        assert!(lim.check_output(4, 4, 4).is_ok());
+        assert!(matches!(
+            lim.check_output(5, 4, 4).unwrap_err().error(),
+            Error::LimitExceeded(_)
+        ));
+    }
+
+    #[test]
+    fn test_resource_limits_cannot_loosen_hard_cap() {
+        // A caller cap above 500 MP is clamped down to the crate hard cap.
+        let lim = ResourceLimits::new().with_max_pixels(u64::MAX);
+        assert!(matches!(
+            lim.check_output(30000, 30000, 4).unwrap_err().error(),
+            Error::LimitExceeded(_)
+        ));
+    }
+
+    #[test]
+    fn test_resource_limits_memory_cap() {
+        // 64x64x4 = 16384 bytes
+        let lim = ResourceLimits::new().with_max_memory(16384);
+        assert!(lim.check_output(64, 64, 4).is_ok());
+        assert!(matches!(
+            lim.check_output(64, 65, 4).unwrap_err().error(),
+            Error::LimitExceeded(_)
+        ));
+    }
+
+    #[test]
+    fn test_decoder_new_with_limits_plain_jpeg() {
+        let data = vec![0xFF, 0xD8, 0xFF, 0xD9];
+        let decoder = Decoder::new_with_limits(&data, ResourceLimits::default()).unwrap();
+        assert!(decoder.resource_limits().is_some());
+        assert!(Decoder::new(&data).unwrap().resource_limits().is_none());
     }
 
     #[test]
