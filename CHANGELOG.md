@@ -12,6 +12,13 @@ own section below.
 
 ### [Unreleased]
 
+### [0.6.0] - 2026-07-24
+
+First publish since 0.5.0. Drafted incrementally since 2026-06-23 (Cargo.toml
+was pre-bumped to 0.6.0 then, `cargo publish` never ran); everything below
+through this section ships together now, including the f16-gating and
+`wide`-removal work that was still sitting under `[Unreleased]`.
+
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release.
      Batch them here instead of shipping piecemeal. -->
@@ -25,7 +32,10 @@ own section below.
 #### Removed
 - Dropped the unused `wide` dependency. Explicit SIMD is provided by `magetypes` (`gainmap::apply_simd`, behind the `simd` feature); `wide` was declared in the manifest but never referenced in source.
 
-### [0.6.0] - 2026-06-23
+#### Changed
+- Bumped `zenpixels-convert` to `>=0.2.16, <0.3` (was pinned to an unpublished git rev) now that 0.2.16 is on crates.io.
+
+### [0.6.0-draft] - 2026-06-23 (folded into 0.6.0 above)
 
 #### Breaking changes
 - `Result<T>` now carries a source location: `Result<T, whereat::At<Error>>` (was `Result<T, Error>`), for server-side error stack traces. Match the inner error with `e.error()` (borrow) or `e.decompose().0` (owned); read the capture site with `e.location()`. The bare `Error` type is unchanged, so `#[from] ultrahdr_core::Error` keeps working. `ultrahdr-rs` is instrumented in lockstep. (commit 60b642f)
@@ -243,6 +253,15 @@ own section below.
 
 ### [Unreleased]
 
+### [0.4.1] - 2026-07-24
+
+Publishes as 0.4.1, not 0.4.0: the original 0.4.0 was published and yanked
+same-day back on 2026-04-10 (semver-checks showed no real break, corrected
+to 0.3.5 instead — see that entry below), and crates.io permanently burns
+yanked version numbers. This release bundles that content plus everything
+below through the `[0.4.0] - 2026-06-23` section (also never published) —
+all of it ships together now.
+
 #### QUEUED BREAKING CHANGES
 <!-- Breaking changes queued for the next major (or minor for 0.x) release. -->
 - Remove the `ffi-tests` Cargo feature stub (soft-removed in 0.4.0; was the gate for the now-deleted `libultrahdr_rs` C++ parity tests).
@@ -263,8 +282,9 @@ own section below.
 
 #### Changed
 - `half` moved from a runtime dependency to a test-only dev-dependency (it was only used by the `__pixel-parity` test suite's f16 comparison against `ultrahdr_app -O 4`). Consumers no longer build `half` unless they opt into the `f16` feature, which pulls it transitively through `ultrahdr-core`.
+- Bumped `zenpixels-convert` to `>=0.2.16, <0.3` and dropped the workspace's git-rev patch for it and `zenpixels` now that both publish at 0.2.16 on crates.io (see the Workspace section below).
 
-### [0.4.0] - 2026-06-23
+### [0.4.0] - 2026-06-23 (drafted; never published, see 0.4.1 above)
 
 #### Breaking changes
 - `Result<T>` re-export now carries the `whereat::At<Error>` location annotation that `ultrahdr-core` adopted in lockstep. Match `e.error()` (borrow) or `e.into_inner()` (owned) on the returned error; bare `#[from] ultrahdr_rs::Error` still works for downstream error enums (the inner `Error` type is unchanged). (commit 60b642f)
