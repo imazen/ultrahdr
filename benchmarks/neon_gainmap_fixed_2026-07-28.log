@@ -1,0 +1,152 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /Users/lilith/work/zen/ultrahdr/wasm-bench/Cargo.toml
+workspace: /Users/lilith/work/zen/ultrahdr/Cargo.toml
+warning: patch `zencodec v0.1.25 (https://github.com/imazen/zencodec?rev=c3220d51d2ef8ec16e8328ada2d5a04c7e6750ee#c3220d51)` was not used in the crate graph
+warning: patch `zentone v0.2.0 (/Users/lilith/work/zen/zentone)` was not used in the crate graph
+help: Check that the patched package version and available features are compatible
+      with the dependency requirements. If the patch has a different version from
+      what is locked in the Cargo.lock file, run `cargo update` to use the new
+      version. This may also occur with an optional dependency that is not enabled.
+   Compiling ultrahdr-core v0.6.0 (/Users/lilith/work/zen/ultrahdr/ultrahdr-core)
+warning: function `apply_gain_inner_scalar` is never used
+   --> ultrahdr-core/src/gainmap/apply_simd.rs:102:4
+    |
+102 | fn apply_gain_inner(
+    |    ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ultrahdr-core` (lib) generated 1 warning
+    Finished `bench` profile [optimized] target(s) in 1.09s
+     Running benches/simd_xplat.rs (target/release/deps/simd_xplat-06013299aef34229)
+Gnuplot not found, using plotters backend
+Benchmarking gain_apply/scalar_lut/512x512
+Benchmarking gain_apply/scalar_lut/512x512: Warming up for 3.0000 s
+Benchmarking gain_apply/scalar_lut/512x512: Collecting 100 samples in estimated 5.2104 s (56k iterations)
+Benchmarking gain_apply/scalar_lut/512x512: Analyzing
+gain_apply/scalar_lut/512x512
+                        time:   [93.781 µs 93.844 µs 93.909 µs]
+                        thrpt:  [2.7915 Gelem/s 2.7934 Gelem/s 2.7953 Gelem/s]
+                 change:
+                        time:   [−0.3997% −0.3268% −0.2546%] (p = 0.00 < 0.05)
+                        thrpt:  [+0.2552% +0.3279% +0.4013%]
+                        Change within noise threshold.
+Found 5 outliers among 100 measurements (5.00%)
+  4 (4.00%) high mild
+  1 (1.00%) high severe
+Benchmarking gain_apply/simd_lut/512x512
+Benchmarking gain_apply/simd_lut/512x512: Warming up for 3.0000 s
+Benchmarking gain_apply/simd_lut/512x512: Collecting 100 samples in estimated 5.2089 s (56k iterations)
+Benchmarking gain_apply/simd_lut/512x512: Analyzing
+gain_apply/simd_lut/512x512
+                        time:   [93.810 µs 93.845 µs 93.882 µs]
+                        thrpt:  [2.7923 Gelem/s 2.7934 Gelem/s 2.7944 Gelem/s]
+                 change:
+                        time:   [−3.9914% −3.8987% −3.8101%] (p = 0.00 < 0.05)
+                        thrpt:  [+3.9610% +4.0569% +4.1574%]
+                        Performance has improved.
+Found 8 outliers among 100 measurements (8.00%)
+  1 (1.00%) low mild
+  3 (3.00%) high mild
+  4 (4.00%) high severe
+Benchmarking gain_apply/simd_lut_benchlocal_fork/512x512
+Benchmarking gain_apply/simd_lut_benchlocal_fork/512x512: Warming up for 3.0000 s
+Benchmarking gain_apply/simd_lut_benchlocal_fork/512x512: Collecting 100 samples in estimated 5.1614 s (30k iterations)
+Benchmarking gain_apply/simd_lut_benchlocal_fork/512x512: Analyzing
+gain_apply/simd_lut_benchlocal_fork/512x512
+                        time:   [170.36 µs 170.43 µs 170.52 µs]
+                        thrpt:  [1.5373 Gelem/s 1.5381 Gelem/s 1.5388 Gelem/s]
+                 change:
+                        time:   [−0.1253% −0.0259% +0.0698%] (p = 0.61 > 0.05)
+                        thrpt:  [−0.0697% +0.0259% +0.1254%]
+                        No change in performance detected.
+Found 11 outliers among 100 measurements (11.00%)
+  2 (2.00%) low severe
+  3 (3.00%) low mild
+  4 (4.00%) high mild
+  2 (2.00%) high severe
+Benchmarking gain_apply/simd_exp/512x512
+Benchmarking gain_apply/simd_exp/512x512: Warming up for 3.0000 s
+Benchmarking gain_apply/simd_exp/512x512: Collecting 100 samples in estimated 5.3772 s (15k iterations)
+Benchmarking gain_apply/simd_exp/512x512: Analyzing
+gain_apply/simd_exp/512x512
+                        time:   [355.13 µs 355.24 µs 355.36 µs]
+                        thrpt:  [737.69 Melem/s 737.94 Melem/s 738.17 Melem/s]
+                 change:
+                        time:   [−0.4259% −0.1731% +0.0122%] (p = 0.13 > 0.05)
+                        thrpt:  [−0.0122% +0.1734% +0.4277%]
+                        No change in performance detected.
+Found 5 outliers among 100 measurements (5.00%)
+  1 (1.00%) low mild
+  3 (3.00%) high mild
+  1 (1.00%) high severe
+Benchmarking gain_apply/scalar_lut/1920x1080
+Benchmarking gain_apply/scalar_lut/1920x1080: Warming up for 3.0000 s
+Benchmarking gain_apply/scalar_lut/1920x1080: Collecting 100 samples in estimated 7.5840 s (10k iterations)
+Benchmarking gain_apply/scalar_lut/1920x1080: Analyzing
+gain_apply/scalar_lut/1920x1080
+                        time:   [751.09 µs 751.42 µs 751.78 µs]
+                        thrpt:  [2.7583 Gelem/s 2.7596 Gelem/s 2.7608 Gelem/s]
+                 change:
+                        time:   [−0.0475% +0.0232% +0.0943%] (p = 0.52 > 0.05)
+                        thrpt:  [−0.0942% −0.0232% +0.0476%]
+                        No change in performance detected.
+Found 7 outliers among 100 measurements (7.00%)
+  5 (5.00%) high mild
+  2 (2.00%) high severe
+Benchmarking gain_apply/simd_lut/1920x1080
+Benchmarking gain_apply/simd_lut/1920x1080: Warming up for 3.0000 s
+Benchmarking gain_apply/simd_lut/1920x1080: Collecting 100 samples in estimated 7.5789 s (10k iterations)
+Benchmarking gain_apply/simd_lut/1920x1080: Analyzing
+gain_apply/simd_lut/1920x1080
+                        time:   [751.18 µs 751.65 µs 752.19 µs]
+                        thrpt:  [2.7568 Gelem/s 2.7587 Gelem/s 2.7605 Gelem/s]
+                 change:
+                        time:   [−3.1344% −3.0688% −2.9972%] (p = 0.00 < 0.05)
+                        thrpt:  [+3.0898% +3.1659% +3.2358%]
+                        Performance has improved.
+Found 4 outliers among 100 measurements (4.00%)
+  1 (1.00%) low mild
+  2 (2.00%) high mild
+  1 (1.00%) high severe
+Benchmarking gain_apply/simd_lut_benchlocal_fork/1920x1080
+Benchmarking gain_apply/simd_lut_benchlocal_fork/1920x1080: Warming up for 3.0000 s
+
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 6.8s, enable flat sampling, or reduce sample count to 60.
+Benchmarking gain_apply/simd_lut_benchlocal_fork/1920x1080: Collecting 100 samples in estimated 6.7944 s (5050 iterations)
+Benchmarking gain_apply/simd_lut_benchlocal_fork/1920x1080: Analyzing
+gain_apply/simd_lut_benchlocal_fork/1920x1080
+                        time:   [1.3473 ms 1.3481 ms 1.3490 ms]
+                        thrpt:  [1.5372 Gelem/s 1.5381 Gelem/s 1.5391 Gelem/s]
+                 change:
+                        time:   [−0.0019% +0.0860% +0.1731%] (p = 0.04 < 0.05)
+                        thrpt:  [−0.1728% −0.0859% +0.0019%]
+                        Change within noise threshold.
+Found 5 outliers among 100 measurements (5.00%)
+  1 (1.00%) low severe
+  1 (1.00%) low mild
+  2 (2.00%) high mild
+  1 (1.00%) high severe
+Benchmarking gain_apply/simd_exp/1920x1080
+Benchmarking gain_apply/simd_exp/1920x1080: Warming up for 3.0000 s
+Benchmarking gain_apply/simd_exp/1920x1080: Collecting 100 samples in estimated 5.0144 s (1800 iterations)
+Benchmarking gain_apply/simd_exp/1920x1080: Analyzing
+gain_apply/simd_exp/1920x1080
+                        time:   [2.7847 ms 2.7857 ms 2.7867 ms]
+                        thrpt:  [744.11 Melem/s 744.38 Melem/s 744.64 Melem/s]
+                 change:
+                        time:   [−0.0595% −0.0078% +0.0431%] (p = 0.77 > 0.05)
+                        thrpt:  [−0.0431% +0.0078% +0.0595%]
+                        No change in performance detected.
+Found 7 outliers among 100 measurements (7.00%)
+  7 (7.00%) high mild
+
+Benchmarking platform_info/detect_features
+Benchmarking platform_info/detect_features: Warming up for 3.0000 s
+Benchmarking platform_info/detect_features: Collecting 10 samples in estimated 5.0000 s (21B iterations)
+Benchmarking platform_info/detect_features: Analyzing
+platform_info/detect_features
+                        time:   [240.67 ps 240.86 ps 241.09 ps]
+                        change: [−0.5952% −0.2489% +0.0970%] (p = 0.20 > 0.05)
+                        No change in performance detected.
+

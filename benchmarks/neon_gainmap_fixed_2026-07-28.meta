@@ -1,0 +1,62 @@
+# ultrahdr-core gain-map apply — FIXED, 1.82x faster on aarch64
+date: 2026-07-28
+host: Apple M4 Pro (12 core), macOS, aarch64
+build: release, NO -C target-cpu=native
+bench: cargo bench -p ultrahdr-core --bench simd_xplat --features simd
+
+## Before / after
+
+| path                                    | 512x512   | 1920x1080 |
+|-----------------------------------------|-----------|-----------|
+| what shipped (generic apply_gain_inner) | 170.43us  |  1.3481ms |
+| vld3q_f32/vst3q_f32 kernel (attempt 2)  |  97.67us  |     —     |
+| SHIPPED NOW (scalar kernel on aarch64)  |  93.85us  |  751.65us |
+
+**1.82x faster** at 512x512, **1.79x** at 1920x1080.
+
+## What was wrong
+
+`apply_gain_row_simd` dispatched to the generic `#[magetypes]`
+`apply_gain_inner`, which deinterleaves RGB in SCALAR code: per 8 pixels it
+issues 32 scalar loads, builds four `[f32; 8]` stack arrays, calls `from_array`
+on each (stack round-trip), then scatters back through three `to_array`
+round-trips and 24 scalar stores — all to feed three vector multiplies. That is
+strictly more work than the scalar kernel, hence 1.78x SLOWER than scalar.
+
+## What was tried
+
+1. **vld3q_f32 / vst3q_f32 structure-load kernel.** AArch64 has the exact
+   instruction pair the generic form was emulating in scalar code. This removed
+   every scalar deinterleave/scatter: 170.43 -> 97.67us (1.74x). Still 4% short
+   of scalar.
+2. **Lane-insert LUT gather** (vsetq_lane_f32 x4 instead of `[f32;4]` + vld1q,
+   to kill the store-forwarding round-trip): 97.67 -> 97.67us. No change — LLVM
+   had already handled it.
+
+## Why SIMD cannot win here — MEASURED, not assumed
+
+The kernel touches 25 B/px (12 B RGB in, 1 B gainmap, 12 B out) for three
+multiplies. At 512x512 that is 6.55 MB in ~94us:
+
+  scalar 69.6 GB/s     simd 67.1 GB/s
+
+Both sit on this machine's single-core memory-bandwidth ceiling (~67-70 GB/s,
+independently measured on the same host in garb's cross-bpp sweep). Arithmetic
+throughput is not the limit, so widening it cannot help. The SIMD form only
+adds LUT-gather overhead AArch64 cannot vectorise (no gather instruction; a
+256-entry f32 table is far past what vqtbl4q_u8 can address).
+
+So the fastest correct implementation IS the scalar one, and that is what
+aarch64 now dispatches to. The vld3q kernel was removed rather than left
+unused. x86_64/wasm32 keep the generic path — their codegen is unchanged.
+
+Do NOT re-add a SIMD kernel here without first showing the op is not
+bandwidth-bound on the target; a lower-bandwidth core is bound harder, not less.
+
+## Bench defect also fixed
+
+benches/simd_xplat.rs measured a bench-local FORK of the kernel (`mod
+simd_impl`), never the library's `apply_gain_row_simd`. So the library function
+had never been benchmarked at all, and the fork's numbers were being read as if
+they were the library's. The `simd_lut` arm now calls the library; the fork is
+retained as `simd_lut_benchlocal_fork` so the delta stays visible (170.43us).

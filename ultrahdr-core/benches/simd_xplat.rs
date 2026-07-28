@@ -402,6 +402,28 @@ fn bench_gain_apply(c: &mut Criterion) {
             &pixel_count,
             |b, _| {
                 b.iter(|| {
+                    // Measure the LIBRARY kernel, not the bench-local fork.
+                    // `simd_impl` below carries its own copy of the SIMD
+                    // kernel, so this bench used to report on a duplicate that
+                    // no caller ever runs — the library's own
+                    // `apply_gain_row_simd` was never measured.
+                    ultrahdr_core::gainmap::apply_gain_row_simd(
+                        black_box(&sdr),
+                        black_box(&gainmap),
+                        black_box(&lut),
+                        black_box(&mut output),
+                    );
+                });
+            },
+        );
+
+        // The bench-local fork, kept so the library-vs-fork delta is visible.
+        #[cfg(feature = "simd")]
+        group.bench_with_input(
+            BenchmarkId::new("simd_lut_benchlocal_fork", format!("{}x{}", width, height)),
+            &pixel_count,
+            |b, _| {
+                b.iter(|| {
                     simd_impl::apply_gain_simd(
                         black_box(&sdr),
                         black_box(&gainmap),

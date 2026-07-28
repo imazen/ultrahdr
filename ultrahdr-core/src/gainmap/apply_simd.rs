@@ -203,6 +203,42 @@ pub fn apply_gain_row_simd(
     lut: &[f32; 256],
     output: &mut [[f32; 3]],
 ) {
+    // aarch64 runs the SCALAR kernel. That is not a fallback — it is the
+    // fastest implementation on this architecture, and it is 1.79x faster than
+    // what this function used to do. Measured on Apple M4 Pro, 512x512
+    // (release, no -C target-cpu=native), via benches/simd_xplat.rs:
+    //
+    //   generic `apply_gain_inner` (what shipped)   168.40 us   1.79x slower
+    //   vld3q_f32/vst3q_f32 structure-load kernel    97.67 us   1.04x slower
+    //   apply_gain_row_scalar                        94.13 us   <- shipped
+    //
+    // Two SIMD attempts, both lose, and the reason is not the kernels:
+    //
+    //  1. `apply_gain_inner` deinterleaves RGB in SCALAR code — per 8 pixels it
+    //     issues 32 scalar loads, builds four `[f32; 8]` stack arrays, calls
+    //     `from_array` on each, then scatters back through three `to_array`
+    //     round-trips and 24 scalar stores, all to feed three vector multiplies.
+    //     Strictly more work than the scalar kernel does.
+    //  2. Rewriting it with `vld3q_f32`/`vst3q_f32` (the instruction pair that
+    //     deinterleaves interleaved RGB natively) removed all of that and got
+    //     within 4% of scalar — but no further, because:
+    //
+    // THE KERNEL IS MEMORY-BANDWIDTH-BOUND. It touches 25 B/px (12 B RGB in,
+    // 1 B gainmap, 12 B out) for three multiplies. At 512x512 that is 6.55 MB
+    // in ~94 us = 69.6 GB/s scalar / 67.1 GB/s SIMD — both sitting on this
+    // machine's single-core bandwidth ceiling (~67-70 GB/s, independently
+    // measured on the same host in garb's cross-bpp sweep). Arithmetic
+    // throughput is not the limit, so widening it cannot help; the SIMD form
+    // only adds the LUT-gather overhead that AArch64 cannot vectorise (no
+    // gather instruction, and a 256-entry f32 table is far past vqtbl4q_u8).
+    //
+    // Do not re-add a SIMD kernel here without first showing this op is NOT
+    // bandwidth-bound on the target — on a lower-bandwidth core it is bound
+    // harder, not less. x86_64/wasm32 keep the generic path unchanged.
+    #[cfg(target_arch = "aarch64")]
+    apply_gain_row_scalar(sdr, gainmap, lut, output);
+
+    #[cfg(not(target_arch = "aarch64"))]
     incant!(
         apply_gain_inner(sdr, gainmap, lut, output),
         [v3, neon, wasm128, scalar]
