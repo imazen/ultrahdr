@@ -1,0 +1,185 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /Users/lilith/work/zen/ultrahdr/wasm-bench/Cargo.toml
+workspace: /Users/lilith/work/zen/ultrahdr/Cargo.toml
+    Updating git repository `https://github.com/imazen/zencodec`
+    Updating crates.io index
+    Updating git repository `https://github.com/imazen/zenanalyze`
+warning: patch `zencodec v0.1.25 (https://github.com/imazen/zencodec?rev=c3220d51d2ef8ec16e8328ada2d5a04c7e6750ee#c3220d51)` was not used in the crate graph
+warning: patch `zentone v0.2.0 (/Users/lilith/work/zen/zentone)` was not used in the crate graph
+help: Check that the patched package version and available features are compatible
+      with the dependency requirements. If the patch has a different version from
+      what is locked in the Cargo.lock file, run `cargo update` to use the new
+      version. This may also occur with an optional dependency that is not enabled.
+     Locking 211 packages to latest compatible versions
+      Adding fast-ssim2 v0.7.1 (available: v0.8.2)
+      Adding getrandom v0.3.4 (available: v0.4.3)
+      Adding zenresize v0.2.2 (available: v0.3.1)
+      Adding zentone v0.1.0 (available: v0.2.0)
+ Downloading crates ...
+  Downloaded zentone v0.1.0
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.189
+   Compiling cfg-if v1.0.4
+   Compiling zerocopy v0.8.55
+   Compiling libm v0.2.16
+   Compiling autocfg v1.5.1
+   Compiling crossbeam-utils v0.8.22
+   Compiling serde_core v1.0.229
+   Compiling getrandom v0.3.4
+   Compiling num-traits v0.2.19
+   Compiling rustversion v1.0.23
+   Compiling syn v2.0.119
+   Compiling syn v3.0.3
+   Compiling crossbeam-epoch v0.9.20
+   Compiling rustix v1.1.4
+   Compiling getrandom v0.4.3
+   Compiling safe_unaligned_simd v0.2.5
+   Compiling find-msvc-tools v0.1.9
+   Compiling serde v1.0.229
+   Compiling crossbeam-deque v0.8.7
+   Compiling shlex v2.0.1
+   Compiling zmij v1.0.23
+   Compiling cc v1.4.0
+   Compiling serde_derive v1.0.229
+   Compiling rand_core v0.9.5
+   Compiling errno v0.3.14
+   Compiling either v1.17.0
+   Compiling rayon-core v1.13.0
+   Compiling serde_json v1.0.151
+   Compiling regex-syntax v0.8.11
+   Compiling bitflags v2.13.1
+   Compiling alloca v0.4.0
+   Compiling zerocopy-derive v0.8.55
+   Compiling bytemuck_derive v1.11.0
+   Compiling archmage-macros v0.9.28
+   Compiling bytemuck v1.25.2
+   Compiling once_cell v1.21.4
+   Compiling thiserror v2.0.19
+   Compiling memchr v2.8.3
+   Compiling archmage v0.9.28
+   Compiling itoa v1.0.18
+   Compiling anstyle v1.0.14
+   Compiling clap_lex v1.1.0
+   Compiling fastrand v2.5.0
+   Compiling ciborium-io v0.2.2
+   Compiling plotters-backend v0.3.7
+   Compiling enough v0.4.4
+   Compiling whereat v0.1.5
+   Compiling almost-enough v0.4.4
+   Compiling plotters-svg v0.3.7
+   Compiling tempfile v3.27.0
+   Compiling zenpixels v0.2.16
+   Compiling clap_builder v4.6.2
+   Compiling magetypes v0.9.28
+   Compiling regex-automata v0.4.16
+   Compiling itertools v0.13.0
+   Compiling half v2.7.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling ciborium-ll v0.2.2
+   Compiling thiserror-impl v2.0.19
+   Compiling wait-timeout v0.2.1
+   Compiling bit-vec v0.8.0
+   Compiling linear-srgb v0.6.12
+   Compiling quick-error v1.2.3
+   Compiling fnv v1.0.7
+   Compiling same-file v1.0.6
+   Compiling cast v0.3.0
+   Compiling rusty-fork v0.3.1
+   Compiling walkdir v2.5.0
+   Compiling criterion-plot v0.8.2
+   Compiling zentone v0.1.0
+   Compiling bit-set v0.8.0
+   Compiling ciborium v0.2.2
+   Compiling rand_chacha v0.9.0
+   Compiling regex v1.13.1
+   Compiling clap v4.6.4
+   Compiling rayon v1.12.0
+   Compiling tinytemplate v1.2.1
+   Compiling zencodec v0.1.26
+   Compiling plotters v0.3.7
+   Compiling rand_xorshift v0.4.0
+   Compiling rand v0.9.5
+   Compiling page_size v0.6.0
+   Compiling unarray v0.1.4
+   Compiling oorandom v11.1.5
+   Compiling anes v0.1.6
+   Compiling proptest v1.11.0
+   Compiling ultrahdr-core v0.6.0 (/Users/lilith/work/zen/ultrahdr/ultrahdr-core)
+   Compiling criterion v0.8.2
+    Finished `bench` profile [optimized] target(s) in 10.76s
+     Running benches/simd_xplat.rs (target/release/deps/simd_xplat-06013299aef34229)
+Gnuplot not found, using plotters backend
+Benchmarking gain_apply/scalar_lut/512x512
+Benchmarking gain_apply/scalar_lut/512x512: Warming up for 3.0000 s
+Benchmarking gain_apply/scalar_lut/512x512: Collecting 100 samples in estimated 5.2737 s (56k iterations)
+Benchmarking gain_apply/scalar_lut/512x512: Analyzing
+gain_apply/scalar_lut/512x512
+                        time:   [94.026 µs 94.061 µs 94.097 µs]
+                        thrpt:  [2.7859 Gelem/s 2.7870 Gelem/s 2.7880 Gelem/s]
+Found 4 outliers among 100 measurements (4.00%)
+  2 (2.00%) high mild
+  2 (2.00%) high severe
+Benchmarking gain_apply/simd_lut/512x512
+Benchmarking gain_apply/simd_lut/512x512: Warming up for 3.0000 s
+Benchmarking gain_apply/simd_lut/512x512: Collecting 100 samples in estimated 5.1023 s (30k iterations)
+Benchmarking gain_apply/simd_lut/512x512: Analyzing
+gain_apply/simd_lut/512x512
+                        time:   [168.33 µs 168.40 µs 168.48 µs]
+                        thrpt:  [1.5560 Gelem/s 1.5566 Gelem/s 1.5573 Gelem/s]
+Found 8 outliers among 100 measurements (8.00%)
+  1 (1.00%) low severe
+  4 (4.00%) low mild
+  2 (2.00%) high mild
+  1 (1.00%) high severe
+Benchmarking gain_apply/simd_exp/512x512
+Benchmarking gain_apply/simd_exp/512x512: Warming up for 3.0000 s
+Benchmarking gain_apply/simd_exp/512x512: Collecting 100 samples in estimated 5.4124 s (15k iterations)
+Benchmarking gain_apply/simd_exp/512x512: Analyzing
+gain_apply/simd_exp/512x512
+                        time:   [356.17 µs 356.31 µs 356.46 µs]
+                        thrpt:  [735.41 Melem/s 735.72 Melem/s 736.01 Melem/s]
+Found 3 outliers among 100 measurements (3.00%)
+  3 (3.00%) high mild
+Benchmarking gain_apply/scalar_lut/1920x1080
+Benchmarking gain_apply/scalar_lut/1920x1080: Warming up for 3.0000 s
+Benchmarking gain_apply/scalar_lut/1920x1080: Collecting 100 samples in estimated 7.5780 s (10k iterations)
+Benchmarking gain_apply/scalar_lut/1920x1080: Analyzing
+gain_apply/scalar_lut/1920x1080
+                        time:   [750.67 µs 750.93 µs 751.22 µs]
+                        thrpt:  [2.7603 Gelem/s 2.7614 Gelem/s 2.7623 Gelem/s]
+Found 6 outliers among 100 measurements (6.00%)
+  2 (2.00%) low mild
+  4 (4.00%) high mild
+Benchmarking gain_apply/simd_lut/1920x1080
+Benchmarking gain_apply/simd_lut/1920x1080: Warming up for 3.0000 s
+
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 6.7s, enable flat sampling, or reduce sample count to 60.
+Benchmarking gain_apply/simd_lut/1920x1080: Collecting 100 samples in estimated 6.7125 s (5050 iterations)
+Benchmarking gain_apply/simd_lut/1920x1080: Analyzing
+gain_apply/simd_lut/1920x1080
+                        time:   [1.3313 ms 1.3319 ms 1.3325 ms]
+                        thrpt:  [1.5562 Gelem/s 1.5569 Gelem/s 1.5575 Gelem/s]
+Found 3 outliers among 100 measurements (3.00%)
+  2 (2.00%) low mild
+  1 (1.00%) high severe
+Benchmarking gain_apply/simd_exp/1920x1080
+Benchmarking gain_apply/simd_exp/1920x1080: Warming up for 3.0000 s
+Benchmarking gain_apply/simd_exp/1920x1080: Collecting 100 samples in estimated 5.0369 s (1800 iterations)
+Benchmarking gain_apply/simd_exp/1920x1080: Analyzing
+gain_apply/simd_exp/1920x1080
+                        time:   [2.7914 ms 2.7926 ms 2.7938 ms]
+                        thrpt:  [742.20 Melem/s 742.53 Melem/s 742.85 Melem/s]
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+
+Benchmarking platform_info/detect_features
+Benchmarking platform_info/detect_features: Warming up for 3.0000 s
+Benchmarking platform_info/detect_features: Collecting 10 samples in estimated 5.0000 s (20B iterations)
+Benchmarking platform_info/detect_features: Analyzing
+platform_info/detect_features
+                        time:   [242.74 ps 243.14 ps 243.49 ps]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+

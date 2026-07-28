@@ -167,6 +167,32 @@ fn apply_gain_inner(
 /// than scalar for large rows). On aarch64 and WASM, processes 8 pixels per
 /// iteration using the generic f32x8 type.
 ///
+/// # Performance on aarch64: prefer [`apply_gain_row_scalar`]
+///
+/// MEASURED 2026-07-28 on Apple M4 Pro (release, no `-C target-cpu=native`,
+/// `benches/simd_xplat.rs`): this function is **slower** than
+/// [`apply_gain_row_scalar`] on ARM, at both sizes benchmarked —
+///
+/// | size      | `apply_gain_row_scalar` | this function |
+/// |-----------|-------------------------|---------------|
+/// | 512x512   | 94.06 us                | 168.40 us     |
+/// | 1920x1080 | 750.93 us               | 1.3319 ms     |
+///
+/// i.e. ~1.8x slower. The cause is the LUT: the scalar path is one table load
+/// per pixel (`lut[gainmap[i]]`), and AArch64 NEON has no gather instruction,
+/// so the vector path must do eight scalar loads and lane-inserts to build each
+/// vector of gains — strictly more work than just doing the arithmetic scalar.
+/// A LUT-indexed kernel is the classic case where SIMD loses.
+///
+/// This is NOT on the `apply_gainmap` path — that calls
+/// [`apply_gain_row_presampled`], which is a plain scalar loop — so the crate's
+/// own gain-map application is unaffected. It matters only for callers who
+/// select this function directly expecting it to be the fast one.
+///
+/// Not yet measured on Ampere/Graviton or in-order Cortex-A5x; the gather
+/// limitation is architectural to NEON, so the conclusion is likely to hold,
+/// but that is reasoning, not a measurement.
+///
 /// # Panics
 ///
 /// Panics if `sdr`, `gainmap`, and `output` have different lengths.

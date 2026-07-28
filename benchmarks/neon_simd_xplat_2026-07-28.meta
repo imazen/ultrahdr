@@ -1,0 +1,49 @@
+# ultrahdr-core gain-map SIMD vs scalar on aarch64 — SIMD LOSES
+date:    2026-07-28
+host:    Apple M4 Pro (12 core), macOS, aarch64
+command: cargo bench --package ultrahdr-core --bench simd_xplat --features simd
+build:   release, NO -C target-cpu=native
+
+The bench already existed and already compares scalar against SIMD; it had
+simply never been recorded on ARM.
+
+## Result — the SIMD variants are SLOWER
+
+| variant     | 512x512   | 1920x1080 | vs scalar     |
+|-------------|-----------|-----------|---------------|
+| scalar_lut  |  94.06us  |  750.93us | (baseline)    |
+| simd_lut    | 168.40us  |  1.3319ms | 1.78x SLOWER  |
+| simd_exp    | 356.31us  |  2.7926ms | 3.75x SLOWER  |
+
+Consistent at both sizes, low variance. This is not noise.
+
+## Cause
+
+`apply_gain_row_scalar` does one table load per pixel: `lut[gainmap[i]]`.
+AArch64 NEON has **no gather instruction**, so the vectorised form must perform
+eight scalar loads plus lane-inserts to assemble each f32x8 of gains — strictly
+more work than doing the multiply scalar. LUT-indexed kernels are the standard
+case where SIMD loses on NEON.
+
+`simd_exp` skips the LUT and evaluates the gain with transcendentals instead,
+which is worse again (3.75x) — a 256-entry LUT is very hard to beat.
+
+## Production impact: NONE
+
+`apply_gainmap` does not call these. It calls `apply_gain_row_presampled`,
+which — despite living in `apply_simd.rs` — is a plain scalar loop
+(apply_simd.rs:40). So the crate's own gain-map application is unaffected.
+
+The exposure is the PUBLIC API: `apply_gain_row_simd` is `pub`, its doc said
+only that aarch64 "processes 8 pixels per iteration", and a caller picking it
+for speed on ARM would get a ~1.8x slowdown. That doc now carries the measured
+table and points at `apply_gain_row_scalar`.
+
+## Not done
+
+The kernel is not rewritten. Making it competitive on NEON would mean dropping
+the LUT for a computed gain (measured worse — that is `simd_exp`), or a
+vectorised table lookup via `vqtbl4q_u8`, which handles only a 64-entry table
+per instruction and would need four of them plus range selects for 256 entries.
+Neither is obviously a win, and it would change x86 codegen too, which cannot
+be verified on this aarch64-only host. Documented rather than guessed at.
