@@ -87,9 +87,13 @@ pub fn apply_gain_row_scalar(
 // SIMD dispatch (requires `simd` feature)
 // ============================================================================
 
-#[cfg(feature = "simd")]
+// On aarch64 the generic kernel (and therefore the archmage/magetypes
+// imports) is not referenced at all — `apply_gain_row_simd` routes to the
+// measured-faster scalar kernel there — so everything below is compiled out
+// to keep `-D warnings` builds green (dead_code / unused_imports).
+#[cfg(all(feature = "simd", not(target_arch = "aarch64")))]
 use archmage::prelude::*;
-#[cfg(feature = "simd")]
+#[cfg(all(feature = "simd", not(target_arch = "aarch64")))]
 use magetypes::simd::generic::f32x8 as GenericF32x8;
 
 /// Generic SIMD gain map application, dispatched via `#[magetypes]`.
@@ -97,7 +101,11 @@ use magetypes::simd::generic::f32x8 as GenericF32x8;
 /// Processes 8 pixels per iteration using `GenericF32x8<Token>`, which maps
 /// to native AVX2, NEON, WASM SIMD128, or scalar depending on the token.
 /// Remainder pixels are handled with a scalar tail loop.
-#[cfg(feature = "simd")]
+///
+/// Not compiled on aarch64: nothing dispatches to it there (see
+/// [`apply_gain_row_simd`]'s bandwidth-bound analysis), and an uncalled
+/// kernel is a `dead_code` error under CI's `-D warnings`.
+#[cfg(all(feature = "simd", not(target_arch = "aarch64")))]
 #[magetypes(v3, neon, wasm128, scalar)]
 fn apply_gain_inner(
     token: Token,
