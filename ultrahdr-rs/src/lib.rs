@@ -48,10 +48,10 @@
 //! untrusted input, [`Decoder::new_with_limits`] validates JPEG header
 //! dimensions against a pixel/memory budget ([`ResourceLimits`]) *before*
 //! any pixel allocation; over-budget input yields
-//! [`Error::LimitExceeded`](ultrahdr_core::Error::LimitExceeded). Decode and
+//! [`Error::LimitExceeded`]. Decode and
 //! encode entry points also have `*_with_stop` variants taking a [`Stop`]
 //! token for cooperative cancellation
-//! ([`Error::Stopped`](ultrahdr_core::Error::Stopped)).
+//! ([`Error::Stopped`]).
 //!
 //! # Standards
 //!

@@ -14,9 +14,19 @@ use whereat::at;
 
 /// Configuration for gain map computation.
 ///
-/// Boost values (`min_boost`, `max_boost`) are in **linear domain** for
-/// ergonomics — humans think "4× brighter" not "log2(4)=2". These are
-/// converted to log2 when producing [`GainMapMetadata`].
+/// **Every field here is in LINEAR domain** for ergonomics — humans think
+/// "4× brighter" not "log2(4)=2". The log2 conversion happens exactly once,
+/// when producing [`GainMapMetadata`] (whose `min`/`max`/headroom fields are
+/// log2). Feeding a log2 value into any of these fields is a bug.
+///
+/// `min_boost ..= max_boost` is the **quantization grid**: gain-map bytes
+/// are normalized over `[ln(min_boost), ln(max_boost)]`, and the produced
+/// metadata declares exactly this range so readers dequantize on the grid
+/// the bytes were written on (#33). Content gains outside the grid are
+/// clamped. A narrower grid (e.g. `max_boost` = the content's true peak
+/// ratio) spends the 8-bit code space more precisely; the default
+/// HDR-encode grid of `[1, target_display_peak/203]` is 0.022 stops/step
+/// at a 10,000-nit peak.
 #[derive(Debug, Clone)]
 pub struct GainMapConfig {
     /// Scale factor for gain map (1 = same size as image, 4 = 1/4 size).
@@ -25,17 +35,23 @@ pub struct GainMapConfig {
     pub gamma: f32,
     /// Use multi-channel (RGB) gain map instead of single-channel luminance.
     pub multi_channel: bool,
-    /// Minimum gain (linear). 1.0 = no darkening, 0.5 = allow 2× darker.
+    /// Minimum gain (linear ratio). 1.0 = no darkening, 0.5 = allow 2×
+    /// darker. Bottom of the quantization grid (byte 0).
     pub min_boost: f32,
-    /// Maximum gain (linear). HDR peak / SDR peak. e.g. 6.0 = ~2.5 stops.
+    /// Maximum gain (linear ratio). HDR peak / SDR peak, e.g. 6.0 = ~2.5
+    /// stops. Top of the quantization grid (byte 255).
     pub max_boost: f32,
     /// Offset for base (SDR) values to avoid division by zero. Linear domain.
     pub base_offset: f32,
     /// Offset for alternate (HDR) values. Linear domain.
     pub alternate_offset: f32,
-    /// Minimum display boost (linear). For metadata headroom.
+    /// Display boost (linear ratio, NOT log2) below which the gain map is
+    /// not applied at all. Stored in metadata as
+    /// `base_hdr_headroom = log2(this)`; 1.0 ⇒ 0.0 in metadata.
     pub base_hdr_headroom: f32,
-    /// Maximum display boost (linear). For metadata headroom.
+    /// Display boost (linear ratio, NOT log2) at which the gain map is
+    /// applied at full weight. Stored in metadata as
+    /// `alternate_hdr_headroom = log2(max(this, observed content max))`.
     pub alternate_hdr_headroom: f32,
 }
 
@@ -130,24 +146,54 @@ pub fn compute_gainmap_slice(
         )?
     };
 
-    // Clamp actual values to configured range
-    actual_min_boost = actual_min_boost.max(config.min_boost);
-    actual_max_boost = actual_max_boost.min(config.max_boost);
+    // The gain-map bytes were quantized on the CONFIG boost grid, so the
+    // metadata must declare exactly that grid (#33). `actual_min_boost` is
+    // tracked for the row-kernel accumulator contract but does not feed the
+    // declared range; `actual_max_boost` only widens the alternate headroom.
+    let _ = actual_min_boost;
+    let metadata = metadata_for_config_grid(config, actual_max_boost);
 
-    // Build metadata (convert linear boost values to log2 domain)
-    let metadata = crate::types::metadata_from_arrays(
-        [(actual_min_boost as f64).log2(); 3],
-        [(actual_max_boost as f64).log2(); 3],
+    Ok((gainmap, metadata))
+}
+
+/// Build the [`GainMapMetadata`] that matches gain-map bytes quantized by
+/// [`compute_and_encode_gain`] / [`compute_gain_row`] on `config`'s boost
+/// grid.
+///
+/// **Contract (#33): the declared per-channel `min`/`max` ARE the
+/// dequantization grid.** Readers reconstruct
+/// `gain = 2^(min + byte/255 · (max − min))` (modulo gamma), so the metadata
+/// must declare exactly the range the bytes were normalized over — the
+/// config's `min_boost ..= max_boost`. Declaring anything else (e.g. the
+/// observed content range) makes every conformant reader dequantize on the
+/// wrong grid: a 2000-nit ramp encoded with the 10,000-nit default peak came
+/// back at ~732 nits before this was pinned down.
+///
+/// `observed_max_boost` — the content's maximum gain as accumulated by the
+/// encode kernel — does not affect the declared range; it only widens
+/// `alternate_hdr_headroom` so that full gain application stays reachable
+/// when the content exceeds the configured headroom. A non-finite or
+/// non-positive value (no pixels observed) falls back to the grid top.
+pub(crate) fn metadata_for_config_grid(
+    config: &GainMapConfig,
+    observed_max_boost: f32,
+) -> GainMapMetadata {
+    let observed = if observed_max_boost.is_finite() && observed_max_boost > 0.0 {
+        observed_max_boost.clamp(config.min_boost, config.max_boost)
+    } else {
+        config.max_boost
+    };
+    crate::types::metadata_from_arrays(
+        [(config.min_boost as f64).log2(); 3],
+        [(config.max_boost as f64).log2(); 3],
         [config.gamma as f64; 3],
         [config.base_offset as f64; 3],
         [config.alternate_offset as f64; 3],
         (config.base_hdr_headroom as f64).log2(),
-        (config.alternate_hdr_headroom.max(actual_max_boost) as f64).log2(),
+        (config.alternate_hdr_headroom.max(observed) as f64).log2(),
         true,
         false,
-    );
-
-    Ok((gainmap, metadata))
+    )
 }
 
 /// Compute single-channel (luminance) gain map.
@@ -228,9 +274,17 @@ fn compute_luminance_gainmap(
 /// - `gainmap_byte_out`: u8 output, one byte per pixel for single-channel
 ///   (luminance) gain maps; `len = hdr_row.len() / channels`.
 /// - `config`: the gain-map configuration (offsets, min/max boost, gamma).
-/// - `observed_min_max`: `(min, max)` f32 accumulator for metadata bounds —
-///   updated in place across calls so callers can stitch row-level invocations
-///   into a whole-image min/max.
+/// - `observed_min_max`: `(min, max)` f32 accumulator of the content's gain
+///   range — updated in place across calls so callers can stitch row-level
+///   invocations into a whole-image min/max.
+///
+/// **Metadata contract (#33):** the bytes this writes are quantized on the
+/// CONFIG grid (`config.min_boost ..= config.max_boost`), so any
+/// [`GainMapMetadata`] describing them must declare exactly that range —
+/// build it from the config (see `metadata_for_config_grid`), never from the
+/// `observed_min_max` accumulator. The accumulator is for headroom widening
+/// and diagnostics only; declaring it as the range makes readers dequantize
+/// on the wrong grid.
 ///
 /// Used by `compute_gainmap` internally and by zenjpeg's encode flow to fuse
 /// splitter + gain quantization in a single row pass. Bit-identical to the
@@ -816,6 +870,59 @@ mod tests {
             let expected = &gainmap_batch.data[y * w..y * w + w];
             assert_eq!(row_bytes, expected, "row {y} bytes diverged");
         }
+    }
+
+    /// #33: the declared metadata range must be the range the bytes were
+    /// quantized on — the CONFIG grid — even when the content's actual gain
+    /// range is much narrower. Verified structurally (fields) and
+    /// semantically (dequantizing a byte on the declared range at full
+    /// weight recovers the true gain).
+    #[test]
+    fn metadata_declares_the_quantization_grid() {
+        // Uniform pair with content boost ~2.23, well inside the default
+        // [1.0, 6.0] grid.
+        let hdr = make_hdr_8x8(0.5, 0.5, 0.5);
+        let sdr = make_sdr_8x8(128, 128, 128);
+        let config = GainMapConfig {
+            scale_factor: 1,
+            ..Default::default()
+        };
+        let (gainmap, metadata) =
+            compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
+
+        for ch in &metadata.channels {
+            assert_eq!(
+                ch.min,
+                (config.min_boost as f64).log2(),
+                "declared min must be the quantization grid bottom"
+            );
+            assert_eq!(
+                ch.max,
+                (config.max_boost as f64).log2(),
+                "declared max must be the quantization grid top"
+            );
+        }
+        assert_eq!(metadata.base_hdr_headroom, 0.0);
+        assert_eq!(
+            metadata.alternate_hdr_headroom,
+            (config.alternate_hdr_headroom as f64).log2(),
+            "content max (~2.23) below configured headroom must not shrink it"
+        );
+
+        // Semantic gate: byte -> declared-range LUT at weight 1.0 ≈ true gain.
+        let sdr_lum = srgb_eotf(128.0 / 255.0);
+        let true_gain = (0.5 + config.alternate_offset) / (sdr_lum + config.base_offset);
+        let lut = crate::gainmap::apply::GainMapLut::new(&metadata, 1.0);
+        let recovered = lut.lookup_luminance(gainmap.data[0])[0];
+        let step = (config.max_boost.ln() - config.min_boost.ln()) / 255.0;
+        assert!(
+            (recovered.ln() - true_gain.ln()).abs() <= step * 0.75,
+            "byte {} dequantized on the declared range gives {recovered:.4}, \
+             true gain {true_gain:.4} (>{:.2}% off — declared range and \
+             quantization basis disagree)",
+            gainmap.data[0],
+            step * 75.0
+        );
     }
 
     #[test]

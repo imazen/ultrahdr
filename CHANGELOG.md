@@ -12,6 +12,13 @@ own section below.
 
 ### [Unreleased]
 
+#### Fixed
+- **Gain-map metadata now declares the range the bytes were actually quantized on (#33).** The encode kernel has always normalized gain-map bytes over the CONFIG boost grid (`GainMapConfig::min_boost ..= max_boost`), but `compute_gainmap`, `RowEncoder::finish`, and `StreamEncoder::finish` stored the content's observed (actual) gain range in the per-channel metadata `min`/`max` — the fields every conformant reader dequantizes on. Whenever the content range was narrower than the config range (almost always with `ultrahdr-rs`'s 10,000-nit default `target_display_peak`), every reader — including this workspace's own decoder — reconstructed under-boosted: a 2000-nit ramp decoded at ~732 nits. All three sites now declare the config grid via a shared helper (`metadata_for_config_grid`); the observed content max only widens `alternate_hdr_headroom`. Gain-map **bytes are unchanged** — only the declared mapping moved, so the single-pass row/streaming contracts and the `compute_gain_row` batch-parity guarantee are intact. Round-trip gates: 2000-nit ramp now decodes at 1976.3 nits (HDR-only and SDR+HDR paths), a 2000-nit specular highlight in a structured scene at 1858.9 nits.
+- `StreamEncoder::finish` (deprecated, `#[doc(hidden)]`) previously hardcoded `base_hdr_headroom = 0.0` and derived `alternate_hdr_headroom` from the content max alone, ignoring the configured headrooms; it now shares the same config-driven metadata derivation as the other encode paths. (#33)
+
+#### Interop note — files written before this fix
+Every Ultra HDR file produced by the affected paths since the initial implementation (all ultrahdr-core releases 0.1.0–0.6.0, all ultrahdr-rs releases through 0.4.1, 2026-01-13 → 2026-08-06) whose content gain range was narrower than the configured range carries **mis-declared metadata and decodes under-boosted in every spec-compliant reader**. The written file does not record the grid the bytes were quantized on, so readers cannot repair it; **re-encoding from the original HDR source is the only remedy.** Files where the content range reached the configured range (e.g. `max_boost` set to the true content peak) are unaffected.
+
 ### [0.6.0] - 2026-07-24
 
 First publish since 0.5.0. Drafted incrementally since 2026-06-23 (Cargo.toml
@@ -252,6 +259,9 @@ through this section ships together now, including the f16-gating and
 ## ultrahdr-rs
 
 ### [Unreleased]
+
+#### Fixed
+- HDR-only (`set_hdr_image` + `encode()`) and SDR+HDR (`set_sdr_image` + `set_hdr_image`) encodes now produce files that reconstruct at the source luminance in conformant readers, via the ultrahdr-core gain-map metadata fix (#33 — see the ultrahdr-core Unreleased entry, including the interop note on re-encoding files written by earlier versions). With the 10,000-nit default `target_display_peak`, a 2000-nit ramp previously decoded at ~732 nits; it now decodes at 1976.3 nits. New round-trip gates: `tests/hdr_range_roundtrip.rs` (ramp + structured scene, both paths, peak + mid-tone + shadow assertions).
 
 ### [0.4.1] - 2026-07-24
 

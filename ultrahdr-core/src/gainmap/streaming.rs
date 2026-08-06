@@ -831,20 +831,12 @@ impl RowEncoder {
 
         gainmap.data = self.gainmap_data;
 
-        let actual_min = self.actual_min_boost.max(self.config.min_boost);
-        let actual_max = self.actual_max_boost.min(self.config.max_boost);
-
-        let metadata = crate::types::metadata_from_arrays(
-            [(actual_min as f64).log2(); 3],
-            [(actual_max as f64).log2(); 3],
-            [self.config.gamma as f64; 3],
-            [self.config.base_offset as f64; 3],
-            [self.config.alternate_offset as f64; 3],
-            (self.config.base_hdr_headroom as f64).log2(),
-            (self.config.alternate_hdr_headroom.max(actual_max) as f64).log2(),
-            true,
-            false,
-        );
+        // Rows were quantized (and already handed out via `process_rows`)
+        // on the CONFIG boost grid, so the metadata must declare exactly
+        // that grid (#33). The observed content max only widens the
+        // alternate headroom.
+        let metadata =
+            super::compute::metadata_for_config_grid(&self.config, self.actual_max_boost);
 
         Ok((gainmap, metadata))
     }
@@ -1233,28 +1225,12 @@ impl StreamEncoder {
             data,
         };
 
-        let actual_max = if self.actual_max_boost > f32::MIN {
-            self.actual_max_boost
-        } else {
-            self.config.max_boost
-        };
-        let actual_min = if self.actual_min_boost < f32::MAX {
-            self.actual_min_boost
-        } else {
-            self.config.min_boost
-        };
-
-        let metadata = crate::types::metadata_from_arrays(
-            [(actual_min as f64).log2(); 3],
-            [(actual_max as f64).log2(); 3],
-            [self.config.gamma as f64; 3],
-            [self.config.base_offset as f64; 3],
-            [self.config.alternate_offset as f64; 3],
-            0.0, // log2(1.0) = 0
-            (actual_max as f64).log2(),
-            true,
-            false,
-        );
+        // Rows were quantized on the CONFIG boost grid, so the metadata must
+        // declare exactly that grid (#33). This also replaces the previous
+        // hardcoded `base_hdr_headroom = 0.0` / content-derived alternate
+        // headroom with the shared config-driven derivation.
+        let metadata =
+            super::compute::metadata_for_config_grid(&self.config, self.actual_max_boost);
 
         Ok((gainmap, metadata))
     }
@@ -1409,6 +1385,90 @@ mod tests {
         assert_eq!(gainmap.width, 2);
         assert_eq!(gainmap.height, 2);
         assert!(metadata.channels[0].max >= 1.0);
+    }
+
+    /// #33: streaming encoders hand out bytes quantized on the CONFIG grid
+    /// (before the content range is even known), so `finish()` must declare
+    /// that grid. Semantic gate: dequantizing an emitted byte on the
+    /// declared range at weight 1.0 recovers the true gain.
+    #[test]
+    fn row_encoder_metadata_declares_the_quantization_grid() {
+        let config = GainMapConfig {
+            scale_factor: 1,
+            ..Default::default()
+        };
+        let mut encoder = RowEncoder::new(
+            4,
+            4,
+            config.clone(),
+            ColorPrimaries::Bt709,
+            ColorPrimaries::Bt709,
+        )
+        .unwrap();
+
+        // Uniform content: gain (0.5+1/64)/(0.18+1/64) ≈ 2.64, well inside
+        // the default [1.0, 6.0] grid.
+        let hdr_linear = vec![0.5f32; 4 * 3];
+        let sdr_linear = vec![0.18f32; 4 * 3];
+        for _ in 0..4 {
+            let _ = encoder.process_row(&hdr_linear, &sdr_linear).unwrap();
+        }
+        let (gainmap, metadata) = encoder.finish().unwrap();
+
+        for ch in &metadata.channels {
+            assert_eq!(ch.min, (config.min_boost as f64).log2());
+            assert_eq!(ch.max, (config.max_boost as f64).log2());
+        }
+
+        let true_gain = (0.5 + config.alternate_offset) / (0.18 + config.base_offset);
+        let lut = crate::gainmap::apply::GainMapLut::new(&metadata, 1.0);
+        let recovered = lut.lookup_luminance(gainmap.data[0])[0];
+        let step = (config.max_boost.ln() - config.min_boost.ln()) / 255.0;
+        assert!(
+            (recovered.ln() - true_gain.ln()).abs() <= step * 0.75,
+            "RowEncoder byte {} on declared range gives {recovered:.4}, true {true_gain:.4}",
+            gainmap.data[0]
+        );
+    }
+
+    /// #33: same contract for the (deprecated) StreamEncoder.
+    #[test]
+    fn stream_encoder_metadata_declares_the_quantization_grid() {
+        let config = GainMapConfig {
+            scale_factor: 1,
+            ..Default::default()
+        };
+        let mut encoder = StreamEncoder::new(
+            4,
+            4,
+            config.clone(),
+            ColorPrimaries::Bt709,
+            ColorPrimaries::Bt709,
+        )
+        .unwrap();
+
+        let hdr_linear = vec![0.5f32; 4 * 3];
+        let sdr_linear = vec![0.18f32; 4 * 3];
+        for _ in 0..4 {
+            encoder.push_hdr_row(&hdr_linear).unwrap();
+            encoder.push_sdr_row(&sdr_linear).unwrap();
+        }
+        let (gainmap, metadata) = encoder.finish().unwrap();
+
+        for ch in &metadata.channels {
+            assert_eq!(ch.min, (config.min_boost as f64).log2());
+            assert_eq!(ch.max, (config.max_boost as f64).log2());
+        }
+
+        let true_gain = (0.5 + config.alternate_offset) / (0.18 + config.base_offset);
+        let lut = crate::gainmap::apply::GainMapLut::new(&metadata, 1.0);
+        let recovered = lut.lookup_luminance(gainmap.data[0])[0];
+        let step = (config.max_boost.ln() - config.min_boost.ln()) / 255.0;
+        assert!(
+            (recovered.ln() - true_gain.ln()).abs() <= step * 0.75,
+            "StreamEncoder byte {} on declared range gives {recovered:.4}, true {true_gain:.4}",
+            gainmap.data[0]
+        );
     }
 
     #[test]
