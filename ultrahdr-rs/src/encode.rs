@@ -210,6 +210,7 @@ pub struct Encoder {
     gainmap_scale: u8,
     target_display_peak: f32,
     gain_map_min: f32,
+    content_fit_grid: bool,
 
     use_iso_metadata: bool,
 }
@@ -231,6 +232,7 @@ impl Encoder {
             gainmap_scale: 4,
             target_display_peak: 10000.0,
             gain_map_min: 1.0,
+            content_fit_grid: true,
 
             use_iso_metadata: true,
         }
@@ -313,6 +315,11 @@ impl Encoder {
     }
 
     /// Set target display peak brightness in nits.
+    ///
+    /// With the default content-fit grid (see
+    /// [`set_content_fit_grid`](Self::set_content_fit_grid)) this is the
+    /// UPPER BOUND on the quantization grid — the grid itself is narrowed to
+    /// the content's measured gain range within it.
     pub fn set_target_display_peak(&mut self, nits: f32) -> &mut Self {
         self.target_display_peak = nits.max(100.0);
         self
@@ -321,6 +328,23 @@ impl Encoder {
     /// Set minimum content boost.
     pub fn set_min_content_boost(&mut self, boost: f32) -> &mut Self {
         self.gain_map_min = boost.max(1.0);
+        self
+    }
+
+    /// Select the gain-map quantization grid from the MEASURED content gain
+    /// range (default `true`) instead of the configured
+    /// `[min_content_boost, target_display_peak / 203]` span.
+    ///
+    /// Configured ranges are usually wrong about actual content: the default
+    /// 10,000-nit target spends ~5.6 stops of 8-bit code space on a grid the
+    /// content may use 2 stops of. Content-fit narrows the grid to the
+    /// observed range (config as the outer bound), spending the code space
+    /// on gains that exist. Interop-safe: the declared metadata is exactly
+    /// the narrowed grid the bytes were quantized on (#33 invariant
+    /// unchanged). Set `false` to reproduce pre-content-fit bytes
+    /// (byte-stable corpora, external grid contracts).
+    pub fn set_content_fit_grid(&mut self, content_fit: bool) -> &mut Self {
+        self.content_fit_grid = content_fit;
         self
     }
 
@@ -449,6 +473,13 @@ impl Encoder {
     }
 
     /// Compute a new gain map.
+    ///
+    /// The configured grid `[gain_map_min, target_display_peak / 203]` is the
+    /// policy bound; with the default content-fit mode the actual
+    /// quantization grid is narrowed to the MEASURED content gain range
+    /// within it (`compute_gainmap_content_fit` — appendix AA: where the
+    /// encoder selects its range, it selects from measured content, and the
+    /// declared metadata stays exactly the quantization grid per #33).
     fn compute_new_gainmap(
         &self,
         hdr: &PixelBuffer,
@@ -467,7 +498,16 @@ impl Encoder {
             alternate_hdr_headroom: self.target_display_peak / 203.0,
         };
 
-        compute_gainmap(hdr, sdr, &config, stop)
+        if self.content_fit_grid {
+            ultrahdr_core::gainmap::compute::compute_gainmap_content_fit(
+                hdr.as_slice(),
+                sdr.as_slice(),
+                &config,
+                stop,
+            )
+        } else {
+            compute_gainmap(hdr, sdr, &config, stop)
+        }
     }
 
     /// Encode base SDR image to JPEG.

@@ -12,6 +12,9 @@ own section below.
 
 ### [Unreleased]
 
+#### Added
+- **Content-fit gain-map grid** (`compute_gainmap_content_fit` + `CONTENT_FIT_MIN_SPAN_STOPS`; zensim campaign appendix AA "measure, don't configure"): the quantization grid is SELECTED from the MEASURED content gain range (one extra subsampled gain scan, bit-identical math shared with the ordinary encode) with the config `min_boost..=max_boost` as the outer policy bound. Spends the 8-bit code space on gains that exist — a ~2-stop content on the 10,000-nit default grid gets ~2.8× finer quantization — and is interop-safe by construction: the declared metadata is exactly the narrowed grid the bytes were quantized on (#33 invariant untouched). Uniform content is guarded to a 1/16-stop minimum span. `compute_gainmap`/`compute_gainmap_slice` behavior is byte-identical to before (they share a new `compute_gainmap_slice_observed` core). Tests: measured-not-configured declaration, precision-beats-config, uniform-content non-degeneracy, span-constant pin.
+
 #### Fixed
 - **Gain-map metadata now declares the range the bytes were actually quantized on (#33).** The encode kernel has always normalized gain-map bytes over the CONFIG boost grid (`GainMapConfig::min_boost ..= max_boost`), but `compute_gainmap`, `RowEncoder::finish`, and `StreamEncoder::finish` stored the content's observed (actual) gain range in the per-channel metadata `min`/`max` — the fields every conformant reader dequantizes on. Whenever the content range was narrower than the config range (almost always with `ultrahdr-rs`'s 10,000-nit default `target_display_peak`), every reader — including this workspace's own decoder — reconstructed under-boosted: a 2000-nit ramp decoded at ~732 nits. All three sites now declare the config grid via a shared helper (`metadata_for_config_grid`); the observed content max only widens `alternate_hdr_headroom`. Gain-map **bytes are unchanged** — only the declared mapping moved, so the single-pass row/streaming contracts and the `compute_gain_row` batch-parity guarantee are intact. Round-trip gates: 2000-nit ramp now decodes at 1976.3 nits (HDR-only and SDR+HDR paths), a 2000-nit specular highlight in a structured scene at 1858.9 nits.
 - `StreamEncoder::finish` (deprecated, `#[doc(hidden)]`) previously hardcoded `base_hdr_headroom = 0.0` and derived `alternate_hdr_headroom` from the content max alone, ignoring the configured headrooms; it now shares the same config-driven metadata derivation as the other encode paths. (#33)
@@ -259,6 +262,9 @@ through this section ships together now, including the f16-gating and
 ## ultrahdr-rs
 
 ### [Unreleased]
+
+#### Changed
+- **`Encoder` selects its gain-map grid from MEASURED content by default** (appendix AA): `compute_new_gainmap` routes through `compute_gainmap_content_fit`, so `target_display_peak / 203` becomes the grid's UPPER BOUND and the actual quantization grid is the content's observed gain range within it (finer code-space use; declared metadata still exactly the quantization grid per #33). Opt out with the new `set_content_fit_grid(false)` to reproduce the configured-grid bytes (byte-stable corpora / external grid contracts). Gate: `encoder_default_grid_is_measured_not_configured` (measured top ≪ configured top, both grids reconstruct the 2000-nit ramp).
 
 #### Fixed
 - HDR-only (`set_hdr_image` + `encode()`) and SDR+HDR (`set_sdr_image` + `set_hdr_image`) encodes now produce files that reconstruct at the source luminance in conformant readers, via the ultrahdr-core gain-map metadata fix (#33 — see the ultrahdr-core Unreleased entry, including the interop note on re-encoding files written by earlier versions). With the 10,000-nit default `target_display_peak`, a 2000-nit ramp previously decoded at ~732 nits; it now decodes at 1976.3 nits. New round-trip gates: `tests/hdr_range_roundtrip.rs` (ramp + structured scene, both paths, peak + mid-tone + shadow assertions).

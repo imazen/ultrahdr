@@ -94,6 +94,104 @@ pub fn compute_gainmap_slice(
     config: &GainMapConfig,
     stop: impl Stop,
 ) -> Result<(GainMap, GainMapMetadata)> {
+    compute_gainmap_slice_observed(hdr, sdr, config, &stop).map(|(gm, meta, _, _)| (gm, meta))
+}
+
+/// Content-fit [`compute_gainmap_slice`]: the quantization grid is SELECTED
+/// FROM THE MEASURED CONTENT instead of taken verbatim from the config.
+///
+/// The configured `min_boost ..= max_boost` acts as the OUTER BOUND (the
+/// caller's policy — e.g. "never encode boosts my target display can't
+/// show"); within it the grid is narrowed to the content's actual observed
+/// gain range, so the 8-bit code space is spent on gains that exist instead
+/// of a configured range that is usually wrong about the content (a
+/// 10,000-nit `target_display_peak` grid spends ~5.6 stops of code space on
+/// content that may span 2). Narrowing is interop-safe by construction: the
+/// produced metadata declares exactly the narrowed grid the bytes were
+/// quantized on (#33 — declared grid == quantization grid, unchanged).
+///
+/// Mechanics: one measurement pass (the same subsampled gain scan the encode
+/// uses — bit-identical math, shared code) observes the content gain range;
+/// the grid is `[clamp(observed_min), clamp(observed_max)]` within the
+/// config bounds, widened to at least [`CONTENT_FIT_MIN_SPAN_STOPS`] so uniform
+/// content never degenerates to a zero-width grid; then the ordinary encode
+/// runs on the narrowed grid. Cost: the gain scan runs twice (it is
+/// subsampled by `scale_factor²` — small next to the JPEG encodes).
+///
+/// This is the campaign appendix-AA "measure, don't configure" rule applied
+/// to the one encoder-side site where a config range was load-bearing: where
+/// an encoder SELECTS its grid, it selects from measured content. Callers
+/// that need the exact configured grid (byte-stable corpora, external grid
+/// contracts) keep calling [`compute_gainmap_slice`].
+pub fn compute_gainmap_content_fit(
+    hdr: PixelSlice<'_>,
+    sdr: PixelSlice<'_>,
+    config: &GainMapConfig,
+    stop: impl Stop,
+) -> Result<(GainMap, GainMapMetadata)> {
+    let (_, _, observed_min, observed_max) =
+        compute_gainmap_slice_observed(hdr.clone(), sdr.clone(), config, &stop)?;
+    let narrowed = content_fit_config(config, observed_min, observed_max);
+    compute_gainmap_slice_observed(hdr, sdr, &narrowed, &stop).map(|(gm, meta, _, _)| (gm, meta))
+}
+
+/// Minimum log2 span of a content-fitted grid (1/16 stop). Uniform content
+/// (every gain identical) would otherwise produce a zero-width grid whose
+/// log-range normalization degenerates; 1/16 stop keeps the grid valid while
+/// staying far finer than any visible step.
+pub const CONTENT_FIT_MIN_SPAN_STOPS: f32 = 1.0 / 16.0;
+
+/// `2^CONTENT_FIT_MIN_SPAN_STOPS` as a linear boost ratio (design-time
+/// constant so the `no_std` build needs no runtime `exp2`; a test pins the
+/// identity).
+const CONTENT_FIT_MIN_SPAN_RATIO: f32 = 1.044_273_8;
+
+/// Narrow `config`'s quantization grid to the observed content gain range
+/// (see [`compute_gainmap_content_fit`]). Non-finite / empty observations
+/// return the config unchanged.
+fn content_fit_config(
+    config: &GainMapConfig,
+    observed_min: f32,
+    observed_max: f32,
+) -> GainMapConfig {
+    let mut out = config.clone();
+    if !(observed_min.is_finite() && observed_max.is_finite()) || observed_max <= 0.0 {
+        return out;
+    }
+    // Top: the measured max gain, capped by the configured policy bound.
+    // Bottom: the measured min gain, floored by the configured policy bound
+    // (content darkening below `min_boost` stays clamped, as configured).
+    let top = observed_max.clamp(config.min_boost, config.max_boost);
+    let bottom = observed_min.clamp(config.min_boost, top);
+    // Enforce the minimum span, preferring to widen upward (more headroom)
+    // and falling back to lowering the bottom at the policy cap.
+    // 2^(1/16) — the linear ratio of CONTENT_FIT_MIN_SPAN_STOPS (constant so
+    // no libm/exp2 is needed in no_std; pinned by a test).
+    let min_ratio = CONTENT_FIT_MIN_SPAN_RATIO;
+    let (bottom, top) = if top < bottom * min_ratio {
+        let widened_top = (bottom * min_ratio).min(config.max_boost);
+        if widened_top >= bottom * min_ratio {
+            (bottom, widened_top)
+        } else {
+            ((widened_top / min_ratio).max(config.min_boost), widened_top)
+        }
+    } else {
+        (bottom, top)
+    };
+    out.min_boost = bottom;
+    out.max_boost = top;
+    out
+}
+
+/// Shared core of [`compute_gainmap_slice`] / [`compute_gainmap_content_fit`]:
+/// the ordinary encode, additionally returning the observed
+/// `(min_gain, max_gain)` accumulators.
+fn compute_gainmap_slice_observed(
+    hdr: PixelSlice<'_>,
+    sdr: PixelSlice<'_>,
+    config: &GainMapConfig,
+    stop: &impl Stop,
+) -> Result<(GainMap, GainMapMetadata, f32, f32)> {
     crate::types::validate_ultrahdr_slice(&hdr)?;
     crate::types::validate_ultrahdr_slice(&sdr)?;
 
@@ -130,7 +228,7 @@ pub fn compute_gainmap_slice(
             config,
             &mut actual_min_boost,
             &mut actual_max_boost,
-            &stop,
+            stop,
         )?
     } else {
         compute_luminance_gainmap(
@@ -142,7 +240,7 @@ pub fn compute_gainmap_slice(
             config,
             &mut actual_min_boost,
             &mut actual_max_boost,
-            &stop,
+            stop,
         )?
     };
 
@@ -150,10 +248,9 @@ pub fn compute_gainmap_slice(
     // metadata must declare exactly that grid (#33). `actual_min_boost` is
     // tracked for the row-kernel accumulator contract but does not feed the
     // declared range; `actual_max_boost` only widens the alternate headroom.
-    let _ = actual_min_boost;
     let metadata = metadata_for_config_grid(config, actual_max_boost);
 
-    Ok((gainmap, metadata))
+    Ok((gainmap, metadata, actual_min_boost, actual_max_boost))
 }
 
 /// Build the [`GainMapMetadata`] that matches gain-map bytes quantized by
@@ -922,6 +1019,140 @@ mod tests {
              quantization basis disagree)",
             gainmap.data[0],
             step * 75.0
+        );
+    }
+
+    #[test]
+    fn content_fit_grid_is_measured_not_configured() {
+        // Appendix AA: actual content boost (~4.06) is far below the
+        // configured 10,000-nit-target grid top (10000/203 ≈ 49.26). The
+        // content-fit grid must declare the MEASURED range, not the config.
+        let hdr = make_hdr_8x8(2.0, 2.0, 2.0);
+        let sdr = make_sdr_8x8(186, 186, 186); // ~0.5 linear
+        let config = GainMapConfig {
+            scale_factor: 1,
+            max_boost: 10000.0 / 203.0,
+            alternate_hdr_headroom: 10000.0 / 203.0,
+            ..Default::default()
+        };
+        let (gainmap, metadata) = compute_gainmap_content_fit(
+            hdr.as_slice(),
+            sdr.as_slice(),
+            &config,
+            enough::Unstoppable,
+        )
+        .unwrap();
+
+        let sdr_lum = srgb_eotf(186.0 / 255.0);
+        let true_gain = ((2.0 + config.alternate_offset) / (sdr_lum + config.base_offset)) as f64;
+        for ch in &metadata.channels {
+            assert!(
+                ch.max < (config.max_boost as f64).log2() - 1.0,
+                "declared max {} must be the measured content range, not the \
+                 configured {} (log2)",
+                ch.max,
+                (config.max_boost as f64).log2()
+            );
+            assert!(
+                (ch.max - true_gain.log2()).abs() < 0.1,
+                "declared max {} should sit at the measured max gain {}",
+                ch.max,
+                true_gain.log2()
+            );
+        }
+
+        // #33 invariant: the declared (narrowed) grid IS the quantization
+        // grid — dequantizing a byte on it recovers the true gain, at the
+        // (much finer) narrowed step.
+        let lut = crate::gainmap::apply::GainMapLut::new(&metadata, 1.0);
+        let recovered = lut.lookup_luminance(gainmap.data[0])[0];
+        let narrowed_step = ((metadata.channels[0].max - metadata.channels[0].min) / 255.0) as f32;
+        assert!(
+            (recovered.ln() - (true_gain as f32).ln()).abs()
+                <= (narrowed_step * core::f32::consts::LN_2) * 0.75 + 1e-4,
+            "byte {} on the content-fit grid gives {recovered:.4}, true gain {:.4}",
+            gainmap.data[0],
+            true_gain
+        );
+    }
+
+    #[test]
+    fn content_fit_beats_configured_grid_precision() {
+        // Same content quantized both ways: the content-fit grid's
+        // dequantization error must be strictly tighter than the configured
+        // 49.26x grid's (that is the whole point of measuring).
+        let hdr = make_hdr_8x8(1.7, 1.7, 1.7);
+        let sdr = make_sdr_8x8(150, 150, 150);
+        let config = GainMapConfig {
+            scale_factor: 1,
+            max_boost: 10000.0 / 203.0,
+            alternate_hdr_headroom: 10000.0 / 203.0,
+            ..Default::default()
+        };
+        let sdr_lum = srgb_eotf(150.0 / 255.0);
+        let true_gain = (1.7 + config.alternate_offset) / (sdr_lum + config.base_offset);
+
+        let (gm_cfg, meta_cfg) = compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
+        let (gm_fit, meta_fit) = compute_gainmap_content_fit(
+            hdr.as_slice(),
+            sdr.as_slice(),
+            &config,
+            enough::Unstoppable,
+        )
+        .unwrap();
+        let err = |gm: &GainMap, meta: &GainMapMetadata| -> f32 {
+            let lut = crate::gainmap::apply::GainMapLut::new(meta, 1.0);
+            (lut.lookup_luminance(gm.data[0])[0].ln() - true_gain.ln()).abs()
+        };
+        let (e_cfg, e_fit) = (err(&gm_cfg, &meta_cfg), err(&gm_fit, &meta_fit));
+        assert!(
+            e_fit <= e_cfg,
+            "content-fit error {e_fit} must not exceed configured-grid error {e_cfg}"
+        );
+        // And the fit grid is dramatically finer: uniform content collapses
+        // to the minimum span (1/16 stop over 255 codes) vs 5.62 stops.
+        let span_fit = meta_fit.channels[0].max - meta_fit.channels[0].min;
+        let span_cfg = meta_cfg.channels[0].max - meta_cfg.channels[0].min;
+        assert!(
+            span_fit < span_cfg / 8.0,
+            "measured span {span_fit} should be far narrower than configured {span_cfg}"
+        );
+    }
+
+    #[test]
+    fn content_fit_uniform_content_never_degenerates() {
+        // Identical HDR/SDR luminance -> every gain equal -> the min-span
+        // guard must keep a valid (non-zero-width) grid and finite bytes.
+        let hdr = make_hdr_8x8(0.5, 0.5, 0.5);
+        let sdr = make_sdr_8x8(186, 186, 186); // ~0.5 linear -> gain ~1.0
+        let config = GainMapConfig {
+            scale_factor: 1,
+            ..Default::default()
+        };
+        let (gainmap, metadata) = compute_gainmap_content_fit(
+            hdr.as_slice(),
+            sdr.as_slice(),
+            &config,
+            enough::Unstoppable,
+        )
+        .unwrap();
+        for ch in &metadata.channels {
+            assert!(
+                (ch.max - ch.min) as f32 >= CONTENT_FIT_MIN_SPAN_STOPS * 0.99,
+                "grid span {} collapsed below the minimum",
+                ch.max - ch.min
+            );
+            assert!(ch.max.is_finite() && ch.min.is_finite());
+        }
+        assert!(gainmap.data.iter().all(|&b| b == gainmap.data[0]));
+    }
+
+    #[test]
+    fn content_fit_min_span_ratio_matches_stops() {
+        // Pin the design-time constant: 2^(1/16).
+        assert!(
+            ((CONTENT_FIT_MIN_SPAN_RATIO as f64).log2() - CONTENT_FIT_MIN_SPAN_STOPS as f64).abs()
+                < 1e-6
         );
     }
 

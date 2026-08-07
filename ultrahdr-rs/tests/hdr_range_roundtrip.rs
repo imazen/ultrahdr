@@ -235,3 +235,57 @@ fn hdr_only_scene_reconstructs_highlight_and_midtone() {
         "scene shadow: expected <100 nits, decoded {shadow_nits:.1} nits"
     );
 }
+
+/// Appendix AA (measured-nits): with the default content-fit grid, the
+/// DECLARED grid is the MEASURED content gain range, not the configured
+/// `target_display_peak / 203` span — while `set_content_fit_grid(false)`
+/// reproduces the configured grid. Both reconstruct correctly (#33 holds on
+/// any declared==quantization grid); the content-fit grid is simply far
+/// finer for content below the configured target.
+#[test]
+fn encoder_default_grid_is_measured_not_configured() {
+    const PEAK_NITS: f32 = 2000.0;
+    let width = 256u32;
+
+    let encode = |content_fit: bool| -> (f64, Vec<u8>) {
+        let hdr = common::create_hdr_gradient(width, 64, PEAK_NITS / SDR_WHITE_NITS);
+        let mut encoder = Encoder::new();
+        encoder.set_hdr_image(hdr);
+        encoder.set_content_fit_grid(content_fit);
+        let bytes = encoder.encode().expect("encode");
+        let decoder = Decoder::new(&bytes).expect("decode container");
+        let metadata = decoder.metadata().expect("metadata").clone();
+        (metadata.channels[0].max, bytes)
+    };
+
+    // Configured grid: top = log2(10000/203) ≈ 5.62 stops.
+    let (cfg_max, cfg_bytes) = encode(false);
+    assert!(
+        (cfg_max - (10000.0f64 / 203.0).log2()).abs() < 1e-3,
+        "opt-out must declare the configured grid top, got {cfg_max}"
+    );
+
+    // Content-fit (default): top ≈ measured content max gain (~2000/203 ≈
+    // 3.3 stops; the tonemapped base makes the exact gain content-dependent,
+    // so assert the ballpark: well below the config top, at/above the
+    // content's nominal boost).
+    let (fit_max, fit_bytes) = encode(true);
+    assert!(
+        fit_max < cfg_max - 1.0,
+        "content-fit grid top {fit_max} must be well below the configured {cfg_max}"
+    );
+    assert!(
+        fit_max > 1.0,
+        "content-fit grid top {fit_max} must still cover the ~3.3-stop content"
+    );
+
+    // Both reconstruct the ramp peak (the #33 invariant holds on both grids).
+    for (label, bytes) in [("configured", &cfg_bytes), ("content-fit", &fit_bytes)] {
+        let out = decode_full_boost(bytes);
+        let peak_nits = peak_linear(&out) * SDR_WHITE_NITS;
+        assert!(
+            (1750.0..=2150.0).contains(&peak_nits),
+            "{label}: expected ~{PEAK_NITS} nits, decoded {peak_nits:.1}"
+        );
+    }
+}
