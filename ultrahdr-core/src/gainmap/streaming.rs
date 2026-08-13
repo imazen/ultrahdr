@@ -1152,7 +1152,6 @@ impl StreamEncoder {
             let sdr_rgb = self.get_pixel(sdr_row_data, center_x);
 
             if self.config.multi_channel {
-                #[allow(clippy::needless_range_loop)]
                 for c in 0..3 {
                     row[gx as usize * 3 + c] = super::compute::compute_and_encode_gain(
                         hdr_rgb[c],
