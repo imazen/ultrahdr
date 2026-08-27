@@ -138,3 +138,67 @@ fn single_channel_metadata_keeps_one_channel() {
     );
     assert_eq!(gm.data.len(), (w * h) as usize);
 }
+
+#[test]
+fn rgb_gainmap_encodes_from_raw_multichannel_map() {
+    // Encode-half regression (2026-08-27): `set_existing_gainmap` with a RAW
+    // 3-channel map used to feed w*h*3 bytes into a w×h Gray8 encoder
+    // ("pushed 3h rows but image height is only h"). The encoder must
+    // encode channels==3 maps as YCbCr 4:4:4 and the decode half (#27)
+    // must read them back 3-channel with chroma intact.
+    let (w, h) = (16u32, 16u32);
+    let mut gm_px = Vec::with_capacity((w * h * 3) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            gm_px.push((40 + x * 12) as u8);
+            gm_px.push((200 - y * 11) as u8);
+            gm_px.push(90);
+        }
+    }
+    let gm = ultrahdr_core::GainMap {
+        width: w,
+        height: h,
+        channels: 3,
+        data: gm_px,
+    };
+
+    // The raw-map path requires an HDR image (the fleet arm always supplies
+    // one); a flat linear 2x-boost field is enough.
+    let (bw, bh) = (32u32, 32u32);
+    let mut hdr_px = Vec::with_capacity((bw * bh * 16) as usize);
+    for _ in 0..bw * bh {
+        for v in [2.0f32, 2.0, 2.0, 1.0] {
+            hdr_px.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    let hdr = pixel_buffer_from_vec(
+        hdr_px,
+        bw,
+        bh,
+        PixelFormat::RgbaF32,
+        ColorPrimaries::Bt709,
+        TransferFunction::Linear,
+    )
+    .unwrap();
+
+    let mut encoder = Encoder::new();
+    encoder
+        .set_hdr_image(hdr)
+        .set_sdr_image(sdr_base(32, 32))
+        .set_existing_gainmap(gm, rgb_metadata())
+        .set_gainmap_scale(2); // 32/16 — matches the provided map (the fleet arm sets this too)
+    let bytes = encoder
+        .encode()
+        .expect("encode UltraHDR from raw 3-channel gain map");
+
+    let d = Decoder::new(&bytes).expect("decode container");
+    assert!(d.is_ultrahdr());
+    let back = d.decode_gainmap().expect("gain map decodes");
+    assert_eq!((back.width, back.height), (w, h));
+    assert_eq!(back.channels, 3, "3-channel map must survive the roundtrip");
+    assert_eq!(back.data.len(), (w * h * 3) as usize);
+    assert!(
+        back.data.chunks_exact(3).any(|px| px[0] != px[1]),
+        "encoded map lost its chroma"
+    );
+}

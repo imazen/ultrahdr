@@ -547,12 +547,31 @@ impl Encoder {
     }
 
     /// Encode gain map to JPEG.
+    ///
+    /// Single-channel maps encode as grayscale; multi-channel (RGB) maps
+    /// encode as YCbCr **4:4:4** — the three planes are independent
+    /// per-channel gains, not a natural image, so chroma subsampling would
+    /// smear the R/B gain fields (and the decoder's per-channel sampler
+    /// reads them back at full resolution). The pre-2026-08-27 code
+    /// encoded `gainmap.data` as grayscale regardless of `channels`,
+    /// which fed w*h*3 bytes into a w×h Gray8 encoder ("pushed 3h rows
+    /// but image height is only h").
     fn encode_gainmap_jpeg(&self, gainmap: &GainMap, stop: impl Stop) -> Result<Vec<u8>> {
-        use zenjpeg::encoder::{EncoderConfig, PixelLayout};
+        use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout};
 
-        let config = EncoderConfig::grayscale(self.gainmap_quality as f32);
+        let (config, layout) = if gainmap.channels == 3 {
+            (
+                EncoderConfig::ycbcr(self.gainmap_quality as f32, ChromaSubsampling::None),
+                PixelLayout::Rgb8Srgb,
+            )
+        } else {
+            (
+                EncoderConfig::grayscale(self.gainmap_quality as f32),
+                PixelLayout::Gray8Srgb,
+            )
+        };
         let mut enc = config
-            .encode_from_bytes(gainmap.width, gainmap.height, PixelLayout::Gray8Srgb)
+            .encode_from_bytes(gainmap.width, gainmap.height, layout)
             .map_err(map_jpeg_encode_error)?;
         enc.push_packed(&gainmap.data, stop)
             .map_err(map_jpeg_encode_error)?;
