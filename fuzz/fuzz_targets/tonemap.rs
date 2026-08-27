@@ -70,7 +70,11 @@ fuzz_target!(|data: &[u8]| {
                 let r = r.clamp(0.0, 100.0);
                 let g = g.clamp(0.0, 100.0);
                 let b = b.clamp(0.0, 100.0);
-                use zentone::ToneMap;
+                // Import the trait through ultrahdr-core's re-export so it is
+                // the SAME `zentone` that implemented it for Bt2408Tonemapper.
+                // A direct `zentone::ToneMap` here resolved to a second zentone
+                // (the sibling path checkout) and the method didn't apply (#32).
+                use ultrahdr_core::color::tonemap::ToneMap;
                 let _ = tm.map_rgb([r, g, b]);
             }
         }
@@ -103,8 +107,8 @@ fuzz_target!(|data: &[u8]| {
             if remaining.len() < 10 {
                 return;
             }
-            let width = remaining[0].max(1).min(16) as u32;
-            let height = remaining[1].max(1).min(16) as u32;
+            let width = remaining[0].clamp(1, 16) as u32;
+            let height = remaining[1].clamp(1, 16) as u32;
             let fmt_idx = remaining[2] % 2;
             let gamut_idx = remaining[3] % 3;
             let transfer_idx = remaining[4] % 4;
@@ -136,10 +140,10 @@ fuzz_target!(|data: &[u8]| {
             let mut pixel_data = remaining[pixel_start..pixel_start + needed].to_vec();
             // For RgbaF32, clamp f32 values to avoid upstream linear-srgb panic
             if format == ultrahdr_core::PixelFormat::RgbaF32 {
-                for chunk in pixel_data.chunks_exact_mut(4) {
-                    let val = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                for chunk in pixel_data.as_chunks_mut::<4>().0 {
+                    let val = f32::from_le_bytes(*chunk);
                     let clamped = if val.is_finite() { val.clamp(0.0, 10.0) } else { 0.5 };
-                    chunk.copy_from_slice(&clamped.to_le_bytes());
+                    *chunk = clamped.to_le_bytes();
                 }
             }
             let img = match ultrahdr_core::pixel_buffer_from_vec(

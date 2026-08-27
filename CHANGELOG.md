@@ -367,6 +367,9 @@ all of it ships together now.
 #### Changed
 - Overhauled the repo README to the zen-family conventions (inline shields.io badge row, `## Quick start`, absolute links, crosslink footer) and added a generated crates.io variant `README.crates.md` (CI-badge-only, regenerated from `README.md`); both `ultrahdr-core` and `ultrahdr-rs` now point `readme` at it so crates.io renders the trimmed version.
 
+#### Fixed
+- **Fuzz CI: the `tonemap` target builds again (#32).** `fuzz/Cargo.toml` carried a direct path dependency on the sibling `zentone` 0.2.0 plus a `[patch.crates-io]` for it, while `ultrahdr-core` requires registry `zentone ^0.1.0` — the patch could never apply, so two distinct `zentone` crates were linked and `zentone::ToneMap` did not provide `map_rgb` for `ultrahdr_core::color::tonemap::Bt2408Tonemapper` (`E0599`). The target now imports `ToneMap` through ultrahdr-core's re-export (`ultrahdr_core::color::tonemap::ToneMap`), and the fuzz workspace no longer declares or patches `zentone` at all. The other cause listed in #32 (unpublished `zenpixels-convert ^0.2.15`) was already resolved by the 0.2.16 publish on 2026-07-24; all 7 fuzz targets build locally with `cargo +nightly fuzz build`.
+
 #### Removed
 - Removed the unused `wide` SIMD crate from `[workspace.dependencies]` and both member manifests (`magetypes` is the SIMD path). `half` becomes opt-in via the per-crate `f16` feature — see the `ultrahdr-core` / `ultrahdr-rs` sections above.
 

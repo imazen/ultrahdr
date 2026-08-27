@@ -74,3 +74,4 @@ Cargo.toml.original.txt
 
 # Agent coordination marker (never committed)
 .workongoing
+.jj/
