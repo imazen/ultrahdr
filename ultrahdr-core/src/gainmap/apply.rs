@@ -871,9 +871,7 @@ mod tests {
 
         // Create gain map (all same boost)
         let mut gainmap = GainMap::new(2, 2).unwrap();
-        for v in &mut gainmap.data {
-            *v = 200; // High gain
-        }
+        gainmap.data.fill(200); // High gain
 
         let metadata = crate::types::metadata_from_arrays(
             [0.0; 3],
@@ -1154,9 +1152,7 @@ mod tests {
     /// Helper: create a 2x2 single-channel gain map filled with a uniform value.
     fn make_gainmap_2x2(value: u8) -> GainMap {
         let mut gm = GainMap::new(2, 2).unwrap();
-        for v in &mut gm.data {
-            *v = value;
-        }
+        gm.data.fill(value);
         gm
     }
 

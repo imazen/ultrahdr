@@ -88,9 +88,7 @@ fn create_hdr_image(width: u32, height: u32) -> PixelBuffer {
 /// Create a test gain map.
 fn create_gainmap(width: u32, height: u32) -> GainMap {
     let mut gm = GainMap::new(width, height).unwrap();
-    for v in &mut gm.data {
-        *v = 180;
-    }
+    gm.data.fill(180);
     gm
 }
 

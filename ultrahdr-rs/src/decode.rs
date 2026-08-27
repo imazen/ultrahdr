@@ -297,13 +297,17 @@ impl<'a> Decoder<'a> {
             // No metadata: collapse only when provably achromatic (the
             // zenpixels load-bearing predicate — full scan, no sampling).
             None => rgb
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .all(|px| px[0] == px[1] && px[1] == px[2]),
         };
         let (data, channels) = if collapse {
             // BT.709 luma — the same weighting the Gray decode applies.
             (
-                rgb.chunks_exact(3)
+                rgb.as_chunks::<3>()
+                    .0
+                    .iter()
                     .map(|px| {
                         (0.2126_f32 * f32::from(px[0])
                             + 0.7152 * f32::from(px[1])
@@ -817,7 +821,7 @@ fn decode_jpeg_to_rgb(
     let data = if bpp == 3 {
         // RGB -> RGBA
         let mut rgba = try_vec_with_capacity(checked_output_len(width, height, 4)?)?;
-        for chunk in pixels.chunks_exact(3) {
+        for chunk in pixels.as_chunks::<3>().0 {
             rgba.push(chunk[0]);
             rgba.push(chunk[1]);
             rgba.push(chunk[2]);

@@ -157,8 +157,8 @@ impl Ctx<'_> {
                 let end = count.checked_mul(2).and_then(|n| base.checked_add(n))?;
                 let bytes = self.data.get(base..end)?;
                 let mut units = Vec::with_capacity(count);
-                for c in bytes.chunks_exact(2) {
-                    units.push(u16::from_be_bytes([c[0], c[1]]));
+                for c in bytes.as_chunks::<2>().0 {
+                    units.push(u16::from_be_bytes(*c));
                 }
                 let s: String = char::decode_utf16(units)
                     .map(|r| r.unwrap_or('\u{FFFD}'))

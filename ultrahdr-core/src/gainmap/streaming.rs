@@ -1334,9 +1334,7 @@ mod tests {
     #[test]
     fn test_row_decoder_linear_f32() {
         let mut gainmap = GainMap::new(2, 2).unwrap();
-        for v in &mut gainmap.data {
-            *v = 128;
-        }
+        gainmap.data.fill(128);
 
         let metadata = crate::types::metadata_from_arrays(
             [0.0; 3],
@@ -1513,9 +1511,7 @@ mod tests {
     /// Helper: 2x2 gainmap filled with a constant byte value.
     fn test_gainmap(value: u8) -> GainMap {
         let mut gm = GainMap::new(2, 2).unwrap();
-        for v in &mut gm.data {
-            *v = value;
-        }
+        gm.data.fill(value);
         gm
     }
 

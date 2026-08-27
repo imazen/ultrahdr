@@ -61,7 +61,7 @@ linear-srgb = { version = "0.6.12", default-features = false, features = ["trans
 
 # Zen ecosystem interop
 zenpixels = { version = "0.2.14", default-features = false }
-zencodec = { version = "0.1.23" }
+zencodec = { version = "0.1.26" }
 zenresize = { version = "0.2.2", default-features = false }
 
 # Testing
@@ -82,8 +82,3 @@ criterion = "0.8"
 # "0.2.15" — both `^`-compatible with 0.2.16). See issue #32.
 [patch.crates-io]
 zentone = { path = "../zentone" }
-# TEMP: until zencodec 0.1.26 ships (PR #103 — CategorizedError taxonomy).
-# zenjpeg 0.9 (Pattern-B) compiles only against this; pinned to the SAME rev
-# as zenjpeg's own workspace patch so both resolve one zencodec. Drop for the
-# crates.io version once zencodec 0.1.26 publishes.
-zencodec = { git = "https://github.com/imazen/zencodec", rev = "c3220d51d2ef8ec16e8328ada2d5a04c7e6750ee" }

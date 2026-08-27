@@ -403,9 +403,7 @@ mod tests {
     #[test]
     fn encode_with_target_propagates_error() {
         let opts = TargetOptions::default();
-        let r = encode_with_target(50.0, &opts, |_q| {
-            Err::<(Vec<u8>, f64), _>("enc-fail")
-        });
+        let r = encode_with_target(50.0, &opts, |_q| Err::<(Vec<u8>, f64), _>("enc-fail"));
         assert!(matches!(r, Err("enc-fail")));
     }
 }

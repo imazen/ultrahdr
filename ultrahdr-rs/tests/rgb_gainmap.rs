@@ -86,7 +86,7 @@ fn rgb_gainmap_decodes_three_channels() {
     assert_eq!(gm.data.len(), (w * h * 3) as usize);
     // Chroma survived: at least one pixel with R != G.
     assert!(
-        gm.data.chunks_exact(3).any(|px| px[0] != px[1]),
+        gm.data.as_chunks::<3>().0.iter().any(|px| px[0] != px[1]),
         "decoded map lost its chroma"
     );
 }
@@ -198,7 +198,7 @@ fn rgb_gainmap_encodes_from_raw_multichannel_map() {
     assert_eq!(back.channels, 3, "3-channel map must survive the roundtrip");
     assert_eq!(back.data.len(), (w * h * 3) as usize);
     assert!(
-        back.data.chunks_exact(3).any(|px| px[0] != px[1]),
+        back.data.as_chunks::<3>().0.iter().any(|px| px[0] != px[1]),
         "encoded map lost its chroma"
     );
 }
