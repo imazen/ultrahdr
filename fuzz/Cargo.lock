@@ -28,9 +28,9 @@ checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 
 [[package]]
 name = "archmage"
-version = "0.9.26"
+version = "0.9.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae97b09d24389cf3f3a9db9fcc373bfe1cefdabef0d14fb253044a71c0427066"
+checksum = "802588500749f8792342d51afe283f42a7ab6baeb3c5334b62c3c48855a2ec20"
 dependencies = [
  "archmage-macros",
  "safe_unaligned_simd",
@@ -39,9 +39,9 @@ dependencies = [
 
 [[package]]
 name = "archmage-macros"
-version = "0.9.26"
+version = "0.9.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6ab70b5e2a0c0290d9b8a294378f8a8053e407387a17d8a7b113c7a0b8a2eac"
+checksum = "f6e6c957fc425c4e22da4abc86b3341df09672079df466de138b6b0608a6cfd2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -216,9 +216,9 @@ dependencies = [
 
 [[package]]
 name = "magetypes"
-version = "0.9.26"
+version = "0.9.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4d045ccf3f9d697e15f0b438f73b812ef93eb5e9d29cf5f5cb48dcf09f12e10"
+checksum = "0b3e01b6a29880b694607d95eb01da6bf71a291c545a560c5255c26e02a35413"
 dependencies = [
  "archmage",
  "rustversion",
@@ -481,7 +481,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 [[package]]
 name = "zenanalyze"
 version = "0.2.0"
-source = "git+https://github.com/imazen/zenanalyze?rev=13d40c3be60e#13d40c3be60ecfc3e482476ef068ff773b2c5b8d"
+source = "git+https://github.com/imazen/zenanalyze#6b080abf84ae2407bc7f2b127940404b3adb70b0"
 dependencies = [
  "archmage",
  "garb",

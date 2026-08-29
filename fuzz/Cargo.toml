@@ -28,6 +28,17 @@ version = "0.1.26"
 [workspace]
 members = ["."]
 
+# This is its OWN workspace, so it does not inherit the root manifest's
+# `[patch.crates-io]` — the same entry has to be repeated here. The sibling
+# `zenjpeg` path dep takes `zenanalyze = "0.2.0"` from the registry and
+# supplies the unpublished 0.2.x line through zenjpeg's own patch table, which
+# is ignored once zenjpeg is consumed as a path dep. Without this, every fuzz
+# target fails to build with `failed to select a version for the requirement
+# zenanalyze = "^0.2.0"` (crates.io latest is 0.1.0). Drop when zenanalyze
+# 0.2.0 publishes; keep in step with the root manifest.
+[patch.crates-io]
+zenanalyze = { git = "https://github.com/imazen/zenanalyze" }
+
 [profile.release]
 debug = true
 opt-level = 3
