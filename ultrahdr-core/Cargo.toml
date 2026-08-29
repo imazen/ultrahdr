@@ -35,17 +35,17 @@ enough = "0.4"
 # gated behind the `f16` feature (default-off) so the crate's minimal-deps
 # baseline drops `half`. `default-features = false` keeps it no_std-clean;
 # its `std` feature is folded into this crate's `std` below.
-half = { version = "2.7", optional = true, default-features = false }
+half = { version = "2.7.1", optional = true, default-features = false }
 
 # SIMD (optional - for explicit SIMD optimizations)
 archmage = { version = "0.9.16", default-features = false, features = ["macros"], optional = true }
 magetypes = { version = "0.9.16", default-features = false, optional = true }
 
 # Types
-bytemuck = { version = "1.14", features = ["derive"] }
+bytemuck = { version = "1.25.2", features = ["derive"] }
 
 # Error handling - std only for now
-thiserror = "2.0"
+thiserror = "2.0.20"
 
 # Error location tracking (At<Error> server-side stack traces). no_std-compatible;
 # its `std` feature is gated into this crate's `std` feature below.
@@ -89,8 +89,8 @@ zenpixels-convert = { version = ">=0.2.15, <0.4.0", default-features = false, fe
 
 # Native-only: proptest uses rusty-fork/wait-timeout (no wasm32 support)
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-proptest = "1.10"
-criterion = "0.8"
+proptest = "1.11.0"
+criterion = "0.8.2"
 
 [[bench]]
 name = "gainmap"

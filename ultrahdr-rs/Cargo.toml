@@ -65,18 +65,18 @@ zencodec = ">=0.1.26, <0.3.0"
 
 # WASM testing
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen = "0.2.110"
-wasm-bindgen-test = "0.3.60"
+wasm-bindgen = "0.2.127"
+wasm-bindgen-test = "0.3.77"
 console_error_panic_hook = "0.1.7"
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.3.4", features = ["wasm_js"] }
 
 # Native-only testing (these don't compile for WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
-zune-image = "0.5"
-zune-core = "0.5"
-zune-jpeg = "0.5"
+zune-image = "0.5.0"
+zune-core = "0.5.3"
+zune-jpeg = "0.5.15"
 # Real-file parity fixtures (Pixel samples, Google libultrahdr testdata,
 # awesome-gain-maps corpus, rejection goldens). Downloaded lazily on
 # first run from imazen/codec-corpus; cached in ~/.cache.
@@ -84,7 +84,7 @@ codec-corpus = "1.1"
 # Pixel-parity tests shell out to `ultrahdr_app`; `which` discovers the
 # binary on PATH, `tempfile` manages scratch files for raw-pixel output.
 # Both are gated behind the __pixel-parity feature via tests/ cfg attrs.
-which = "8.0.2"
+which = "8.0.6"
 tempfile = "3.27.0"
 # Test-only: the libultrahdr pixel-parity suite converts our f32 decode
 # output to f16 to byte-compare against `ultrahdr_app -O 4`

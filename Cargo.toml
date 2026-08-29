@@ -32,13 +32,13 @@ enough = "0.4"
 
 # Math — f16 conversion. Opt-in via ultrahdr-core's `f16` feature; in
 # ultrahdr-rs it is test-only (libultrahdr pixel-parity comparison).
-half = "2.7"
+half = "2.7.1"
 
 # Types
-bytemuck = { version = "1.14", features = ["derive"] }
+bytemuck = { version = "1.25.2", features = ["derive"] }
 
 # Error handling
-thiserror = "2.0"
+thiserror = "2.0.20"
 
 # JPEG codec — sibling path while we evolve zenjpeg main and ultrahdr in
 # lockstep toward the zentone→ultrahdr-core→zenjpeg→ultrahdr-rs release
@@ -53,8 +53,8 @@ zenjpeg = { path = "../zenjpeg/zenjpeg", version = "0.9.0" }
 moxcms = ">=0.8.1, <0.10"
 
 # Image buffer abstractions
-imgref = "1.12"
-rgb = { version = "0.8", features = ["as-bytes"] }
+imgref = "1.12.3"
+rgb = { version = "0.8.53", features = ["as-bytes"] }
 
 # Transfer functions
 linear-srgb = { version = "0.6.12", default-features = false, features = ["transfer"] }
@@ -65,9 +65,9 @@ zencodec = { version = ">=0.1.26, <0.3.0" }
 zenresize = { version = "0.2.2", default-features = false }
 
 # Testing
-proptest = "1.10"
+proptest = "1.11.0"
 fast-ssim2 = "0.7"
-criterion = "0.8"
+criterion = "0.8.2"
 
 # Local lockstep development: build against the sibling zentone checkout
 # (zentone -> ultrahdr-core release cascade) without putting an out-of-repo
