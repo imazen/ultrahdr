@@ -373,6 +373,31 @@ all of it ships together now.
 - Overhauled the repo README to the zen-family conventions (inline shields.io badge row, `## Quick start`, absolute links, crosslink footer) and added a generated crates.io variant `README.crates.md` (CI-badge-only, regenerated from `README.md`); both `ultrahdr-core` and `ultrahdr-rs` now point `readme` at it so crates.io renders the trimmed version.
 
 #### Fixed
+- **The `Fuzz regression` CI job passed for months over a test target that did
+  not exist.** The step ran `cargo test --test fuzz_regression 2>/dev/null ||
+  echo "No regression test found — seeds exist but no test harness"` inside an
+  `if [ -d fuzz/regression ]` guard. Here the fallback's message was literally
+  true — there was no `tests/fuzz_regression.rs` anywhere in the repo — so the
+  job reported green while the two committed seeds
+  (`crash-9d1d7fe1…`, `minimized-from-a75469c3…`) were never replayed by CI, and
+  a genuine regression would have been swallowed the same way. Added
+  `ultrahdr-rs/tests/fuzz_regression.rs`, which replays every seed through all
+  seven fuzz targets' entry points on the stable toolchain: `decode`,
+  `parse_jpeg_segments`, `parse_xmp`, `parse_mpf`, `parse_iso21496`,
+  `apply_gainmap` and `tonemap` (the two structured targets' parameter decoding
+  is transcribed so a seed lands on the cell it originally crashed on). The
+  workflow step is now a bare `cargo test --test fuzz_regression`. The harness
+  asserts at least `MIN_SEEDS` (2) replayable seeds before running, because
+  `zenutils_fuzz::RegressionSuite` treats a missing or empty seed directory as a
+  clean no-op — and the corpus lives outside the crate, in the root cargo-fuzz
+  workspace. Three of the seven entry points live in sibling crates, so
+  `ultrahdr-rs` gains dev-dependencies on `zenutils-fuzz`, `zenjpeg` and
+  `zencodec`; `ci.yml` strips `ultrahdr-rs` and the `zenjpeg` workspace
+  dependency for its sibling-free jobs, so only `fuzz.yml`'s regression job
+  (which clones `../zentone` and `../zenjpeg`) builds them. Mutation-verified:
+  renaming `fuzz/regression/` away fails the corpus assertion, and a panic
+  injected into the `decode` entry point fails on the `crash-9d1d7fe1…` seed —
+  both exit 101.
 - **Every build here failed to resolve after zenjpeg's 2026-08-28 zenanalyze migration** — `failed to select a version for the requirement zenanalyze = "^0.2.0"`. The sibling `zenjpeg` path dep now takes `zenanalyze` from the registry and supplies the unpublished 0.2.x line through its own `[patch.crates-io]`, but a dependency's patch table is ignored when it is consumed as a path dep — only the root workspace's applies. Carried the same entry here (git, not path: CI clones some siblings but not zenanalyze). Drop it once `zenanalyze 0.2.0` publishes. Same fix as zenjxl `1ae0da79`.
 - **The `Fuzz` workflow was red for the same reason, and needed a second fix**: `fuzz/` is its OWN `[workspace]`, so it does not inherit the root `[patch.crates-io]` — every target failed to build with the same `zenanalyze = "^0.2.0"` error (red since `33230647323`, i.e. from the moment zenjpeg's migration landed, not from this repo's own changes). Repeated the patch entry in `fuzz/Cargo.toml` and refreshed that workspace's stale lock, which had pinned `archmage`/`magetypes` at 0.9.26 while current zenanalyze requires `^0.9.27` (now 0.9.28; `ultrahdr-core`'s `^0.9.16` is still satisfied). `cargo check` in `fuzz/` is clean.
 - **CI: main was red on every `Test (…)` platform since Rust 1.98 (2026-08-18) landed on the stable runners** — two new clippy lints fire under the workflow's `-D warnings`: `chunks_exact_to_as_chunks` at `ultrahdr-core/src/metadata/bplist.rs:160` (the lib; it blocked every platform first) and `manual_slice_fill` at five test/bench helpers (`ultrahdr-core/src/gainmap/apply.rs` ×2, `gainmap/streaming.rs` ×2, `ultrahdr-core/benches/gainmap.rs`). All rewritten to `as_chunks::<N>().0` / `.fill(v)` — identical semantics (the trailing partial chunk is still dropped), no behavior change. The same two lints at six sites outside CI's clippy scope (`ultrahdr-rs/src/decode.rs` ×3, `ultrahdr-rs/src/encode.rs`, `ultrahdr-rs/tests/rgb_gainmap.rs` ×2, `wasm-bench/src/main.rs`) are fixed in the same pass so a local `cargo clippy --workspace --all-targets -- -D warnings` is green too; `ultrahdr-rs/src/target_quality.rs` is re-`cargo fmt`ed (CI only fmt-checks `ultrahdr-core`, so that one never showed in CI).

@@ -51,6 +51,18 @@ enough = { workspace = true }
 # Testing (WASM-compatible)
 fast-ssim2 = { workspace = true }
 
+# `tests/fuzz_regression.rs` — replays the committed `fuzz/regression/` seeds
+# through every fuzz-target entry point on the stable toolchain. Three of the
+# seven targets parse in sibling crates (`zenjpeg::container::{xmp,mpf}`,
+# `zencodec::gainmap`), so the harness needs them to reach those entry points;
+# the fuzz crate declares the same set. `ci.yml` strips `ultrahdr-rs` (and the
+# `zenjpeg` workspace dependency) from the workspace for its sibling-free jobs,
+# so these are only built by `fuzz.yml`'s regression job, which clones
+# `../zentone` and `../zenjpeg` first.
+zenutils-fuzz = "0.1.0"
+zenjpeg = { workspace = true }
+zencodec = "0.1.26"
+
 # WASM testing
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen = "0.2.110"
