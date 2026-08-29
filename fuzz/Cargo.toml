@@ -22,7 +22,7 @@ path = "../ultrahdr-rs"
 path = "../../zenjpeg/zenjpeg"
 
 [dependencies.zencodec]
-version = "0.1.26"
+version = ">=0.1.26, <0.3.0"
 
 # Prevent this from interfering with workspace resolution
 [workspace]

@@ -61,7 +61,7 @@ fast-ssim2 = { workspace = true }
 # `../zentone` and `../zenjpeg` first.
 zenutils-fuzz = "0.1.0"
 zenjpeg = { workspace = true }
-zencodec = "0.1.26"
+zencodec = ">=0.1.26, <0.3.0"
 
 # WASM testing
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

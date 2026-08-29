@@ -85,7 +85,7 @@ zenresize = { workspace = true, optional = true }
 # beyond ultrahdr-core's minimal-deps mandate). Pulls `hdr-experimental` from
 # zenpixels-convert; the underlying math is stable, the gate covers expected
 # 0.3.0 surface churn (the `measure_robust` → `measure` rename).
-zenpixels-convert = { version = "0.2.15", default-features = false, features = ["hdr-experimental"], optional = true }
+zenpixels-convert = { version = ">=0.2.15, <0.4.0", default-features = false, features = ["hdr-experimental"], optional = true }
 
 # Native-only: proptest uses rusty-fork/wait-timeout (no wasm32 support)
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
