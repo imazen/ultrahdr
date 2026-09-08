@@ -26,6 +26,7 @@
 //! math, zero new dependencies. The IFD-walk mechanics mirror the proven
 //! reader in `zenraw::apple`, with the corrected exiftool tag IDs.
 
+#[cfg(test)]
 use alloc::vec::Vec;
 
 use crate::GainMapMetadata;
@@ -73,6 +74,9 @@ impl AppleHdrInfo {
     pub fn headroom_stops(&self) -> Option<f64> {
         let maker33 = self.hdr_headroom?;
         let maker48 = self.hdr_gain;
+        if !maker33.is_finite() || !maker48.is_finite() {
+            return None;
+        }
         let stops = if maker33 < 1.0 {
             if maker48 <= 0.01 {
                 -20.0 * maker48 + 1.8
@@ -137,11 +141,130 @@ pub fn parse_exif_for_apple_hdr(exif: &[u8]) -> Option<AppleHdrInfo> {
     // IFD0 offset is the u32 at byte 4 of the TIFF header.
     let ifd0_off = endian.u32(tiff, 4)? as usize;
     // Find the Exif sub-IFD pointer in IFD0.
-    let (_, _, exif_ptr) = ifd_find(tiff, endian, ifd0_off, TIFF_TAG_EXIF_IFD)?;
-    let exif_ifd_off = endian.u32(&exif_ptr, 0)? as usize;
+    let (kind, count, exif_ptr) = ifd_find(tiff, endian, ifd0_off, TIFF_TAG_EXIF_IFD)?;
+    if kind != 4 || count != 1 {
+        return None;
+    }
+    let exif_ifd_off = endian.u32(exif_ptr, 0)? as usize;
     // Find the MakerNote blob in the Exif sub-IFD.
-    let (_, _, maker) = ifd_find(tiff, endian, exif_ifd_off, TIFF_TAG_MAKERNOTE)?;
-    parse_apple_makernote(&maker)
+    let (kind, _, maker) = ifd_find(tiff, endian, exif_ifd_off, TIFF_TAG_MAKERNOTE)?;
+    if kind != 7 {
+        return None;
+    }
+    parse_apple_makernote(maker)
+}
+
+/// One borrowed vendor entry, including unknown/private tags.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MakerNoteEntry<'a> {
+    tag: u16,
+    kind: u16,
+    count: u32,
+    value: &'a [u8],
+}
+impl<'a> MakerNoteEntry<'a> {
+    /// Numeric vendor tag, including unknown tags.
+    pub fn tag(&self) -> u16 {
+        self.tag
+    }
+    /// TIFF field type.
+    pub fn kind(&self) -> u16 {
+        self.kind
+    }
+    /// Number of typed values.
+    pub fn count(&self) -> u32 {
+        self.count
+    }
+    /// Raw value bytes in the MakerNote byte order.
+    pub fn value(&self) -> &'a [u8] {
+        self.value
+    }
+}
+/// An entry that could not be read. Inspection does not silently hide it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct MakerNoteEntryError {
+    /// Zero-based entry index in the original note.
+    pub index: usize,
+    /// Numeric tag when the entry header is readable.
+    pub tag: Option<u16>,
+}
+/// Apple MakerNote inspection view. Other vendors remain opaque.
+/// No allocation or value copies; unknown entries are visible for audit/diff.
+#[derive(Debug)]
+pub struct AppleMakerNote<'a> {
+    data: &'a [u8],
+    endian: Endian,
+    entries: usize,
+    count: usize,
+}
+impl<'a> AppleMakerNote<'a> {
+    /// Recognize an Apple note, bounded to 16 MiB and 4096 entries.
+    pub fn parse(data: &'a [u8]) -> Option<Self> {
+        if data.len() > 16 * 1024 * 1024 || data.get(..10)? != b"Apple iOS\0" {
+            return None;
+        }
+        let endian = match data.get(12..14)? {
+            b"MM" => Endian::Big,
+            b"II" => Endian::Little,
+            _ => return None,
+        };
+        let ifd = if endian.u16(data, 14)? == 42 {
+            12usize.checked_add(endian.u32(data, 16)? as usize)?
+        } else {
+            14
+        };
+        let count = endian.u16(data, ifd)? as usize;
+        if count > 4096 {
+            return None;
+        }
+        Some(Self {
+            data,
+            endian,
+            entries: ifd.checked_add(2)?,
+            count,
+        })
+    }
+    /// Byte order for interpreting numeric value bytes.
+    pub fn byte_order(&self) -> zencodec::exif::ByteOrder {
+        match self.endian {
+            Endian::Big => zencodec::exif::ByteOrder::Big,
+            Endian::Little => zencodec::exif::ByteOrder::Little,
+        }
+    }
+    /// Borrow all entries in order, reporting malformed entries individually.
+    pub fn entries(
+        &self,
+    ) -> impl Iterator<Item = core::result::Result<MakerNoteEntry<'a>, MakerNoteEntryError>> + '_
+    {
+        (0..self.count).map(|index| {
+            let offset = self.entries + index * 12;
+            let tag = self.endian.u16(self.data, offset);
+            let error = MakerNoteEntryError { index, tag };
+            let tag = tag.ok_or(error)?;
+            let kind = self.endian.u16(self.data, offset + 2).ok_or(error)?;
+            let count = self.endian.u32(self.data, offset + 4).ok_or(error)?;
+            if !(1..=13).contains(&kind) && !(16..=18).contains(&kind) {
+                return Err(error);
+            }
+            let size = type_size(kind).checked_mul(count as usize).ok_or(error)?;
+            let start = if size <= 4 {
+                offset + 8
+            } else {
+                self.endian.u32(self.data, offset + 8).ok_or(error)? as usize
+            };
+            let value = self
+                .data
+                .get(start..start.checked_add(size).ok_or(error)?)
+                .ok_or(error)?;
+            Ok(MakerNoteEntry {
+                tag,
+                kind,
+                count,
+                value,
+            })
+        })
+    }
 }
 
 /// Parse an Apple iOS MakerNote blob (`"Apple iOS\0"` + version + byte-order
@@ -150,76 +273,33 @@ pub fn parse_exif_for_apple_hdr(exif: &[u8]) -> Option<AppleHdrInfo> {
 /// Addressing has two bases (verified against iPhone 8/13/16/17 captures):
 /// the byte-order marker and IFD live at offset 12, but the entries' *value
 /// offsets* for out-of-line data are relative to the MakerNote start
-/// (`maker[0]`). Returns `None` only if the blob is not a recognizable Apple
-/// MakerNote; a malformed individual entry is skipped, not fatal.
+/// (`maker[0]`). Unrecognized notes, malformed entries or duplicate rendering
+/// tags refuse extraction. The inspection view reports malformed entries individually.
 pub fn parse_apple_makernote(maker: &[u8]) -> Option<AppleHdrInfo> {
-    if maker.len() < 20 || &maker[..10] != b"Apple iOS\0" {
-        return None;
-    }
-    let bo = 12;
-    let endian = match (maker[bo], maker[bo + 1]) {
-        (b'M', b'M') => Endian::Big,
-        (b'I', b'I') => Endian::Little,
-        _ => return None,
-    };
-    // IFD data is relative to the byte-order marker.
-    let tiff = &maker[bo..];
-    // Apple uses either a standard TIFF magic (42 → IFD offset at byte 4) or a
-    // custom layout where the entry count begins at byte 2.
-    let ifd_off = if endian.u16(tiff, 2)? == 42 {
-        endian.u32(tiff, 4)? as usize
-    } else {
-        2
-    };
-
+    let view = AppleMakerNote::parse(maker)?;
     let mut info = AppleHdrInfo::default();
-    let count = endian.u16(tiff, ifd_off)? as usize;
-    let entries = ifd_off + 2;
-    // Walk entries defensively: a single malformed entry (Apple ships some with
-    // invalid TIFF types, e.g. format 16) must not abort the whole parse. We
-    // only read the value for the three HDR tags and skip everything else.
-    for i in 0..count {
-        let e = entries + i * 12;
-        if e + 12 > tiff.len() {
-            break;
+    let mut seen = 0u8;
+    for entry in view.entries() {
+        let entry = entry.ok()?;
+        let bit = match entry.tag {
+            tags::HDR_HEADROOM => 1,
+            tags::HDR_GAIN => 2,
+            tags::HDR_IMAGE_TYPE => 4,
+            _ => continue,
+        };
+        if seen & bit != 0 || entry.count != 1 {
+            return None;
         }
-        let Some(tag) = endian.u16(tiff, e) else {
-            break;
-        };
-        if tag != tags::HDR_HEADROOM && tag != tags::HDR_GAIN && tag != tags::HDR_IMAGE_TYPE {
-            continue;
-        }
-        let (Some(dtype), Some(n)) = (endian.u16(tiff, e + 2), endian.u32(tiff, e + 4)) else {
-            continue;
-        };
-        let total = type_size(dtype).saturating_mul(n as usize);
-        let value = if total <= 4 {
-            // Inline value lives in the entry's 4-byte value cell.
-            match tiff.get(e + 8..e + 8 + total.min(4)) {
-                Some(v) => v.to_vec(),
-                None => continue,
+        seen |= bit;
+        match entry.tag {
+            tags::HDR_HEADROOM => {
+                info.hdr_headroom = Some(read_rational(entry.value, entry.kind, view.endian)?)
             }
-        } else {
-            // Out-of-line: the offset is relative to the MakerNote start
-            // (`maker[0]`, the "Apple iOS\0" byte), not the byte-order marker
-            // at offset 12. (Verified against iPhone 8/13/16/17 captures.)
-            let Some(off) = endian.u32(tiff, e + 8) else {
-                continue;
-            };
-            match maker.get(off as usize..(off as usize).saturating_add(total)) {
-                Some(v) => v.to_vec(),
-                None => continue,
+            tags::HDR_GAIN => info.hdr_gain = read_rational(entry.value, entry.kind, view.endian)?,
+            tags::HDR_IMAGE_TYPE => {
+                info.hdr_image_type = Some(read_int(entry.value, entry.kind, view.endian)?)
             }
-        };
-        match tag {
-            tags::HDR_HEADROOM => info.hdr_headroom = read_rational(&value, dtype, endian),
-            tags::HDR_GAIN => {
-                if let Some(g) = read_rational(&value, dtype, endian) {
-                    info.hdr_gain = g;
-                }
-            }
-            tags::HDR_IMAGE_TYPE => info.hdr_image_type = read_int(&value, dtype, endian),
-            _ => {}
+            _ => unreachable!(),
         }
     }
     Some(info)
@@ -236,7 +316,7 @@ enum Endian {
 
 impl Endian {
     fn u16(self, b: &[u8], o: usize) -> Option<u16> {
-        let s = b.get(o..o + 2)?;
+        let s = b.get(o..o.checked_add(2)?)?;
         let a = [s[0], s[1]];
         Some(match self {
             Endian::Big => u16::from_be_bytes(a),
@@ -245,7 +325,7 @@ impl Endian {
     }
 
     fn u32(self, b: &[u8], o: usize) -> Option<u32> {
-        let s = b.get(o..o + 4)?;
+        let s = b.get(o..o.checked_add(4)?)?;
         let a = [s[0], s[1], s[2], s[3]];
         Some(match self {
             Endian::Big => u32::from_be_bytes(a),
@@ -262,10 +342,10 @@ impl Endian {
 /// by EXIF). Unknown types fall back to 1 to stay within bounds.
 fn type_size(dtype: u16) -> usize {
     match dtype {
-        1 | 2 | 6 | 7 => 1, // BYTE, ASCII, SBYTE, UNDEFINED
-        3 | 8 => 2,         // SHORT, SSHORT
-        4 | 9 | 11 => 4,    // LONG, SLONG, FLOAT
-        5 | 10 | 12 => 8,   // RATIONAL, SRATIONAL, DOUBLE
+        1 | 2 | 6 | 7 => 1,         // BYTE, ASCII, SBYTE, UNDEFINED
+        3 | 8 => 2,                 // SHORT, SSHORT
+        4 | 9 | 11 | 13 => 4,       // LONG, SLONG, FLOAT
+        5 | 10 | 12 | 16..=18 => 8, // RATIONAL, SRATIONAL, DOUBLE
         _ => 1,
     }
 }
@@ -288,29 +368,32 @@ fn tiff_start(exif: &[u8]) -> Option<(&[u8], Endian)> {
 /// Find an IFD entry by tag and return `(dtype, count, value_bytes)`. Value
 /// bytes are read inline (≤ 4 bytes) or from the pointed-to offset (relative
 /// to the TIFF start). `None` if the tag is absent or the data is truncated.
-fn ifd_find(tiff: &[u8], endian: Endian, ifd_off: usize, want: u16) -> Option<(u16, u32, Vec<u8>)> {
+fn ifd_find(tiff: &[u8], endian: Endian, ifd_off: usize, want: u16) -> Option<(u16, u32, &[u8])> {
     let count = endian.u16(tiff, ifd_off)? as usize;
-    let entries = ifd_off + 2;
+    let entries = ifd_off.checked_add(2)?;
+    let mut result = None;
     for i in 0..count {
         let e = entries + i * 12;
         if e + 12 > tiff.len() {
-            break;
+            return None;
         }
         if endian.u16(tiff, e)? != want {
             continue;
         }
         let dtype = endian.u16(tiff, e + 2)?;
         let n = endian.u32(tiff, e + 4)?;
-        let total = type_size(dtype) * n as usize;
+        let total = type_size(dtype).checked_mul(n as usize)?;
         let value = if total <= 4 {
-            tiff.get(e + 8..e + 8 + total.min(4))?.to_vec()
+            tiff.get(e + 8..e + 8 + total.min(4))?
         } else {
             let off = endian.u32(tiff, e + 8)? as usize;
-            tiff.get(off..off + total)?.to_vec()
+            tiff.get(off..off.checked_add(total)?)?
         };
-        return Some((dtype, n, value));
+        if result.replace((dtype, n, value)).is_some() {
+            return None;
+        }
     }
-    None
+    result
 }
 
 /// Read a rational (`5` = unsigned, `10` = signed) as `f64`. Apple writes
@@ -346,9 +429,11 @@ fn read_rational(value: &[u8], dtype: u16, endian: Endian) -> Option<f64> {
 /// Read a small integer tag (`HDRImageType` is `int32s`/SHORT) as `i32`.
 fn read_int(value: &[u8], dtype: u16, endian: Endian) -> Option<i32> {
     match dtype {
-        3 | 8 => endian.u16(value, 0).map(|v| v as i32),
+        3 => endian.u16(value, 0).map(|v| v as i32),
+        8 => endian.u16(value, 0).map(|v| v as i16 as i32),
         4 | 9 => endian.i32(value, 0),
-        1 | 6 => value.first().map(|&b| b as i32),
+        1 => value.first().map(|&b| b as i32),
+        6 => value.first().map(|&b| b as i8 as i32),
         _ => None,
     }
 }
@@ -446,6 +531,34 @@ mod tests {
     fn rejects_non_apple_makernote() {
         assert_eq!(parse_apple_makernote(b"Nikon\0\0\0not apple here!!"), None);
         assert_eq!(parse_apple_makernote(b"short"), None);
+    }
+
+    #[test]
+    fn inspect_unknown_entries_and_report_truncation() {
+        let mut bytes = build_apple_makernote_be(1686, 1000, 0, 1, 3);
+        let view = AppleMakerNote::parse(&bytes).unwrap();
+        assert_eq!(view.entries().count(), 3);
+        assert!(view.entries().all(|e| e.is_ok()));
+        // First entry becomes an unknown, still inspectable vendor field.
+        bytes[16..18].copy_from_slice(&0xf123u16.to_be_bytes());
+        let view = AppleMakerNote::parse(&bytes).unwrap();
+        assert_eq!(view.entries().next().unwrap().unwrap().tag(), 0xf123);
+        let truncated = &bytes[..24];
+        let view = AppleMakerNote::parse(truncated).unwrap();
+        assert!(view.entries().any(|e| e.is_err()));
+    }
+    #[test]
+    fn invalid_critical_rational_refuses_instead_of_guessing() {
+        let bytes = build_apple_makernote_be(1686, 0, 0, 1, 3);
+        assert!(parse_apple_makernote(&bytes).is_none());
+        assert!(
+            AppleHdrInfo {
+                hdr_headroom: Some(f64::NAN),
+                ..Default::default()
+            }
+            .headroom_stops()
+            .is_none()
+        );
     }
 
     // ── test fixtures: hand-built big-endian TIFF/MakerNote ───────────────

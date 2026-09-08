@@ -12,6 +12,10 @@ own section below.
 
 ### [Unreleased]
 
+- Expose a borrowing Apple MakerNote entry reader (including unknown tags and
+  64-bit values), with per-entry diagnostics. Reject malformed or duplicate
+  rendering tags and ambiguous TIFF pointers during HDR extraction.
+
 #### Added
 - **Content-fit gain-map grid** (`compute_gainmap_content_fit` + `CONTENT_FIT_MIN_SPAN_STOPS`; zensim campaign appendix AA "measure, don't configure"): the quantization grid is SELECTED from the MEASURED content gain range (one extra subsampled gain scan, bit-identical math shared with the ordinary encode) with the config `min_boost..=max_boost` as the outer policy bound. Spends the 8-bit code space on gains that exist — a ~2-stop content on the 10,000-nit default grid gets ~2.8× finer quantization — and is interop-safe by construction: the declared metadata is exactly the narrowed grid the bytes were quantized on (#33 invariant untouched). Uniform content is guarded to a 1/16-stop minimum span. `compute_gainmap`/`compute_gainmap_slice` behavior is byte-identical to before (they share a new `compute_gainmap_slice_observed` core). Tests: measured-not-configured declaration, precision-beats-config, uniform-content non-degeneracy, span-constant pin.
 
@@ -265,6 +269,12 @@ through this section ships together now, including the f16-gating and
 ## ultrahdr-rs
 
 ### [Unreleased]
+
+- Add `encode_ultrahdr_with_metadata_policy`: filter both encoded JPEG components,
+  preserve scan bytes and generate fresh gain-map XMP/ISO/MPF signaling. Reject
+  unsupported color/direction/preservation requests instead of losing rendering
+  information. Tests prove byte-identical decoded HDR for a filtered fixture.
+
 
 #### Changed
 - Minimum `zencodec` is now `0.1.26` (the published two-level `ErrorCategory` taxonomy), via the workspace dependency; see the Workspace section.

@@ -189,6 +189,76 @@ pub fn encode_ultrahdr_with_format(
     Ok(result)
 }
 
+/// Assemble pre-encoded components after explicit privacy filtering.
+///
+/// Extract MakerNote/XMP rendering parameters before calling this. Both JPEGs
+/// are filtered, including metadata between progressive scans; private source
+/// XMP, comments, unknown APP carriers, thumbnails and trailers are dropped.
+/// Fresh required gain-map XMP/ISO and MPF are generated independently of source
+/// XMP retention. Neither component is decoded or recompressed.
+///
+/// `Web` retains attribution; `ColorAndRotation` removes it. Policies keeping
+/// source XMP refuse. ICC is preserved as a rendering dependency and is not
+/// certified free of private profile tags. `gamut` must describe the base image.
+/// An existing base ICC must match that named gamut exactly; use an explicit
+/// color conversion first for other profiles. HDR-base/alternate-color-space
+/// XMP cannot currently be emitted faithfully and is refused.
+pub fn encode_ultrahdr_with_metadata_policy(
+    base_jpeg: &[u8],
+    gainmap_jpeg: &[u8],
+    metadata: &GainMapMetadata,
+    gamut: ColorPrimaries,
+    policy: &zencodec::MetadataPolicy,
+) -> Result<Vec<u8>> {
+    if !matches!(
+        gamut,
+        ColorPrimaries::Bt709 | ColorPrimaries::DisplayP3 | ColorPrimaries::Bt2020
+    ) {
+        return Err(at!(Error::InvalidPixelData(
+            "unsupported output color primaries".into()
+        )));
+    }
+    metadata
+        .validate()
+        .map_err(|e| at!(Error::InvalidPixelData(e.to_string())))?;
+    if metadata.backward_direction || !metadata.use_base_color_space {
+        return Err(at!(Error::InvalidPixelData(
+            "XMP output cannot preserve this gain-map direction/color-space contract".into()
+        )));
+    }
+    if let Some(icc) = crate::jpeg::extract_icc_profile(base_jpeg)
+        && icc != get_icc_profile_for_gamut(gamut)
+    {
+        return Err(at!(Error::InvalidPixelData(
+            "base ICC differs from the requested output gamut; convert explicitly first".into()
+        )));
+    }
+    // Couple retention to the known base signaling; generated output restores
+    // this named profile independently of arbitrary source metadata.
+    let source = zencodec::Metadata::none().with_icc(get_icc_profile_for_gamut(gamut));
+    zencodec::display_metadata::filter_for_gain_map(&source, metadata, policy)
+        .map_err(|e| at!(Error::InvalidPixelData(e.to_string())))?;
+    let base = zenjpeg::container::metadata::filter_for_gain_map(base_jpeg, policy)
+        .map_err(|e| at!(Error::InvalidPixelData(e.to_string())))?;
+    let gainmap = zenjpeg::container::metadata::filter_for_gain_map(gainmap_jpeg, policy)
+        .map_err(|e| at!(Error::InvalidPixelData(e.to_string())))?;
+    // The existing assembler generates its selected ICC. Remove the already
+    // validated identical source ICC to avoid duplicate multipart profiles.
+    let mut without_icc = Vec::new();
+    without_icc
+        .try_reserve_exact(base.len())
+        .map_err(|_| at!(Error::InvalidPixelData("allocation failed".into())))?;
+    for segment in zenjpeg::container::marker::iter(&base) {
+        if segment.kind == zenjpeg::container::marker::MarkerKind::App(2)
+            && segment.payload.starts_with(b"ICC_PROFILE\0")
+        {
+            continue;
+        }
+        without_icc.extend_from_slice(&base[segment.offset..segment.offset + segment.length]);
+    }
+    encode_ultrahdr(&without_icc, &gainmap, metadata, gamut)
+}
+
 /// Ultra HDR encoder.
 ///
 /// For production use without a bundled JPEG codec, use [`encode_ultrahdr`] directly.
