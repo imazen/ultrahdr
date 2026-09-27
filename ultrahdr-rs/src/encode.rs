@@ -1,6 +1,6 @@
 //! Ultra HDR encoder.
 
-use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8;
+use ultrahdr_core::color::tonemap::tonemap_image_to_srgb8_with_stop;
 
 use ultrahdr_core::gainmap::compute::{GainMapConfig, compute_gainmap};
 use ultrahdr_core::{ColorPrimaries, Error, GainMapEncodingFormat, GainMapMetadata, Result};
@@ -376,7 +376,8 @@ impl Encoder {
                 let gamut = sdr_img.descriptor().primaries;
                 (self.encode_base_jpeg(sdr_img, &stop)?, gamut)
             } else if let Some(ref hdr) = self.hdr_image {
-                let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorPrimaries::Bt709)?;
+                let sdr_pixels =
+                    tonemap_image_to_srgb8_with_stop(hdr, ColorPrimaries::Bt709, &stop)?;
                 let sdr = pixel_buffer_from_vec(
                     sdr_pixels,
                     hdr.width(),
@@ -406,7 +407,7 @@ impl Encoder {
         let sdr: PixelBuffer = if let Some(ref sdr_img) = self.sdr_image {
             clone_pixel_buffer(sdr_img)
         } else {
-            let sdr_pixels = tonemap_image_to_srgb8(hdr, ColorPrimaries::Bt709)?;
+            let sdr_pixels = tonemap_image_to_srgb8_with_stop(hdr, ColorPrimaries::Bt709, &stop)?;
             pixel_buffer_from_vec(
                 sdr_pixels,
                 hdr.width(),
