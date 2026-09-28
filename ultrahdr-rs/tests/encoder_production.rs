@@ -263,3 +263,88 @@ fn test_set_compressed_sdr_alias() {
     let result = encoder.encode_from_jpegs();
     assert!(result.is_ok());
 }
+
+#[test]
+fn privacy_filter_preserves_scans_parameters_and_both_image_boundaries() {
+    use ultrahdr_rs::encode_ultrahdr_with_metadata_policy;
+    use zenjpeg::container::marker::{self, MarkerKind};
+    use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout};
+    let config = EncoderConfig::ycbcr(85.0, ChromaSubsampling::None);
+    let pixels: Vec<u8> = (0..16 * 16 * 3)
+        .map(|i| ((i * 37 + i / 7 * 53) % 256) as u8)
+        .collect();
+    let mut enc = config
+        .encode_from_bytes(16, 16, PixelLayout::Rgb8Srgb)
+        .unwrap();
+    enc.push_packed(&pixels, enough::Unstoppable).unwrap();
+    let source = enc.finish().unwrap();
+    let mut dirty = source[..2].to_vec();
+    for (marker, payload) in [
+        (
+            0xe1,
+            b"http://ns.adobe.com/xap/1.0/\0PRIVATE-XMP".as_slice(),
+        ),
+        (0xed, b"PRIVATE-APP13"),
+        (0xfe, b"PRIVATE-COMMENT"),
+    ] {
+        dirty.extend_from_slice(&[0xff, marker]);
+        dirty.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+        dirty.extend_from_slice(payload);
+    }
+    dirty.extend_from_slice(&source[2..]);
+    dirty.extend_from_slice(b"PRIVATE-TRAILER");
+    let metadata = test_metadata();
+    let output = encode_ultrahdr_with_metadata_policy(
+        &dirty,
+        &dirty,
+        &metadata,
+        ColorPrimaries::Bt709,
+        &zencodec::MetadataPolicy::ColorAndRotation,
+    )
+    .unwrap();
+    assert!(!output.windows(7).any(|w| w == b"PRIVATE"));
+    let decoded = Decoder::new(&output).unwrap();
+    let actual = decoded.metadata().unwrap();
+    for (a, b) in actual.channels.iter().zip(metadata.channels.iter()) {
+        assert!((a.max - b.max).abs() < 1e-6);
+        assert!((a.gamma - b.gamma).abs() < 1e-6);
+    }
+    assert!((actual.alternate_hdr_headroom - metadata.alternate_hdr_headroom).abs() < 1e-6);
+    let scans = |bytes: &[u8]| -> Vec<u8> {
+        marker::iter(bytes)
+            .filter(|s| s.kind == MarkerKind::Sos)
+            .flat_map(|s| bytes[s.offset..s.offset + s.length].iter().copied())
+            .collect()
+    };
+    assert_eq!(scans(decoded.primary_jpeg().unwrap()), scans(&source));
+    assert_eq!(scans(decoded.gainmap_jpeg().unwrap()), scans(&source));
+    let baseline = encode_ultrahdr(&source, &source, &metadata, ColorPrimaries::Bt709).unwrap();
+    let before_hdr = Decoder::new(&baseline).unwrap().decode_hdr(4.0).unwrap();
+    let after_hdr = decoded.decode_hdr(4.0).unwrap();
+    assert_eq!(
+        before_hdr.as_slice().contiguous_bytes(),
+        after_hdr.as_slice().contiguous_bytes()
+    );
+    assert_eq!(marker::find_jpeg_boundaries(&output).len(), 2);
+    assert!(
+        encode_ultrahdr_with_metadata_policy(
+            &source,
+            &source,
+            &metadata,
+            ColorPrimaries::Bt709,
+            &zencodec::MetadataPolicy::PreserveExact
+        )
+        .is_err()
+    );
+    let truncated = &source[..source.len() - 2];
+    assert!(
+        encode_ultrahdr_with_metadata_policy(
+            truncated,
+            &source,
+            &metadata,
+            ColorPrimaries::Bt709,
+            &zencodec::MetadataPolicy::Web
+        )
+        .is_err()
+    );
+}

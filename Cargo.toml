@@ -40,14 +40,9 @@ bytemuck = { version = "1.25.2", features = ["derive"] }
 # Error handling
 thiserror = "2.0.20"
 
-# JPEG codec — sibling path while we evolve zenjpeg main and ultrahdr in
-# lockstep toward the zentone→ultrahdr-core→zenjpeg→ultrahdr-rs release
-# cascade. CI workflows clone `imazen/zenjpeg` into `../zenjpeg` alongside
-# this repo (same pattern as zentone). The `version` hint is advisory for
-# downstream tooling; the path wins locally. Kept on ONE line so
-# `ci.yml`'s `sed '/^zenjpeg/d' Cargo.toml` correctly strips it for the
-# ultrahdr-core-only standalone jobs.
-zenjpeg = { path = "../zenjpeg/zenjpeg", version = "0.9.0" }
+# JPEG codec. The root patch below pins the metadata-retention implementation;
+# this checkout no longer requires an uncommitted sibling for these APIs.
+zenjpeg = { version = "0.9.0" }
 
 # Color management
 moxcms = ">=0.8.1, <0.10"
@@ -81,6 +76,9 @@ criterion = "0.8.2"
 # requirements declared above (zenpixels "0.2.14", zenpixels-convert
 # "0.2.15" — both `^`-compatible with 0.2.16). See issue #32.
 [patch.crates-io]
+# Display metadata retention stack; exact revisions keep standalone CI reproducible.
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "06b5954cbd9d15282509011aab8f8efa0d8973dd" }
+zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "05cfb1d412aa2097a18b44cbf51e31156ca3bd68" }
 zentone = { path = "../zentone" }
 # zenjpeg (a path sibling) depends on `zenanalyze = "0.2.0"` from the registry
 # and supplies it through its OWN `[patch.crates-io]`. A dependency's patch
