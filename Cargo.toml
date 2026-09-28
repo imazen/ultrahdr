@@ -78,7 +78,7 @@ criterion = "0.8.2"
 [patch.crates-io]
 # Display metadata retention stack; exact revisions keep standalone CI reproducible.
 zencodec = { git = "https://github.com/imazen/zencodec", rev = "06b5954cbd9d15282509011aab8f8efa0d8973dd" }
-zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "835bdb9ace15000065626b864b30dbdd3dc10db1" }
+zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "05cfb1d412aa2097a18b44cbf51e31156ca3bd68" }
 zentone = { path = "../zentone" }
 # zenjpeg (a path sibling) depends on `zenanalyze = "0.2.0"` from the registry
 # and supplies it through its OWN `[patch.crates-io]`. A dependency's patch
