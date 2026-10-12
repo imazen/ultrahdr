@@ -6,27 +6,28 @@
 # impls omitted; re-export duplicates annotated `[also: path]`.
 # DO NOT EDIT BY HAND — commit regenerated changes with the code.
 #
-# files: ultrahdr-rs.txt 137 lines (supported surface) | ultrahdr-rs.features.txt 23 added (features: f16,ffi-tests,simd,tonemap-bt2446a,zencodec) | ultrahdr-rs.internal.txt 4 lines (4 hidden + 0 excluded-feature)
+# files: ultrahdr-rs.txt 160 lines (supported surface) | ultrahdr-rs.features.txt 23 added (features: f16,ffi-tests,simd,tonemap-bt2446a,zencodec) | ultrahdr-rs.internal.txt 5 lines (5 hidden + 0 excluded-feature)
 
 ## summary
 #
-#   pub modules                                 5
-#   pub types (struct/enum/trait/alias)         8
+#   pub modules                                 6
+#   pub types (struct/enum/trait/alias)        11
 #   pub consts/statics                          2
-#   free functions                             17
-#   inherent methods                           47
-#   struct fields                               9
+#   free functions                             21
+#   inherent methods                           48
+#   struct fields                              20
 #   enum variants                              24
 #   re-exports                                 28
-#   trait roster entries (type × trait)        16
-#   auto-trait-complete types                   6
+#   trait roster entries (type × trait)        25
+#   auto-trait-complete types                   9
 #
 # per-module pub lines:
-#   (root)                           74
+#   (root)                           77
 #   container                        14
 #   jpeg                             52
+#   target_quality                   17
 
-## items (131 lines)
+## items (151 lines)
 
 pub mod ultrahdr_rs
 pub use ColorPrimaries
@@ -114,6 +115,24 @@ pub fn jpeg::get_icc_profile_for_gamut(zenpixels::descriptor::ColorPrimaries) ->
 pub fn jpeg::insert_segment_after_soi(&[u8], &jpeg::JpegSegment) -> ultrahdr_core::types::Result<alloc::vec::Vec<u8>> [also: jpeg::markers]
 pub fn jpeg::parse_jpeg_segments(&[u8]) -> ultrahdr_core::types::Result<alloc::vec::Vec<jpeg::JpegSegment>> [also: jpeg::markers]
 pub fn jpeg::reconstruct_jpeg(&[jpeg::JpegSegment]) -> alloc::vec::Vec<u8> [also: jpeg::markers]
+pub mod target_quality
+pub struct target_quality::TargetOptions
+pub target_quality::TargetOptions::max_encodes: u8
+pub target_quality::TargetOptions::max_quality: f32
+pub target_quality::TargetOptions::min_quality: f32
+pub target_quality::TargetOptions::q_start: core::option::Option<f32>
+pub target_quality::TargetOptions::tolerance: f64
+pub struct target_quality::TargetSearchResult
+pub target_quality::TargetSearchResult::converged: bool
+pub target_quality::TargetSearchResult::encodes: u8
+pub target_quality::TargetSearchResult::quality: f32
+pub target_quality::TargetSearchResult::score: f64
+pub struct target_quality::TargetedEncode
+pub target_quality::TargetedEncode::data: alloc::vec::Vec<u8>
+pub target_quality::TargetedEncode::search: target_quality::TargetSearchResult
+pub fn target_quality::anchor_guess(f64) -> f32
+pub fn target_quality::encode_with_target<E, Err>(f64, &target_quality::TargetOptions, E) -> core::result::Result<target_quality::TargetedEncode, Err> where E: core::ops::function::FnMut(f32) -> core::result::Result<(alloc::vec::Vec<u8>, f64), Err>
+pub fn target_quality::search_target<E, Err>(f64, &target_quality::TargetOptions, E) -> core::result::Result<target_quality::TargetSearchResult, Err> where E: core::ops::function::FnMut(f32) -> core::result::Result<f64, Err>
 pub struct Decoder<'a>
 pub fn Decoder<'a>::decode_gainmap(&self) -> ultrahdr_core::types::Result<ultrahdr_core::types::GainMap>
 pub fn Decoder<'a>::decode_gainmap_with_stop(&self, impl enough::Stop) -> ultrahdr_core::types::Result<ultrahdr_core::types::GainMap>
@@ -141,6 +160,7 @@ pub fn Encoder::has_existing_gainmap(&self) -> bool
 pub fn Encoder::new() -> Self
 pub fn Encoder::set_base_jpeg(&mut self, alloc::vec::Vec<u8>) -> &mut Self
 pub fn Encoder::set_compressed_sdr(&mut self, alloc::vec::Vec<u8>) -> &mut Self
+pub fn Encoder::set_content_fit_grid(&mut self, bool) -> &mut Self
 pub fn Encoder::set_existing_gainmap(&mut self, ultrahdr_core::types::GainMap, ultrahdr_core::types::GainMapMetadata) -> &mut Self
 pub fn Encoder::set_existing_gainmap_jpeg(&mut self, alloc::vec::Vec<u8>, ultrahdr_core::types::GainMapMetadata) -> &mut Self
 pub fn Encoder::set_gainmap_jpeg(&mut self, alloc::vec::Vec<u8>, ultrahdr_core::types::GainMapMetadata) -> &mut Self
@@ -159,15 +179,19 @@ pub fn ResourceLimits::with_max_memory(self, u64) -> Self
 pub fn ResourceLimits::with_max_pixels(self, u64) -> Self
 pub fn encode_ultrahdr(&[u8], &[u8], &ultrahdr_core::types::GainMapMetadata, zenpixels::descriptor::ColorPrimaries) -> ultrahdr_core::types::Result<alloc::vec::Vec<u8>>
 pub fn encode_ultrahdr_with_format(&[u8], &[u8], &ultrahdr_core::types::GainMapMetadata, zenpixels::descriptor::ColorPrimaries, ultrahdr_core::types::GainMapEncodingFormat) -> ultrahdr_core::types::Result<alloc::vec::Vec<u8>>
+pub fn encode_ultrahdr_with_metadata_policy(&[u8], &[u8], &ultrahdr_core::types::GainMapMetadata, zenpixels::descriptor::ColorPrimaries, &zencodec::metadata::MetadataPolicy) -> ultrahdr_core::types::Result<alloc::vec::Vec<u8>>
 
-## trait impls (5 types)
+## trait impls (8 types)
 
 Encoder: Default
 ResourceLimits: Clone, Copy, Debug, Default, Eq, PartialEq
 container::AppSegment: Clone, Debug
 jpeg::JpegSegment: Clone, Debug
 jpeg::Marker: Clone, Copy, Debug, Eq, PartialEq
+target_quality::TargetOptions: Clone, Debug, Default
+target_quality::TargetSearchResult: Clone, Copy, Debug, PartialEq
+target_quality::TargetedEncode: Clone, Debug
 
 ## auto traits
 
-6 types implement all of: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe
+9 types implement all of: Freeze, RefUnwindSafe, Send, Sync, Unpin, UnwindSafe

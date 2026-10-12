@@ -22,10 +22,11 @@
 //! - <https://juniperphoton.substack.com/p/decoding-some-hidden-magic-of-makerapple>
 //! - <https://photoinvestigator.co/blog/the-mystery-of-maker-apple-metadata/>
 //!
-//! This module is pure byte parsing: `no_std` + `alloc`, no transcendental
-//! math, zero new dependencies. The IFD-walk mechanics mirror the proven
-//! reader in `zenraw::apple`, with the corrected exiftool tag IDs.
+//! The shared reader in zenmeta performs byte parsing with `no_std` + `alloc`.
+//! These wrappers retain ultrahdr-core's published types and tolerant parsing
+//! behavior; strict inspection is available directly from zenmeta.
 
+#[cfg(test)]
 use alloc::vec::Vec;
 
 use crate::GainMapMetadata;
@@ -33,16 +34,18 @@ use crate::GainMapMetadata;
 /// Apple MakerNote tag IDs (per exiftool `Apple.pm`).
 pub mod tags {
     /// `HDRImageType`: 3 = HDR Image, 4 = Original (SDR) Image.
-    pub const HDR_IMAGE_TYPE: u16 = 0x000A;
+    pub const HDR_IMAGE_TYPE: u16 = zenmeta::apple::tags::HDR_IMAGE_TYPE;
     /// `HDRHeadroom` (`rational64s`) — "maker33" in community notation.
-    pub const HDR_HEADROOM: u16 = 0x0021;
+    pub const HDR_HEADROOM: u16 = zenmeta::apple::tags::HDR_HEADROOM;
     /// `HDRGain` (`rational64s`) — "maker48" in community notation.
-    pub const HDR_GAIN: u16 = 0x0030;
+    pub const HDR_GAIN: u16 = zenmeta::apple::tags::HDR_GAIN;
 }
 
 /// Standard EXIF/TIFF tag for the Exif sub-IFD pointer.
+#[cfg(test)]
 const TIFF_TAG_EXIF_IFD: u16 = 0x8769;
 /// Standard EXIF/TIFF tag for the MakerNote (UNDEFINED blob).
+#[cfg(test)]
 const TIFF_TAG_MAKERNOTE: u16 = 0x927C;
 
 /// HDR information recovered from an Apple MakerNote.
@@ -71,21 +74,23 @@ impl AppleHdrInfo {
     /// stops = max(stops, 0)
     /// ```
     pub fn headroom_stops(&self) -> Option<f64> {
-        let maker33 = self.hdr_headroom?;
-        let maker48 = self.hdr_gain;
-        let stops = if maker33 < 1.0 {
-            if maker48 <= 0.01 {
-                -20.0 * maker48 + 1.8
-            } else {
-                -0.101 * maker48 + 1.601
-            }
-        } else if maker48 <= 0.01 {
-            -70.0 * maker48 + 3.0
-        } else {
-            -0.44 * maker48 + 2.86
-        };
-        // Clamp to non-negative without pulling in `f64::max` (std-only in no_std).
-        Some(if stops > 0.0 { stops } else { 0.0 })
+        zenmeta::apple::compatibility::headroom_stops(&self.as_shared())
+    }
+
+    fn as_shared(&self) -> zenmeta::apple::AppleHdrInfo {
+        zenmeta::apple::AppleHdrInfo {
+            hdr_headroom: self.hdr_headroom,
+            hdr_gain: self.hdr_gain,
+            hdr_image_type: self.hdr_image_type,
+        }
+    }
+
+    fn from_shared(info: zenmeta::apple::AppleHdrInfo) -> Self {
+        Self {
+            hdr_headroom: info.hdr_headroom,
+            hdr_gain: info.hdr_gain,
+            hdr_image_type: info.hdr_image_type,
+        }
     }
 
     /// Whether `HDRImageType` marks this as the HDR rendition (`3`).
@@ -133,15 +138,7 @@ pub fn from_apple_headroom(info: &AppleHdrInfo) -> Option<GainMapMetadata> {
 /// IFD. Returns `None` if the bytes are not a parseable TIFF, lack an Apple
 /// MakerNote, or carry no HDR tags.
 pub fn parse_exif_for_apple_hdr(exif: &[u8]) -> Option<AppleHdrInfo> {
-    let (tiff, endian) = tiff_start(exif)?;
-    // IFD0 offset is the u32 at byte 4 of the TIFF header.
-    let ifd0_off = endian.u32(tiff, 4)? as usize;
-    // Find the Exif sub-IFD pointer in IFD0.
-    let (_, _, exif_ptr) = ifd_find(tiff, endian, ifd0_off, TIFF_TAG_EXIF_IFD)?;
-    let exif_ifd_off = endian.u32(&exif_ptr, 0)? as usize;
-    // Find the MakerNote blob in the Exif sub-IFD.
-    let (_, _, maker) = ifd_find(tiff, endian, exif_ifd_off, TIFF_TAG_MAKERNOTE)?;
-    parse_apple_makernote(&maker)
+    zenmeta::apple::compatibility::parse_exif_for_apple_hdr(exif).map(AppleHdrInfo::from_shared)
 }
 
 /// Parse an Apple iOS MakerNote blob (`"Apple iOS\0"` + version + byte-order
@@ -153,204 +150,7 @@ pub fn parse_exif_for_apple_hdr(exif: &[u8]) -> Option<AppleHdrInfo> {
 /// (`maker[0]`). Returns `None` only if the blob is not a recognizable Apple
 /// MakerNote; a malformed individual entry is skipped, not fatal.
 pub fn parse_apple_makernote(maker: &[u8]) -> Option<AppleHdrInfo> {
-    if maker.len() < 20 || &maker[..10] != b"Apple iOS\0" {
-        return None;
-    }
-    let bo = 12;
-    let endian = match (maker[bo], maker[bo + 1]) {
-        (b'M', b'M') => Endian::Big,
-        (b'I', b'I') => Endian::Little,
-        _ => return None,
-    };
-    // IFD data is relative to the byte-order marker.
-    let tiff = &maker[bo..];
-    // Apple uses either a standard TIFF magic (42 → IFD offset at byte 4) or a
-    // custom layout where the entry count begins at byte 2.
-    let ifd_off = if endian.u16(tiff, 2)? == 42 {
-        endian.u32(tiff, 4)? as usize
-    } else {
-        2
-    };
-
-    let mut info = AppleHdrInfo::default();
-    let count = endian.u16(tiff, ifd_off)? as usize;
-    let entries = ifd_off + 2;
-    // Walk entries defensively: a single malformed entry (Apple ships some with
-    // invalid TIFF types, e.g. format 16) must not abort the whole parse. We
-    // only read the value for the three HDR tags and skip everything else.
-    for i in 0..count {
-        let e = entries + i * 12;
-        if e + 12 > tiff.len() {
-            break;
-        }
-        let Some(tag) = endian.u16(tiff, e) else {
-            break;
-        };
-        if tag != tags::HDR_HEADROOM && tag != tags::HDR_GAIN && tag != tags::HDR_IMAGE_TYPE {
-            continue;
-        }
-        let (Some(dtype), Some(n)) = (endian.u16(tiff, e + 2), endian.u32(tiff, e + 4)) else {
-            continue;
-        };
-        let total = type_size(dtype).saturating_mul(n as usize);
-        let value = if total <= 4 {
-            // Inline value lives in the entry's 4-byte value cell.
-            match tiff.get(e + 8..e + 8 + total.min(4)) {
-                Some(v) => v.to_vec(),
-                None => continue,
-            }
-        } else {
-            // Out-of-line: the offset is relative to the MakerNote start
-            // (`maker[0]`, the "Apple iOS\0" byte), not the byte-order marker
-            // at offset 12. (Verified against iPhone 8/13/16/17 captures.)
-            let Some(off) = endian.u32(tiff, e + 8) else {
-                continue;
-            };
-            match maker.get(off as usize..(off as usize).saturating_add(total)) {
-                Some(v) => v.to_vec(),
-                None => continue,
-            }
-        };
-        match tag {
-            tags::HDR_HEADROOM => info.hdr_headroom = read_rational(&value, dtype, endian),
-            tags::HDR_GAIN => {
-                if let Some(g) = read_rational(&value, dtype, endian) {
-                    info.hdr_gain = g;
-                }
-            }
-            tags::HDR_IMAGE_TYPE => info.hdr_image_type = read_int(&value, dtype, endian),
-            _ => {}
-        }
-    }
-    Some(info)
-}
-
-// ── TIFF/IFD primitives ──────────────────────────────────────────────────
-
-/// Endianness of a TIFF/IFD structure.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Endian {
-    Big,
-    Little,
-}
-
-impl Endian {
-    fn u16(self, b: &[u8], o: usize) -> Option<u16> {
-        let s = b.get(o..o + 2)?;
-        let a = [s[0], s[1]];
-        Some(match self {
-            Endian::Big => u16::from_be_bytes(a),
-            Endian::Little => u16::from_le_bytes(a),
-        })
-    }
-
-    fn u32(self, b: &[u8], o: usize) -> Option<u32> {
-        let s = b.get(o..o + 4)?;
-        let a = [s[0], s[1], s[2], s[3]];
-        Some(match self {
-            Endian::Big => u32::from_be_bytes(a),
-            Endian::Little => u32::from_le_bytes(a),
-        })
-    }
-
-    fn i32(self, b: &[u8], o: usize) -> Option<i32> {
-        self.u32(b, o).map(|v| v as i32)
-    }
-}
-
-/// TIFF data type → element size in bytes (TIFF 6.0 + BigTIFF extensions used
-/// by EXIF). Unknown types fall back to 1 to stay within bounds.
-fn type_size(dtype: u16) -> usize {
-    match dtype {
-        1 | 2 | 6 | 7 => 1, // BYTE, ASCII, SBYTE, UNDEFINED
-        3 | 8 => 2,         // SHORT, SSHORT
-        4 | 9 | 11 => 4,    // LONG, SLONG, FLOAT
-        5 | 10 | 12 => 8,   // RATIONAL, SRATIONAL, DOUBLE
-        _ => 1,
-    }
-}
-
-/// Locate the TIFF header within an EXIF blob, tolerating a leading offset
-/// prefix (HEIF `Exif` items prepend a 4-byte `tiff_header_offset`). Returns
-/// the TIFF slice (starting at the byte-order marker) and its endianness.
-fn tiff_start(exif: &[u8]) -> Option<(&[u8], Endian)> {
-    let window = exif.len().min(16);
-    for base in 0..window {
-        match exif.get(base..base + 4) {
-            Some(b"II\x2a\x00") => return Some((&exif[base..], Endian::Little)),
-            Some(b"MM\x00\x2a") => return Some((&exif[base..], Endian::Big)),
-            _ => {}
-        }
-    }
-    None
-}
-
-/// Find an IFD entry by tag and return `(dtype, count, value_bytes)`. Value
-/// bytes are read inline (≤ 4 bytes) or from the pointed-to offset (relative
-/// to the TIFF start). `None` if the tag is absent or the data is truncated.
-fn ifd_find(tiff: &[u8], endian: Endian, ifd_off: usize, want: u16) -> Option<(u16, u32, Vec<u8>)> {
-    let count = endian.u16(tiff, ifd_off)? as usize;
-    let entries = ifd_off + 2;
-    for i in 0..count {
-        let e = entries + i * 12;
-        if e + 12 > tiff.len() {
-            break;
-        }
-        if endian.u16(tiff, e)? != want {
-            continue;
-        }
-        let dtype = endian.u16(tiff, e + 2)?;
-        let n = endian.u32(tiff, e + 4)?;
-        let total = type_size(dtype) * n as usize;
-        let value = if total <= 4 {
-            tiff.get(e + 8..e + 8 + total.min(4))?.to_vec()
-        } else {
-            let off = endian.u32(tiff, e + 8)? as usize;
-            tiff.get(off..off + total)?.to_vec()
-        };
-        return Some((dtype, n, value));
-    }
-    None
-}
-
-/// Read a rational (`5` = unsigned, `10` = signed) as `f64`. Apple writes
-/// `HDRHeadroom`/`HDRGain` as `rational64s` (type 10). Returns `None` on a
-/// zero denominator or short data.
-fn read_rational(value: &[u8], dtype: u16, endian: Endian) -> Option<f64> {
-    if value.len() < 8 {
-        return None;
-    }
-    match dtype {
-        10 => {
-            let num = endian.i32(value, 0)?;
-            let den = endian.i32(value, 4)?;
-            if den == 0 {
-                None
-            } else {
-                Some(num as f64 / den as f64)
-            }
-        }
-        5 => {
-            let num = endian.u32(value, 0)?;
-            let den = endian.u32(value, 4)?;
-            if den == 0 {
-                None
-            } else {
-                Some(num as f64 / den as f64)
-            }
-        }
-        _ => None,
-    }
-}
-
-/// Read a small integer tag (`HDRImageType` is `int32s`/SHORT) as `i32`.
-fn read_int(value: &[u8], dtype: u16, endian: Endian) -> Option<i32> {
-    match dtype {
-        3 | 8 => endian.u16(value, 0).map(|v| v as i32),
-        4 | 9 => endian.i32(value, 0),
-        1 | 6 => value.first().map(|&b| b as i32),
-        _ => None,
-    }
+    zenmeta::apple::compatibility::parse_apple_makernote(maker).map(AppleHdrInfo::from_shared)
 }
 
 #[cfg(test)]

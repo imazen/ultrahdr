@@ -128,19 +128,19 @@ fn apply_gain_inner(
 
         // Gather gains from LUT (8 scalar lookups -> SIMD vector)
         let gains: [f32; LANES] = core::array::from_fn(|i| lut[gainmap[base + i] as usize]);
-        let g = f32x8::from_array(token, gains);
+        let g = f32x8::from_array_t(token, gains);
 
         // Load R channel (strided gather - every 3rd element starting at [0])
         let r: [f32; LANES] = core::array::from_fn(|i| sdr[base + i][0]);
-        let r_v = f32x8::from_array(token, r);
+        let r_v = f32x8::from_array_t(token, r);
 
         // Load G channel
         let g_ch: [f32; LANES] = core::array::from_fn(|i| sdr[base + i][1]);
-        let g_v = f32x8::from_array(token, g_ch);
+        let g_v = f32x8::from_array_t(token, g_ch);
 
         // Load B channel
         let b: [f32; LANES] = core::array::from_fn(|i| sdr[base + i][2]);
-        let b_v = f32x8::from_array(token, b);
+        let b_v = f32x8::from_array_t(token, b);
 
         // Apply gain: output = sdr * gain
         let r_out = r_v * g;

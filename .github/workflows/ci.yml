@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, master]
   pull_request:
@@ -253,3 +254,37 @@ jobs:
 
       - name: Check MSRV
         run: cargo check -p ultrahdr-core
+
+  metadata-policy:
+    name: Metadata policy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-11-arm, macos-26-intel]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test metadata policy
+        run: cargo test -p ultrahdr-rs --test encoder_production
+      - name: Clippy metadata consumer
+        run: cargo clippy -p ultrahdr-rs --all-targets -- -D warnings
+      - name: Install independent reader
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libimage-exiftool-perl
+      - name: Verify regenerated MPF
+        if: runner.os == 'Linux'
+        env:
+          ULTRAHDR_METADATA_ORACLE: exiftool
+        run: cargo test -p ultrahdr-rs --test encoder_production privacy_filter_preserves_scans_parameters_and_both_image_boundaries
+
+  metadata-policy-i686:
+    name: Metadata policy (i686)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cross
+      - uses: Swatinem/rust-cache@v2
+      - run: cross test -p ultrahdr-rs --target i686-unknown-linux-gnu --test encoder_production

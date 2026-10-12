@@ -12,13 +12,32 @@ own section below.
 
 ### [Unreleased]
 
+#### QUEUED BREAKING CHANGES
+- None introduced by the shared metadata extraction; published Apple/plist
+  types and functions remain in place. Parser corrections are listed below.
+
 #### Added
 - **Content-fit gain-map grid** (`compute_gainmap_content_fit` + `CONTENT_FIT_MIN_SPAN_STOPS`; zensim campaign appendix AA "measure, don't configure"): the quantization grid is SELECTED from the MEASURED content gain range (one extra subsampled gain scan, bit-identical math shared with the ordinary encode) with the config `min_boost..=max_boost` as the outer policy bound. Spends the 8-bit code space on gains that exist — a ~2-stop content on the 10,000-nit default grid gets ~2.8× finer quantization — and is interop-safe by construction: the declared metadata is exactly the narrowed grid the bytes were quantized on (#33 invariant untouched). Uniform content is guarded to a 1/16-stop minimum span. `compute_gainmap`/`compute_gainmap_slice` behavior is byte-identical to before (they share a new `compute_gainmap_slice_observed` core). Tests: measured-not-configured declaration, precision-beats-config, uniform-content non-degeneracy, span-constant pin.
 
 #### Changed
+- Align the temporary zencodec/zenmeta pins with the shared gain-map XMP
+  integration and inventory resource categories (`c1c3292f`) so codec consumers
+  use one contract crate instance.
+- Apple MakerNote and binary-plist implementation delegates to zenmeta while
+  retaining the published `AppleHdrInfo`, `PlistValue`, tags and function paths.
+  Apple parsing uses explicit 0.6.0 compatibility rules; strict inspection is
+  available directly from zenmeta. No zenmeta types appear in this crate's API.
 - Minimum `zencodec` is now `0.1.26` (the published two-level `ErrorCategory` taxonomy), via the workspace dependency; see the Workspace section.
 
 #### Fixed
+- SIMD feature and benchmark builds use magetypes 0.9.30 token constructors
+  (`from_array_t`, `splat_t`), fixing warnings-as-errors in fresh CI resolution.
+  These replace deprecated forwarding aliases without changing arithmetic.
+- Shared binary-plist parsing bounds input/output expansion and visits, uses
+  fallible allocation, checks offset arithmetic, and rejects values crossing
+  the object table. Wide integer/UID values now use the documented low 64 bits;
+  malformed date markers and oversized lengths are rejected. These are behavior
+  corrections relative to ultrahdr-core 0.6.0, not merely source movement.
 - **Gain-map metadata now declares the range the bytes were actually quantized on (#33).** The encode kernel has always normalized gain-map bytes over the CONFIG boost grid (`GainMapConfig::min_boost ..= max_boost`), but `compute_gainmap`, `RowEncoder::finish`, and `StreamEncoder::finish` stored the content's observed (actual) gain range in the per-channel metadata `min`/`max` — the fields every conformant reader dequantizes on. Whenever the content range was narrower than the config range (almost always with `ultrahdr-rs`'s 10,000-nit default `target_display_peak`), every reader — including this workspace's own decoder — reconstructed under-boosted: a 2000-nit ramp decoded at ~732 nits. All three sites now declare the config grid via a shared helper (`metadata_for_config_grid`); the observed content max only widens `alternate_hdr_headroom`. Gain-map **bytes are unchanged** — only the declared mapping moved, so the single-pass row/streaming contracts and the `compute_gain_row` batch-parity guarantee are intact. Round-trip gates: 2000-nit ramp now decodes at 1976.3 nits (HDR-only and SDR+HDR paths), a 2000-nit specular highlight in a structured scene at 1858.9 nits.
 - `StreamEncoder::finish` (deprecated, `#[doc(hidden)]`) previously hardcoded `base_hdr_headroom = 0.0` and derived `alternate_hdr_headroom` from the content max alone, ignoring the configured headrooms; it now shares the same config-driven metadata derivation as the other encode paths. (#33)
 
@@ -265,6 +284,21 @@ through this section ships together now, including the f16-gating and
 ## ultrahdr-rs
 
 ### [Unreleased]
+
+#### QUEUED BREAKING CHANGES
+- Relative to published 0.3.5, existing main removes container MPF types and
+  four helper functions (`2b7df54`), changes returns to `At<Error>` (`60b642f`),
+  and gates f16 output. The local 0.4.1 heading below is not a registry baseline.
+  See [the API audit](docs/metadata-integration.md). The new policy function is
+  additive and exposes no zenmeta types.
+
+#### Added
+
+- Reuse PR35's `encode_ultrahdr_with_metadata_policy`: filter both encoded
+  JPEG components, retain rendering parameters, and regenerate XMP/ISO/MPF.
+  The generic display-retention check delegates privately to zenmeta; codec
+  framing remains in zenjpeg, pinned to the coordinated revision `db07f503`.
+  ExifTool follows the regenerated MPF to exactly the retained secondary JPEG.
 
 #### Changed
 - Minimum `zencodec` is now `0.1.26` (the published two-level `ErrorCategory` taxonomy), via the workspace dependency; see the Workspace section.

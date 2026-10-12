@@ -26,6 +26,8 @@ exclude = [
 ]
 
 [dependencies]
+# Private implementation; shared types remain owned by zencodec.
+zenmeta = { git = "https://github.com/imazen/zencodec", rev = "a81daf7605dc63074d4a39757e7b4399057d4a8f", version = "0.1.0", default-features = false }
 # Core gain map math and metadata
 ultrahdr-core = { workspace = true }
 
@@ -61,7 +63,7 @@ fast-ssim2 = { workspace = true }
 # `../zentone` and `../zenjpeg` first.
 zenutils-fuzz = "0.1.0"
 zenjpeg = { workspace = true }
-zencodec = ">=0.1.26, <0.3.0"
+zencodec = { workspace = true }
 
 # WASM testing
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
