@@ -20,7 +20,7 @@ path = "../ultrahdr-rs"
 
 [dependencies.zenjpeg]
 git = "https://github.com/imazen/zenjpeg"
-rev = "db07f503e3a4127db54a34c43ab2b013c7c78c69"
+rev = "2964b1a6d76df3afccf09053f9d5ebb3a3fa60bd"
 
 [dependencies.zencodec]
 version = ">=0.1.26, <0.3.0"
@@ -39,7 +39,7 @@ members = ["."]
 # 0.2.0 publishes; keep in step with the root manifest.
 [patch.crates-io]
 ultrahdr-core = { path = "../ultrahdr-core" }
-zencodec = { git = "https://github.com/imazen/zencodec", rev = "c1c3292ff10f386191780ad407526951165da47a" }
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "a31a9b680e54d5fea555c44b0d70c65802087df3" }
 zenanalyze = { git = "https://github.com/imazen/zenanalyze" }
 
 [profile.release]
