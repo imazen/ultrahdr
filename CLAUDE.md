@@ -12,6 +12,10 @@
 
 ## Known Bugs
 
+- Metadata integration CI exposed deprecated magetypes constructor calls in
+  SIMD-only code and benchmarks. The 0.9.30 token constructors replace their
+  forwarding aliases; keep the SIMD all-target check in the validation set.
+
 - Metadata extraction: the released binary-plist reader had unchecked value-end
   arithmetic and depth-only bounds on repeated-reference expansion. zenmeta now
   owns the corrected parser; ultrahdr retains its public `PlistValue` through a

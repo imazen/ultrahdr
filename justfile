@@ -124,3 +124,7 @@ metadata-fuzz-check:
 metadata-regression-check:
     cargo test -p ultrahdr-rs --test fuzz_regression
     cargo check --manifest-path fuzz/Cargo.toml --bins
+
+metadata-simd-ci:
+    cargo test -p ultrahdr-core --all-targets --features simd
+    cargo clippy -p ultrahdr-core --all-targets --features simd -- -D warnings

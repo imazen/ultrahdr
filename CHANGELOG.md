@@ -29,6 +29,9 @@ own section below.
 - Minimum `zencodec` is now `0.1.26` (the published two-level `ErrorCategory` taxonomy), via the workspace dependency; see the Workspace section.
 
 #### Fixed
+- SIMD feature and benchmark builds use magetypes 0.9.30 token constructors
+  (`from_array_t`, `splat_t`), fixing warnings-as-errors in fresh CI resolution.
+  These replace deprecated forwarding aliases without changing arithmetic.
 - Shared binary-plist parsing bounds input/output expansion and visits, uses
   fallible allocation, checks offset arithmetic, and rejects values crossing
   the object table. Wide integer/UID values now use the documented low 64 bits;

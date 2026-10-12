@@ -38,8 +38,8 @@ enough = "0.4"
 half = { version = "2.7.1", optional = true, default-features = false }
 
 # SIMD (optional - for explicit SIMD optimizations)
-archmage = { version = "0.9.16", default-features = false, features = ["macros"], optional = true }
-magetypes = { version = "0.9.16", default-features = false, optional = true }
+archmage = { version = "0.9.30", default-features = false, features = ["macros"], optional = true }
+magetypes = { version = "0.9.30", default-features = false, optional = true }
 
 # Types
 bytemuck = { version = "1.25.2", features = ["derive"] }
