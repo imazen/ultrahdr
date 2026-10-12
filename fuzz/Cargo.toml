@@ -19,7 +19,8 @@ features = ["std"]
 path = "../ultrahdr-rs"
 
 [dependencies.zenjpeg]
-path = "../../zenjpeg/zenjpeg"
+git = "https://github.com/imazen/zenjpeg"
+rev = "007920fb63fbfa839ecc7cd111b5a6db731b8ecc"
 
 [dependencies.zencodec]
 version = ">=0.1.26, <0.3.0"
@@ -37,6 +38,8 @@ members = ["."]
 # zenanalyze = "^0.2.0"` (crates.io latest is 0.1.0). Drop when zenanalyze
 # 0.2.0 publishes; keep in step with the root manifest.
 [patch.crates-io]
+ultrahdr-core = { path = "../ultrahdr-core" }
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "4954cce1e5127c0780df09befcf90a5442ad96f1" }
 zenanalyze = { git = "https://github.com/imazen/zenanalyze" }
 
 [profile.release]

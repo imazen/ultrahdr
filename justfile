@@ -102,3 +102,25 @@ wasm-wasmer:
     @echo "Building WASM..."
     cargo build --package ultrahdr-core --target wasm32-wasip1 --release
     @echo "Note: wasmer module execution requires a .wasm binary, not .rlib"
+
+# Shared metadata wrappers must retain the published ultrahdr-owned API.
+metadata-check:
+    cargo test -p ultrahdr-core --lib metadata
+    cargo check -p ultrahdr-core --no-default-features
+    cargo clippy -p ultrahdr-core --lib -- -D warnings
+
+metadata-semver:
+    cargo semver-checks check-release --manifest-path ultrahdr-core/Cargo.toml -p ultrahdr-core --baseline-version 0.6.0 --all-features
+
+metadata-consumer-check:
+    cargo test -p ultrahdr-core --lib
+    cargo check -p ultrahdr-core --no-default-features --target wasm32-wasip1
+    cargo check --manifest-path fuzz/Cargo.toml --bins
+
+metadata-fuzz-check:
+    cargo update --manifest-path fuzz/Cargo.toml
+    cargo check --manifest-path fuzz/Cargo.toml --bins
+
+metadata-regression-check:
+    cargo test -p ultrahdr-rs --test fuzz_regression
+    cargo check --manifest-path fuzz/Cargo.toml --bins
