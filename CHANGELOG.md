@@ -21,7 +21,8 @@ own section below.
 
 #### Changed
 - Align the temporary zencodec/zenmeta pins with the shared gain-map XMP
-  integration (`702a6260`) so codec consumers use one contract crate instance.
+  integration and inventory resource categories (`c1c3292f`) so codec consumers
+  use one contract crate instance.
 - Apple MakerNote and binary-plist implementation delegates to zenmeta while
   retaining the published `AppleHdrInfo`, `PlistValue`, tags and function paths.
   Apple parsing uses explicit 0.6.0 compatibility rules; strict inspection is
@@ -283,6 +284,21 @@ through this section ships together now, including the f16-gating and
 ## ultrahdr-rs
 
 ### [Unreleased]
+
+#### QUEUED BREAKING CHANGES
+- Relative to published 0.3.5, existing main removes container MPF types and
+  four helper functions (`2b7df54`), changes returns to `At<Error>` (`60b642f`),
+  and gates f16 output. The local 0.4.1 heading below is not a registry baseline.
+  See [the API audit](docs/metadata-integration.md). The new policy function is
+  additive and exposes no zenmeta types.
+
+#### Added
+
+- Reuse PR35's `encode_ultrahdr_with_metadata_policy`: filter both encoded
+  JPEG components, retain rendering parameters, and regenerate XMP/ISO/MPF.
+  The generic display-retention check delegates privately to zenmeta; codec
+  framing remains in zenjpeg, pinned to the coordinated revision `db07f503`.
+  ExifTool follows the regenerated MPF to exactly the retained secondary JPEG.
 
 #### Changed
 - Minimum `zencodec` is now `0.1.26` (the published two-level `ErrorCategory` taxonomy), via the workspace dependency; see the Workspace section.
