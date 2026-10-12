@@ -55,7 +55,7 @@ linear-srgb = { version = "0.6.12", default-features = false, features = ["trans
 
 # Zen ecosystem interop
 zenpixels = { version = ">=0.2.14, <0.4.0", default-features = false }
-zencodec = { git = "https://github.com/imazen/zencodec", rev = "4954cce1e5127c0780df09befcf90a5442ad96f1", version = ">=0.1.26, <0.3.0" }
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "702a626049cd81f1200895b47931b751b660a776", version = ">=0.1.26, <0.3.0" }
 zenresize = { version = "0.2.2", default-features = false }
 
 # Testing
@@ -65,7 +65,7 @@ criterion = "0.8.2"
 
 [patch.crates-io]
 ultrahdr-core = { path = "ultrahdr-core" }
-zencodec = { git = "https://github.com/imazen/zencodec", rev = "4954cce1e5127c0780df09befcf90a5442ad96f1" }
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "702a626049cd81f1200895b47931b751b660a776" }
 # zenjpeg (a path sibling) depends on `zenanalyze = "0.2.0"` from the registry
 # and supplies it through its OWN `[patch.crates-io]`. A dependency's patch
 # table is ignored when that dependency is consumed as a path dep — only the

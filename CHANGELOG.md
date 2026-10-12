@@ -20,6 +20,8 @@ own section below.
 - **Content-fit gain-map grid** (`compute_gainmap_content_fit` + `CONTENT_FIT_MIN_SPAN_STOPS`; zensim campaign appendix AA "measure, don't configure"): the quantization grid is SELECTED from the MEASURED content gain range (one extra subsampled gain scan, bit-identical math shared with the ordinary encode) with the config `min_boost..=max_boost` as the outer policy bound. Spends the 8-bit code space on gains that exist — a ~2-stop content on the 10,000-nit default grid gets ~2.8× finer quantization — and is interop-safe by construction: the declared metadata is exactly the narrowed grid the bytes were quantized on (#33 invariant untouched). Uniform content is guarded to a 1/16-stop minimum span. `compute_gainmap`/`compute_gainmap_slice` behavior is byte-identical to before (they share a new `compute_gainmap_slice_observed` core). Tests: measured-not-configured declaration, precision-beats-config, uniform-content non-degeneracy, span-constant pin.
 
 #### Changed
+- Align the temporary zencodec/zenmeta pins with the shared gain-map XMP
+  integration (`702a6260`) so codec consumers use one contract crate instance.
 - Apple MakerNote and binary-plist implementation delegates to zenmeta while
   retaining the published `AppleHdrInfo`, `PlistValue`, tags and function paths.
   Apple parsing uses explicit 0.6.0 compatibility rules; strict inspection is
