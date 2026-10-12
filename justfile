@@ -147,3 +147,7 @@ metadata-policy-targets:
     CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_RUNNER=env cargo test -p ultrahdr-rs --target i686-unknown-linux-gnu --test encoder_production
     cargo test -p ultrahdr-rs --doc
     just api-doc
+
+metadata-directory-dependency-check:
+    just metadata-check
+    cargo check --workspace
