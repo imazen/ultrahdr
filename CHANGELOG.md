@@ -12,6 +12,10 @@ own section below.
 
 ### [Unreleased]
 
+### Changed
+
+- Align temporary zencodec/zenmeta and JPEG revisions with the shared contract test suite, preserving a single gain-map type identity for HEIC consumers. Replace git pins with released versions before publication.
+
 #### QUEUED BREAKING CHANGES
 - None introduced by the shared metadata extraction; published Apple/plist
   types and functions remain in place. Parser corrections are listed below.

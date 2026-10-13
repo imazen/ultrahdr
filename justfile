@@ -151,3 +151,9 @@ metadata-policy-targets:
 metadata-directory-dependency-check:
     just metadata-check
     cargo check --workspace
+
+# Check one shared metadata type identity through HDR and JPEG consumers.
+shared-contract-check:
+    cargo test -p ultrahdr-core --lib
+    cargo check -p ultrahdr-rs --features zencodec
+    cargo clippy -p ultrahdr-core --lib -- -D warnings
