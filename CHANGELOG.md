@@ -14,6 +14,7 @@ own section below.
 
 ### Dependency integration
 
+- Move the temporary zencodec/zenmeta pins to `fa49f7ce` (zencodec's `WholeFileIncremental`, PR 148) and the zenjpeg pin to its matching branch (`24181558`), so HEIC can adopt incremental decode with one gain-map type identity.
 - Align temporary zencodec/zenmeta/testkit pins with the checked fidelity and operation-matrix contracts (`4fda4391`). Replace coordinated git pins with released versions before publication.
 
 
