@@ -8,7 +8,7 @@ Pure-Rust encoder and decoder for [Ultra HDR](https://developer.android.com/medi
 
 ## Acknowledgments
 
-Built on the foundation of Google's [Ultra HDR Image Format specification](https://developer.android.com/media/platform/hdr-image-format) and the [libultrahdr](https://github.com/google/libultrahdr) reference implementation (BSD-3-Clause). The gain map math, ISO 21496-1 metadata layout, and most of the algorithm choices follow libultrahdr directly. This Rust port would not exist without that work.
+Built on the foundation of the [Ultra HDR Image Format specification](https://developer.android.com/media/platform/hdr-image-format) and the [libultrahdr](https://github.com/google/libultrahdr) reference implementation (BSD-3-Clause) by Dichen Zhang, Ram Mohan and contributors. The gain map math, ISO 21496-1 metadata layout, and most of the algorithm choices follow libultrahdr directly. This Rust port would not exist without that work.
 
 The wire format is also defined by ISO/IEC 21496-1 (Gain map metadata for image conversion), which formalizes the on-disk gain map interchange.
 
@@ -292,7 +292,7 @@ Bit-exact `applyGain` and `applyGainCore` parity against libultrahdr and libavif
 - `simd` — forwards to `ultrahdr-core/simd`.
 - `f16` — forwards to `ultrahdr-core/f16`. Enables `RgbaF16`/`RgbF16` input and `decode_hdr_with_format(boost, HdrOutputFormat::LinearF16)`. Default-off.
 - `tonemap-bt2446a` — forwards to `ultrahdr-core/tonemap-bt2446a`. Adds `Decoder::decode_full_sdr` (HDR→SDR via the audited-winner Bt2446A curve + `measure_max` peak measurement) and pulls in `zenpixels-convert` at the audited HDR commit. Default-off to keep transitive deps minimal.
-- `__pixel-parity` — runs pixel-parity tests against Google's `ultrahdr_app` subprocess (CI only, requires the binary on `PATH`).
+- `__pixel-parity` — runs pixel-parity tests against the libultrahdr `ultrahdr_app` subprocess (CI only, requires the binary on `PATH`).
 - `zencodec` — opt-in `zencodec` trait integration for the unified codec dispatch in `zencodecs`.
 
 ## Compatibility
@@ -300,7 +300,7 @@ Bit-exact `applyGain` and `applyGainCore` parity against libultrahdr and libavif
 - MSRV 1.92 (workspace `rust-version`).
 - Edition 2024.
 - `#![forbid(unsafe_code)]` in both crates.
-- CI tests: Linux x86_64, Linux aarch64, Windows x86_64, Windows aarch64 (`windows-11-arm`), macOS Intel, macOS aarch64, plus `i686-unknown-linux-gnu` (32-bit), WASM, and a Gain Map Interop workflow that runs pixel-parity tests against Google's `ultrahdr_app`.
+- CI tests: Linux x86_64, Linux aarch64, Windows x86_64, Windows aarch64 (`windows-11-arm`), macOS Intel, macOS aarch64, plus `i686-unknown-linux-gnu` (32-bit), WASM, and a Gain Map Interop workflow that runs pixel-parity tests against the libultrahdr `ultrahdr_app`.
 
 ## Links
 
@@ -316,7 +316,7 @@ Apache-2.0. See [`LICENSE`](https://github.com/imazen/ultrahdr/blob/main/LICENSE
 
 ## AI-Generated Code Notice
 
-Parts of this library were developed with assistance from Claude (Anthropic). The implementation has been tested against reference Ultra HDR images, libultrahdr / libavif goldens, and Google's `ultrahdr_app` for pixel parity. Not all code has been manually reviewed — please review critical paths before production use.
+Parts of this library were developed with assistance from Claude (Anthropic). The implementation has been tested against reference Ultra HDR images, libultrahdr / libavif goldens, and the libultrahdr `ultrahdr_app` for pixel parity. Not all code has been manually reviewed — please review critical paths before production use.
 
 ## Image tech I maintain
 

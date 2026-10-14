@@ -268,8 +268,8 @@ fn libultrahdr_compute_gain_documented_divergence() {
 
 #[test]
 fn cross_check_libultrahdr_libavif_agree_on_apply() {
-    // The two CSVs were extracted from independent C++ codebases (Google's
-    // libultrahdr vs AOMediaCodec's libavif) but with metadata configured
+    // The two CSVs were extracted from independent C++ codebases (the
+    // libultrahdr project vs AOMediaCodec's libavif) but with metadata configured
     // to be the same physical gain (1× to 4× boost, offsets 1/64, gamma 1).
     // For every shared `(gain, base)` point at weight=1, the two implementations
     // must produce the same output — this is the cross-check that proves
