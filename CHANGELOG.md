@@ -295,6 +295,10 @@ through this section ships together now, including the f16-gating and
 
 ### [Unreleased]
 
+### Added
+
+- Incremental decode: `UltraHdrDecodeJob::dyn_incremental_decoder` returns zencodec's `WholeFileIncremental` and the decode capabilities declare `incremental`. `HeaderReady` comes as soon as a prefix probes; rows come from `push_decoder` once the whole file (primary image and gain map) is offered. `tests/sansio.rs` runs the testkit's incremental contract on both committed Ultra HDR JPEGs; CI now runs the zencodec adapter tests and clippy with feature `zencodec`.
+
 #### Fixed
 
 - Align the JPEG dependency with the shared metadata revision so the full encoder/decoder and fuzz workspace use the same gain-map type as ultrahdr-core.

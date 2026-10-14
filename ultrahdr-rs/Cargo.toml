@@ -52,6 +52,8 @@ enough = { workspace = true }
 [dev-dependencies]
 # Testing (WASM-compatible)
 fast-ssim2 = { workspace = true }
+# zencodec conformance harness (`tests/sansio.rs`, feature `zencodec`).
+zencodec-testkit = ">=0.1.0, <0.3.0"
 
 # `tests/fuzz_regression.rs` — replays the committed `fuzz/regression/` seeds
 # through every fuzz-target entry point on the stable toolchain. Three of the

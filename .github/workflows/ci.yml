@@ -269,6 +269,10 @@ jobs:
         run: cargo test -p ultrahdr-rs --test encoder_production
       - name: Clippy metadata consumer
         run: cargo clippy -p ultrahdr-rs --all-targets -- -D warnings
+      - name: Test zencodec adapter
+        run: cargo test -p ultrahdr-rs --features zencodec --test zencodec_integration --test zencodec_limits --test sansio
+      - name: Clippy zencodec adapter
+        run: cargo clippy -p ultrahdr-rs --all-targets --features zencodec -- -D warnings
       - name: Install independent reader
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libimage-exiftool-perl
