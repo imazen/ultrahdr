@@ -41,7 +41,7 @@ bytemuck = { version = "1.25.2", features = ["derive"] }
 thiserror = "2.0.20"
 
 # Pin the codec while the metadata stack is integrated across repositories.
-zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "f975bcce48e00ece4904f053fc14a9725381b6af", version = "0.9.0" }
+zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "4448f42eccb033e70eabbc87c47eac9b15d4da54", version = "0.9.0" }
 
 # Color management
 moxcms = ">=0.8.1, <0.10"

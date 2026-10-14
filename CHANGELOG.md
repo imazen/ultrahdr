@@ -294,6 +294,11 @@ through this section ships together now, including the f16-gating and
 
 ### [Unreleased]
 
+#### Fixed
+
+- Align the JPEG dependency with the shared metadata revision so the full encoder/decoder and fuzz workspace use the same gain-map type as ultrahdr-core.
+
+
 #### QUEUED BREAKING CHANGES
 - Relative to published 0.3.5, existing main removes container MPF types and
   four helper functions (`2b7df54`), changes returns to `At<Error>` (`60b642f`),

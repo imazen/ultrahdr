@@ -118,3 +118,9 @@ ultrahdr-core instead of doing its own parallel container parsing.
 ### Medium Priority Decoder Tests (not yet covered)
 - [ ] JPEG with multiple XMP segments (which one wins?)
 - [ ] JPEG with corrupted segment markers (invalid marker bytes)
+
+### Shared metadata dependency identity
+
+Core-only tests cannot detect mismatched JPEG metadata types in ultrahdr-rs.
+After changing shared contract pins, compile the full workspace and standalone
+fuzz workspace too; both JPEG pins must match the core metadata revision.
