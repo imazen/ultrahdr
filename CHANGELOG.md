@@ -12,6 +12,11 @@ own section below.
 
 ### [Unreleased]
 
+### Dependency integration
+
+- Align temporary zencodec/zenmeta/testkit pins with the checked fidelity and operation-matrix contracts (`4fda4391`). Replace coordinated git pins with released versions before publication.
+
+
 ### Changed
 
 - Align temporary zencodec/zenmeta and JPEG revisions with the shared contract test suite, preserving a single gain-map type identity for HEIC consumers. Replace git pins with released versions before publication.
