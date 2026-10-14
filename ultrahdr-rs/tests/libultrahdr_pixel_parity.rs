@@ -1,4 +1,4 @@
-//! Pixel-and-byte-level parity against Google's `ultrahdr_app` binary.
+//! Pixel-and-byte-level parity against the libultrahdr `ultrahdr_app` binary (BSD-3-Clause).
 //!
 //! # How this file is gated
 //!
