@@ -27,7 +27,7 @@ exclude = [
 
 [dependencies]
 # Private implementation; shared types remain owned by zencodec.
-zenmeta = { git = "https://github.com/imazen/zencodec", rev = "fa49f7ce0fc75e65b88da1a0eb90b17378297ceb", version = "0.1.0", default-features = false }
+zenmeta = { git = "https://github.com/imazen/zencodec", rev = "7cc3d3ec6b41103ee8398c30b1582ebdbb6df914", version = "0.1.0", default-features = false }
 # Core gain map math and metadata
 ultrahdr-core = { workspace = true }
 

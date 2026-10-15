@@ -41,7 +41,7 @@ bytemuck = { version = "1.25.2", features = ["derive"] }
 thiserror = "2.0.20"
 
 # Pin the codec while the metadata stack is integrated across repositories.
-zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "241815585bad6d3f6e9146dd4406a325aa65eb26", version = "0.9.0" }
+zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "e63bfaf679d030ed6459e83486ea8f8dc9b67da0", version = "0.9.0" }
 
 # Color management
 moxcms = ">=0.8.1, <0.10"
@@ -55,7 +55,7 @@ linear-srgb = { version = "0.6.12", default-features = false, features = ["trans
 
 # Zen ecosystem interop
 zenpixels = { version = ">=0.2.14, <0.4.0", default-features = false }
-zencodec = { git = "https://github.com/imazen/zencodec", rev = "fa49f7ce0fc75e65b88da1a0eb90b17378297ceb", version = ">=0.1.26, <0.3.0" }
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "7cc3d3ec6b41103ee8398c30b1582ebdbb6df914", version = ">=0.1.26, <0.3.0" }
 zenresize = { version = "0.2.2", default-features = false }
 
 # Testing
@@ -68,8 +68,8 @@ criterion = "0.8.2"
 zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "8f7ee871900b54a8c9c53feafeb7664a92b116f5" }
 zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "8f7ee871900b54a8c9c53feafeb7664a92b116f5" }
 ultrahdr-core = { path = "ultrahdr-core" }
-zencodec = { git = "https://github.com/imazen/zencodec", rev = "fa49f7ce0fc75e65b88da1a0eb90b17378297ceb" }
-zencodec-testkit = { git = "https://github.com/imazen/zencodec", rev = "fa49f7ce0fc75e65b88da1a0eb90b17378297ceb" }
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "7cc3d3ec6b41103ee8398c30b1582ebdbb6df914" }
+zencodec-testkit = { git = "https://github.com/imazen/zencodec", rev = "7cc3d3ec6b41103ee8398c30b1582ebdbb6df914" }
 # zenjpeg (a path sibling) depends on `zenanalyze = "0.2.0"` from the registry
 # and supplies it through its OWN `[patch.crates-io]`. A dependency's patch
 # table is ignored when that dependency is consumed as a path dep — only the

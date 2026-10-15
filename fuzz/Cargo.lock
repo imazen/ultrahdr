@@ -466,7 +466,7 @@ dependencies = [
 [[package]]
 name = "zencodec"
 version = "0.1.27"
-source = "git+https://github.com/imazen/zencodec?rev=fa49f7ce0fc75e65b88da1a0eb90b17378297ceb#fa49f7ce0fc75e65b88da1a0eb90b17378297ceb"
+source = "git+https://github.com/imazen/zencodec?rev=7cc3d3ec6b41103ee8398c30b1582ebdbb6df914#7cc3d3ec6b41103ee8398c30b1582ebdbb6df914"
 dependencies = [
  "almost-enough",
  "enough",
@@ -478,7 +478,7 @@ dependencies = [
 [[package]]
 name = "zenjpeg"
 version = "0.9.0"
-source = "git+https://github.com/imazen/zenjpeg?rev=241815585bad6d3f6e9146dd4406a325aa65eb26#241815585bad6d3f6e9146dd4406a325aa65eb26"
+source = "git+https://github.com/imazen/zenjpeg?rev=e63bfaf679d030ed6459e83486ea8f8dc9b67da0#e63bfaf679d030ed6459e83486ea8f8dc9b67da0"
 dependencies = [
  "aligned-vec",
  "archmage",
@@ -505,7 +505,7 @@ dependencies = [
 [[package]]
 name = "zenmeta"
 version = "0.1.0"
-source = "git+https://github.com/imazen/zencodec?rev=fa49f7ce0fc75e65b88da1a0eb90b17378297ceb#fa49f7ce0fc75e65b88da1a0eb90b17378297ceb"
+source = "git+https://github.com/imazen/zencodec?rev=7cc3d3ec6b41103ee8398c30b1582ebdbb6df914#7cc3d3ec6b41103ee8398c30b1582ebdbb6df914"
 dependencies = [
  "roxmltree",
  "zencodec",
@@ -555,7 +555,7 @@ dependencies = [
 [[package]]
 name = "zenyuv"
 version = "0.1.3"
-source = "git+https://github.com/imazen/zenjpeg?rev=241815585bad6d3f6e9146dd4406a325aa65eb26#241815585bad6d3f6e9146dd4406a325aa65eb26"
+source = "git+https://github.com/imazen/zenjpeg?rev=e63bfaf679d030ed6459e83486ea8f8dc9b67da0#e63bfaf679d030ed6459e83486ea8f8dc9b67da0"
 dependencies = [
  "archmage",
  "imgref",
