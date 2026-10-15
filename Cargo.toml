@@ -65,8 +65,8 @@ criterion = "0.8.2"
 
 [patch.crates-io]
 # Shared ICC recognition used by the pinned JPEG HDR decoder.
-zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "8f7ee871900b54a8c9c53feafeb7664a92b116f5" }
-zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "8f7ee871900b54a8c9c53feafeb7664a92b116f5" }
+zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "1d3ddd2131b22e9e3754c765d4ce45ce3901de59" }
+zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "1d3ddd2131b22e9e3754c765d4ce45ce3901de59" }
 ultrahdr-core = { path = "ultrahdr-core" }
 zencodec = { git = "https://github.com/imazen/zencodec", rev = "7cc3d3ec6b41103ee8398c30b1582ebdbb6df914" }
 zencodec-testkit = { git = "https://github.com/imazen/zencodec", rev = "7cc3d3ec6b41103ee8398c30b1582ebdbb6df914" }
