@@ -14,6 +14,7 @@ own section below.
 
 ### Dependency integration
 
+- Move the temporary zencodec/zenmeta pins to `fa49f7ce` (zencodec's `WholeFileIncremental`, PR 148) and the zenjpeg pin to its matching branch (`24181558`), so HEIC can adopt incremental decode with one gain-map type identity.
 - Align temporary zencodec/zenmeta/testkit pins with the checked fidelity and operation-matrix contracts (`4fda4391`). Replace coordinated git pins with released versions before publication.
 
 
@@ -293,6 +294,10 @@ through this section ships together now, including the f16-gating and
 ## ultrahdr-rs
 
 ### [Unreleased]
+
+### Added
+
+- Incremental decode: `UltraHdrDecodeJob::dyn_incremental_decoder` returns zencodec's `WholeFileIncremental` and the decode capabilities declare `incremental`. `HeaderReady` comes as soon as a prefix probes; rows come from `push_decoder` once the whole file (primary image and gain map) is offered. `tests/sansio.rs` runs the testkit's incremental contract on both committed Ultra HDR JPEGs; CI now runs the zencodec adapter tests and clippy with feature `zencodec`.
 
 #### Fixed
 

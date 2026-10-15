@@ -27,7 +27,7 @@ exclude = [
 
 [dependencies]
 # Private implementation; shared types remain owned by zencodec.
-zenmeta = { git = "https://github.com/imazen/zencodec", rev = "4fda439133d465246174b55f62426dc54ef204dd", version = "0.1.0", default-features = false }
+zenmeta = { git = "https://github.com/imazen/zencodec", rev = "fa49f7ce0fc75e65b88da1a0eb90b17378297ceb", version = "0.1.0", default-features = false }
 # Core gain map math and metadata
 ultrahdr-core = { workspace = true }
 
@@ -52,6 +52,8 @@ enough = { workspace = true }
 [dev-dependencies]
 # Testing (WASM-compatible)
 fast-ssim2 = { workspace = true }
+# zencodec conformance harness (`tests/sansio.rs`, feature `zencodec`).
+zencodec-testkit = ">=0.1.0, <0.3.0"
 
 # `tests/fuzz_regression.rs` — replays the committed `fuzz/regression/` seeds
 # through every fuzz-target entry point on the stable toolchain. Three of the
