@@ -31,6 +31,7 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
+use enough::{Stop, Unstoppable};
 use whereat::at;
 
 use crate::color::gamut::{convert_gamut, rgb_to_luminance, soft_clip_gamut};
@@ -1097,6 +1098,18 @@ pub fn tonemap_to_srgb8(
 ///
 /// Takes an HDR image in any supported format and produces RGBA8 output.
 pub fn tonemap_image_to_srgb8(img: &PixelBuffer, target_gamut: ColorPrimaries) -> Result<Vec<u8>> {
+    tonemap_image_to_srgb8_with_stop(img, target_gamut, &Unstoppable)
+}
+
+/// [`tonemap_image_to_srgb8`] with cooperative cancellation.
+///
+/// The `stop` token is checked once per row. Cancellation surfaces as
+/// [`Error::Stopped`].
+pub fn tonemap_image_to_srgb8_with_stop(
+    img: &PixelBuffer,
+    target_gamut: ColorPrimaries,
+    stop: &impl Stop,
+) -> Result<Vec<u8>> {
     use crate::color::gamut::convert_gamut;
 
     let slice = img.as_slice();
@@ -1110,6 +1123,7 @@ pub fn tonemap_image_to_srgb8(img: &PixelBuffer, target_gamut: ColorPrimaries) -
     let mut output = vec![0u8; width * height * 4];
 
     for y in 0..height {
+        stop.check().map_err(|r| at!(Error::Stopped(r)))?;
         for x in 0..width {
             let linear_rgb = get_linear_rgb(&slice, x as u32, y as u32);
 
@@ -1493,6 +1507,75 @@ mod tests {
         let result = tm.apply(&hdr).unwrap();
         assert_eq!(result.width(), width);
         assert_eq!(result.height(), height);
+    }
+
+    /// Build a small RgbaF32 HDR buffer with a non-trivial luminance ramp.
+    fn hdr_ramp(width: u32, height: u32) -> crate::PixelBuffer {
+        use crate::PixelFormat;
+        let mut data = Vec::with_capacity((width * height * 16) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let l = (x as f32 / width as f32) * 4.0 + (y as f32 / height as f32);
+                data.extend_from_slice(&l.to_le_bytes());
+                data.extend_from_slice(&(l * 0.5).to_le_bytes());
+                data.extend_from_slice(&(l * 0.25).to_le_bytes());
+                data.extend_from_slice(&1.0f32.to_le_bytes());
+            }
+        }
+        crate::types::pixel_buffer_from_vec(
+            data,
+            width,
+            height,
+            PixelFormat::RgbaF32,
+            ColorPrimaries::Bt709,
+            TransferFunction::Linear,
+        )
+        .unwrap()
+    }
+
+    /// The non-stop entry must pass an `Unstoppable` through to the same
+    /// implementation, so both produce identical bytes.
+    #[test]
+    fn tonemap_image_to_srgb8_stop_variant_is_byte_identical() {
+        let img = hdr_ramp(64, 48);
+        let a = tonemap_image_to_srgb8(&img, ColorPrimaries::Bt709).unwrap();
+        let b =
+            tonemap_image_to_srgb8_with_stop(&img, ColorPrimaries::Bt709, &Unstoppable).unwrap();
+        assert_eq!(a, b);
+    }
+
+    /// A token that fires mid-image surfaces `Error::Stopped` — the
+    /// per-row check must actually observe it.
+    #[test]
+    fn tonemap_image_to_srgb8_stop_cancels_mid_image() {
+        struct FireAt {
+            n: core::sync::atomic::AtomicU32,
+        }
+        impl Stop for FireAt {
+            fn check(&self) -> core::result::Result<(), enough::StopReason> {
+                if self.n.fetch_sub(1, core::sync::atomic::Ordering::Relaxed) == 0 {
+                    Err(enough::StopReason::Cancelled)
+                } else {
+                    Ok(())
+                }
+            }
+            fn should_stop(&self) -> bool {
+                self.n.load(core::sync::atomic::Ordering::Relaxed) == 0
+            }
+            fn may_stop(&self) -> bool {
+                true
+            }
+        }
+
+        let img = hdr_ramp(64, 48);
+        // 48 rows → budget inside the row loop.
+        let err =
+            tonemap_image_to_srgb8_with_stop(&img, ColorPrimaries::Bt709, &FireAt { n: 10.into() })
+                .unwrap_err();
+        assert!(
+            matches!(err.error(), Error::Stopped(enough::StopReason::Cancelled)),
+            "expected Stopped(Cancelled), got {err:?}"
+        );
     }
 
     #[test]
