@@ -102,3 +102,58 @@ wasm-wasmer:
     @echo "Building WASM..."
     cargo build --package ultrahdr-core --target wasm32-wasip1 --release
     @echo "Note: wasmer module execution requires a .wasm binary, not .rlib"
+
+# Shared metadata wrappers must retain the published ultrahdr-owned API.
+metadata-check:
+    cargo test -p ultrahdr-core --lib metadata
+    cargo check -p ultrahdr-core --no-default-features
+    cargo clippy -p ultrahdr-core --lib -- -D warnings
+
+metadata-semver:
+    cargo semver-checks check-release --manifest-path ultrahdr-core/Cargo.toml -p ultrahdr-core --baseline-version 0.6.0 --all-features
+
+metadata-consumer-check:
+    cargo test -p ultrahdr-core --lib
+    cargo check -p ultrahdr-core --no-default-features --target wasm32-wasip1
+    cargo check --manifest-path fuzz/Cargo.toml --bins
+
+metadata-fuzz-check:
+    cargo update --manifest-path fuzz/Cargo.toml
+    cargo check --manifest-path fuzz/Cargo.toml --bins
+
+metadata-regression-check:
+    cargo test -p ultrahdr-rs --test fuzz_regression
+    cargo check --manifest-path fuzz/Cargo.toml --bins
+
+metadata-simd-ci:
+    cargo test -p ultrahdr-core --all-targets --features simd
+    cargo clippy -p ultrahdr-core --all-targets --features simd -- -D warnings
+
+# Exercise the coordinated component filter before its replacement PR is landed.
+# The explicit override keeps this local integration check reviewable.
+metadata-policy-integration:
+    ULTRAHDR_METADATA_ORACLE=exiftool cargo test -p ultrahdr-rs --test encoder_production
+    cargo clippy -p ultrahdr-rs --all-targets -- -D warnings
+
+metadata-policy-api:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    baseline=$(cargo read ultrahdr-rs==0.3.5 --path-only)
+    RUSTC_BOOTSTRAP=1 cargo rustdoc -p ultrahdr-rs --lib --features zencodec -- -Zunstable-options --output-format json
+    RUSTC_BOOTSTRAP=1 cargo rustdoc --manifest-path "$baseline/Cargo.toml" --target-dir "$PWD/target/published-api/ultrahdr-rs-0.3.5" --lib --features zencodec -- -Zunstable-options --output-format json
+    cargo semver-checks check-release -p ultrahdr-rs --current-rustdoc target/doc/ultrahdr_rs.json --baseline-rustdoc target/published-api/ultrahdr-rs-0.3.5/doc/ultrahdr_rs.json --release-type patch
+
+metadata-policy-targets:
+    CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_RUNNER=env cargo test -p ultrahdr-rs --target i686-unknown-linux-gnu --test encoder_production
+    cargo test -p ultrahdr-rs --doc
+    just api-doc
+
+metadata-directory-dependency-check:
+    just metadata-check
+    cargo check --workspace
+
+# Check one shared metadata type identity through HDR and JPEG consumers.
+shared-contract-check:
+    cargo test -p ultrahdr-core --lib
+    cargo check -p ultrahdr-rs --features zencodec
+    cargo clippy -p ultrahdr-core --lib -- -D warnings

@@ -38,8 +38,8 @@ enough = "0.4"
 half = { version = "2.7.1", optional = true, default-features = false }
 
 # SIMD (optional - for explicit SIMD optimizations)
-archmage = { version = "0.9.16", default-features = false, features = ["macros"], optional = true }
-magetypes = { version = "0.9.16", default-features = false, optional = true }
+archmage = { version = "0.9.30", default-features = false, features = ["macros"], optional = true }
+magetypes = { version = "0.9.30", default-features = false, optional = true }
 
 # Types
 bytemuck = { version = "1.25.2", features = ["derive"] }
@@ -59,6 +59,7 @@ linear-srgb = { version = "0.6.12", default-features = false, features = ["trans
 # Zen ecosystem types (mandatory — canonical gain map metadata types)
 zenpixels = { workspace = true }
 zencodec = { workspace = true }
+zenmeta = { git = "https://github.com/imazen/zencodec", rev = "7cc3d3ec6b41103ee8398c30b1582ebdbb6df914", version = "0.1.0", default-features = false, features = ["apple"] }
 
 # Advanced tone mapping curves + the luma gain map splitter. Optional:
 # the splitter API (LumaGainMapSplitter + curves) lives here, and ultrahdr-core

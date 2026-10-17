@@ -288,7 +288,8 @@ pub fn apply_gainmap_slice(
     };
     let output = if is_linear {
         output.with_color_context(alloc::sync::Arc::new(
-            zenpixels::ColorContext::default().with_diffuse_white(zenpixels::DiffuseWhite::BT2408),
+            zenpixels::ColorContext::default()
+                .with_diffuse_white(zenpixels::hdr::DiffuseWhite::BT2408),
         ))
     } else {
         output
@@ -937,7 +938,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             linear.color_context().and_then(|c| c.diffuse_white),
-            Some(zenpixels::DiffuseWhite::BT2408),
+            Some(zenpixels::hdr::DiffuseWhite::BT2408),
             "linear reconstruction must carry the 203-nit anchor"
         );
 

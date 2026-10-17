@@ -92,19 +92,19 @@ mod simd_impl {
 
             // Gather gains from LUT (8 lookups)
             let gains: [f32; 8] = std::array::from_fn(|i| lut[gainmap[base + i] as usize]);
-            let g = f32x8::from_array(token, gains);
+            let g = f32x8::from_array_t(token, gains);
 
             // Load R channel (strided - every 3rd element starting at 0)
             let r: [f32; 8] = std::array::from_fn(|i| sdr[base + i][0]);
-            let r_v = f32x8::from_array(token, r);
+            let r_v = f32x8::from_array_t(token, r);
 
             // Load G channel
             let g_ch: [f32; 8] = std::array::from_fn(|i| sdr[base + i][1]);
-            let g_v = f32x8::from_array(token, g_ch);
+            let g_v = f32x8::from_array_t(token, g_ch);
 
             // Load B channel
             let b: [f32; 8] = std::array::from_fn(|i| sdr[base + i][2]);
-            let b_v = f32x8::from_array(token, b);
+            let b_v = f32x8::from_array_t(token, b);
 
             // Apply gain
             let r_out = r_v * g;
@@ -164,16 +164,16 @@ mod simd_impl {
             let base = chunk_idx * 4;
 
             let gains: [f32; 4] = std::array::from_fn(|i| lut[gainmap[base + i] as usize]);
-            let g = f32x4::from_array(token, gains);
+            let g = f32x4::from_array_t(token, gains);
 
             let r: [f32; 4] = std::array::from_fn(|i| sdr[base + i][0]);
-            let r_v = f32x4::from_array(token, r);
+            let r_v = f32x4::from_array_t(token, r);
 
             let g_ch: [f32; 4] = std::array::from_fn(|i| sdr[base + i][1]);
-            let g_v = f32x4::from_array(token, g_ch);
+            let g_v = f32x4::from_array_t(token, g_ch);
 
             let b: [f32; 4] = std::array::from_fn(|i| sdr[base + i][2]);
-            let b_v = f32x4::from_array(token, b);
+            let b_v = f32x4::from_array_t(token, b);
 
             let r_out = r_v * g;
             let g_out = g_v * g;
@@ -258,10 +258,10 @@ mod simd_impl {
 
         let log_range = log_max - log_min;
         let inv_gamma = 1.0 / gamma;
-        let log_min_v = f32x8::splat(token, log_min);
-        let log_range_v = f32x8::splat(token, log_range);
-        let weight_v = f32x8::splat(token, weight);
-        let scale = f32x8::splat(token, 1.0 / 255.0);
+        let log_min_v = f32x8::splat_t(token, log_min);
+        let log_range_v = f32x8::splat_t(token, log_range);
+        let weight_v = f32x8::splat_t(token, weight);
+        let scale = f32x8::splat_t(token, 1.0 / 255.0);
 
         let chunks = sdr.len() / 8;
 
@@ -270,7 +270,7 @@ mod simd_impl {
 
             // Convert gainmap bytes to normalized floats
             let gm: [f32; 8] = std::array::from_fn(|i| gainmap[base + i] as f32);
-            let normalized = f32x8::from_array(token, gm) * scale;
+            let normalized = f32x8::from_array_t(token, gm) * scale;
 
             // Apply gamma (use pow_midp for better accuracy)
             let linear = if gamma != 1.0 {
@@ -290,9 +290,9 @@ mod simd_impl {
             let g_ch: [f32; 8] = std::array::from_fn(|i| sdr[base + i][1]);
             let b: [f32; 8] = std::array::from_fn(|i| sdr[base + i][2]);
 
-            let r_out = f32x8::from_array(token, r) * g;
-            let g_out = f32x8::from_array(token, g_ch) * g;
-            let b_out = f32x8::from_array(token, b) * g;
+            let r_out = f32x8::from_array_t(token, r) * g;
+            let g_out = f32x8::from_array_t(token, g_ch) * g;
+            let b_out = f32x8::from_array_t(token, b) * g;
 
             let r_arr = r_out.to_array();
             let g_arr = g_out.to_array();

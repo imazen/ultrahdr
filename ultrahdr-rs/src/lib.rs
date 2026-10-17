@@ -102,4 +102,6 @@ mod encode;
 
 // Re-export encoder/decoder
 pub use decode::{Decoder, ResourceLimits};
-pub use encode::{Encoder, encode_ultrahdr, encode_ultrahdr_with_format};
+pub use encode::{
+    Encoder, encode_ultrahdr, encode_ultrahdr_with_format, encode_ultrahdr_with_metadata_policy,
+};

@@ -12,15 +12,46 @@ own section below.
 
 ### [Unreleased]
 
+### Dependency integration
+
+- zenpixels/zenpixels-convert pinned to main 1d3ddd21 (converged 0.2.17), from 8f7ee87. `DiffuseWhite` comes from `zenpixels::hdr` instead of the root alias 0.2.17 deprecates.
+
+- Move the temporary zencodec/zenmeta pins to `fa49f7ce` (zencodec's `WholeFileIncremental`, PR 148) and the zenjpeg pin to its matching branch (`24181558`), so HEIC can adopt incremental decode with one gain-map type identity.
+- Align temporary zencodec/zenmeta/testkit pins with the checked fidelity and operation-matrix contracts (`4fda4391`). Replace coordinated git pins with released versions before publication.
+
+
+### Changed
+
+- Align temporary zencodec/zenmeta and JPEG revisions with the shared contract test suite, preserving a single gain-map type identity for HEIC consumers. Replace git pins with released versions before publication.
+
+#### QUEUED BREAKING CHANGES
+- None introduced by the shared metadata extraction; published Apple/plist
+  types and functions remain in place. Parser corrections are listed below.
+
 #### Added
 - `tonemap_image_to_srgb8_with_stop`: cooperative-cancellation variant of `tonemap_image_to_srgb8` that polls the `stop` token once per row and surfaces `Error::Stopped`. `tonemap_image_to_srgb8` is unchanged and delegates with `Unstoppable`, so non-cancelling output is byte-identical (`tonemap_image_to_srgb8_stop_variant_is_byte_identical`); a token that fires mid-image returns `Stopped(Cancelled)` (`tonemap_image_to_srgb8_stop_cancels_mid_image`).
 - **Content-fit gain-map grid** (`compute_gainmap_content_fit` + `CONTENT_FIT_MIN_SPAN_STOPS`; zensim campaign appendix AA "measure, don't configure"): the quantization grid is SELECTED from the MEASURED content gain range (one extra subsampled gain scan, bit-identical math shared with the ordinary encode) with the config `min_boost..=max_boost` as the outer policy bound. Spends the 8-bit code space on gains that exist — a ~2-stop content on the 10,000-nit default grid gets ~2.8× finer quantization — and is interop-safe by construction: the declared metadata is exactly the narrowed grid the bytes were quantized on (#33 invariant untouched). Uniform content is guarded to a 1/16-stop minimum span. `compute_gainmap`/`compute_gainmap_slice` behavior is byte-identical to before (they share a new `compute_gainmap_slice_observed` core). Tests: measured-not-configured declaration, precision-beats-config, uniform-content non-degeneracy, span-constant pin.
 
 #### Changed
+- Align the temporary zencodec/zenmeta pins with the shared gain-map XMP
+  integration and inventory resource categories (`c1c3292f`) so codec consumers
+  use one contract crate instance.
+- Apple MakerNote and binary-plist implementation delegates to zenmeta while
+  retaining the published `AppleHdrInfo`, `PlistValue`, tags and function paths.
+  Apple parsing uses explicit 0.6.0 compatibility rules; strict inspection is
+  available directly from zenmeta. No zenmeta types appear in this crate's API.
 - Minimum `zencodec` is now `0.1.26` (the published two-level `ErrorCategory` taxonomy), via the workspace dependency; see the Workspace section.
 
 #### Fixed
 - **`Encoder::encode_with_stop` now polls inside the HDR→SDR tonemap pass.** `tonemap_image_to_srgb8` was the last unpolled O(pixels) stage in the encode path — `PollMeter` on a 2048² linear-f32 encode measured a single **232 ms** gap between the entry check and the first gainmap-row poll, ~2/3 of the whole encode. Both call sites (encoder-generated SDR, and the HDR→SDR tonemap feeding `compute_gainmap`) now use `tonemap_image_to_srgb8_with_stop`; the measured worst-case poll gap dropped to **35 ms**, entirely inside downstream zenjpeg encode. Output bytes are unchanged.
+- SIMD feature and benchmark builds use magetypes 0.9.30 token constructors
+  (`from_array_t`, `splat_t`), fixing warnings-as-errors in fresh CI resolution.
+  These replace deprecated forwarding aliases without changing arithmetic.
+- Shared binary-plist parsing bounds input/output expansion and visits, uses
+  fallible allocation, checks offset arithmetic, and rejects values crossing
+  the object table. Wide integer/UID values now use the documented low 64 bits;
+  malformed date markers and oversized lengths are rejected. These are behavior
+  corrections relative to ultrahdr-core 0.6.0, not merely source movement.
 - **Gain-map metadata now declares the range the bytes were actually quantized on (#33).** The encode kernel has always normalized gain-map bytes over the CONFIG boost grid (`GainMapConfig::min_boost ..= max_boost`), but `compute_gainmap`, `RowEncoder::finish`, and `StreamEncoder::finish` stored the content's observed (actual) gain range in the per-channel metadata `min`/`max` — the fields every conformant reader dequantizes on. Whenever the content range was narrower than the config range (almost always with `ultrahdr-rs`'s 10,000-nit default `target_display_peak`), every reader — including this workspace's own decoder — reconstructed under-boosted: a 2000-nit ramp decoded at ~732 nits. All three sites now declare the config grid via a shared helper (`metadata_for_config_grid`); the observed content max only widens `alternate_hdr_headroom`. Gain-map **bytes are unchanged** — only the declared mapping moved, so the single-pass row/streaming contracts and the `compute_gain_row` batch-parity guarantee are intact. Round-trip gates: 2000-nit ramp now decodes at 1976.3 nits (HDR-only and SDR+HDR paths), a 2000-nit specular highlight in a structured scene at 1858.9 nits.
 - `StreamEncoder::finish` (deprecated, `#[doc(hidden)]`) previously hardcoded `base_hdr_headroom = 0.0` and derived `alternate_hdr_headroom` from the content max alone, ignoring the configured headrooms; it now shares the same config-driven metadata derivation as the other encode paths. (#33)
 
@@ -268,6 +299,30 @@ through this section ships together now, including the f16-gating and
 
 ### [Unreleased]
 
+### Added
+
+- Incremental decode: `UltraHdrDecodeJob::dyn_incremental_decoder` returns zencodec's `WholeFileIncremental` and the decode capabilities declare `incremental`. `HeaderReady` comes as soon as a prefix probes; rows come from `push_decoder` once the whole file (primary image and gain map) is offered. `tests/sansio.rs` runs the testkit's incremental contract on both committed Ultra HDR JPEGs; CI now runs the zencodec adapter tests and clippy with feature `zencodec`.
+
+#### Fixed
+
+- Align the JPEG dependency with the shared metadata revision so the full encoder/decoder and fuzz workspace use the same gain-map type as ultrahdr-core.
+
+
+#### QUEUED BREAKING CHANGES
+- Relative to published 0.3.5, existing main removes container MPF types and
+  four helper functions (`2b7df54`), changes returns to `At<Error>` (`60b642f`),
+  and gates f16 output. The local 0.4.1 heading below is not a registry baseline.
+  See [the API audit](docs/metadata-integration.md). The new policy function is
+  additive and exposes no zenmeta types.
+
+#### Added
+
+- Reuse PR35's `encode_ultrahdr_with_metadata_policy`: filter both encoded
+  JPEG components, retain rendering parameters, and regenerate XMP/ISO/MPF.
+  The generic display-retention check delegates privately to zenmeta; codec
+  framing remains in zenjpeg, pinned to the coordinated revision `db07f503`.
+  ExifTool follows the regenerated MPF to exactly the retained secondary JPEG.
+
 #### Changed
 - Minimum `zencodec` is now `0.1.26` (the published two-level `ErrorCategory` taxonomy), via the workspace dependency; see the Workspace section.
 - **`Encoder` selects its gain-map grid from MEASURED content by default** (appendix AA): `compute_new_gainmap` routes through `compute_gainmap_content_fit`, so `target_display_peak / 203` becomes the grid's UPPER BOUND and the actual quantization grid is the content's observed gain range within it (finer code-space use; declared metadata still exactly the quantization grid per #33). Opt out with the new `set_content_fit_grid(false)` to reproduce the configured-grid bytes (byte-stable corpora / external grid contracts). Gate: `encoder_default_grid_is_measured_not_configured` (measured top ≪ configured top, both grids reconstruct the 2000-nit ramp).
@@ -372,6 +427,9 @@ all of it ships together now.
 <!-- None queued. -->
 
 #### Changed
+- Pin JPEG metadata compatibility at `7cf22c68` and shared ICC recognition at
+  `8f7ee871` in both root and fuzz workspaces. Default decode retains complete
+  legacy single-chunk profiles; HDR rendering preserves the source gamut.
 - **Third-party requirements are now written as full `x.y.z`** (a9b4e88). Fifteen were truncated: `half` `"2.7"` → `"2.7.1"`, `bytemuck` `"1.14"` → `"1.25.2"`, `thiserror` `"2.0"` → `"2.0.20"`, `imgref` `"1.12"` → `"1.12.3"`, `rgb` `"0.8"` → `"0.8.53"`, `proptest` `"1.10"` → `"1.11.0"` and `criterion` `"0.8"` → `"0.8.2"` (workspace plus `ultrahdr-core`'s native-only dev-deps), `wasm-bindgen` `"0.2.110"` → `"0.2.127"`, `wasm-bindgen-test` `"0.3.60"` → `"0.3.77"`, `getrandom` `"0.3"` → `"0.3.4"`, `zune-image` `"0.5"` → `"0.5.0"`, `zune-core` `"0.5"` → `"0.5.3"`, `zune-jpeg` `"0.5"` → `"0.5.15"`, `which` `"8.0.2"` → `"8.0.6"` in `ultrahdr-rs`, and `libfuzzer-sys` `"0.4"` → `"0.4.13"` in `fuzz`. Each value is the version already resolved and tested against; `Cargo.lock` is byte-identical after the edit. This does raise the declared floor on a few — `bytemuck` 1.14 → 1.25.2 is the largest jump — which is additive rather than a semver break, but easy to lower if an older floor was load-bearing. `moxcms` is left as `">=0.8.1, <0.10"`, already fully specified and deliberately a range. No dependency was behind: `cargo outdated` cannot run in this workspace (it copies to a temp dir, which breaks the `../zenjpeg` path dep), so all eighteen direct third-party requirements were checked against the crates.io API by hand and every one is at its latest published version.
 - **`zencodec` / `zenpixels` / `zenpixels-convert` requirements now span the published minor and the next one.** `[workspace.dependencies]` becomes `zencodec >=0.1.26, <0.3.0` and `zenpixels >=0.2.14, <0.4.0`; `ultrahdr-core`'s `zenpixels-convert` becomes `>=0.2.15, <0.4.0`; the `ultrahdr-rs` dev-dep and `fuzz/Cargo.toml`'s `[dependencies.zencodec]` become `>=0.1.26, <0.3.0`. For a `0.x` crate Cargo treats the minor as the major, so the plain `"0.1.26"` meant `^0.1.26` = `>=0.1.26, <0.2.0` and a `zencodec 0.2.0` release would have been invisible until all four manifests were hand-edited — exactly the coordinated wave the 0.1.26 rollout above cost. Floors are unchanged and nothing newer is published, so resolution is identical: both this workspace and the separate `fuzz` workspace still resolve one registry `zencodec 0.1.26`, one `zenpixels 0.2.16`, one `zenpixels-convert 0.2.16`. The standing current-plus-next rule is documented in the zencodec repo's `CLAUDE.md`. `[patch.crates-io]` entries are untouched — a patch replaces the source regardless of the requirement.
 - **zencodec 0.1.26 from the registry.** `[workspace.dependencies] zencodec` moves `0.1.23 → 0.1.26` and the `[patch.crates-io] zencodec = { git …, rev = "c3220d51" }` entry (a pre-release flat-taxonomy build, pinned while 0.1.26 was unpublished) is dropped; `fuzz/Cargo.toml`'s minimum moves `0.1.13 → 0.1.26` to match. `Cargo.lock` previously resolved TWO zencodecs (registry 0.1.26 through the sibling `zenjpeg` path dep, git 0.1.25 through the patch); it now carries exactly one, registry 0.1.26. No source changes were needed — ultrahdr does not implement `CategorizedError`, and every zencodec API it uses (`gainmap`, decode/encode traits, `ResourceLimits`) has the same shape in 0.1.26.

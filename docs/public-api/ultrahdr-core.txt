@@ -6,14 +6,14 @@
 # impls omitted; re-export duplicates annotated `[also: path]`.
 # DO NOT EDIT BY HAND — commit regenerated changes with the code.
 #
-# files: ultrahdr-core.txt 303 lines (supported surface) | ultrahdr-core.features.txt 20 added (features: archmage,f16,magetypes,resize,simd,std,tonemap,tonemap-bt2446a) | ultrahdr-core.internal.txt 113 lines (132 hidden + 0 excluded-feature)
+# files: ultrahdr-core.txt 305 lines (supported surface) | ultrahdr-core.features.txt 20 added (features: archmage,f16,magetypes,resize,simd,std,tonemap,tonemap-bt2446a) | ultrahdr-core.internal.txt 113 lines (132 hidden + 0 excluded-feature)
 
 ## summary
 #
 #   pub modules                                15
 #   pub types (struct/enum/trait/alias)        40
-#   pub consts/statics                         23
-#   free functions                             73
+#   pub consts/statics                         25
+#   free functions                             75
 #   inherent methods                           53
 #   struct fields                              63
 #   enum variants                              45
@@ -24,12 +24,12 @@
 # per-module pub lines:
 #   (root)                           98
 #   color                           131
-#   gainmap                          61
+#   gainmap                          65
 #   limits                           10
 #   luminance                         4
 #   metadata                         30
 
-## items (283 lines)
+## items (285 lines)
 
 pub mod ultrahdr_core
 pub use Bt2408Yrgb
@@ -194,12 +194,14 @@ pub fn gainmap::GainMapLut::new(&GainMapMetadata, f32) -> Self
 pub struct gainmap::ShepardsLut [also: gainmap::apply]
 pub fn gainmap::ShepardsLut::new(u32, u32) -> core::option::Option<Self>
 pub fn gainmap::ShepardsLut::try_new(u32, u32, u32, u32) -> core::option::Option<Self>
+pub const gainmap::CONTENT_FIT_MIN_SPAN_STOPS: f32 [also: gainmap::compute]
 pub fn gainmap::apply_gain_row_presampled(&[[f32; 3]], &[[f32; 3]], [f32; 3], [f32; 3], &mut [[f32; 3]]) [also: gainmap::apply_simd]
 pub fn gainmap::apply_gain_row_scalar(&[[f32; 3]], &[u8], &[f32; 256], &mut [[f32; 3]]) [also: gainmap::apply_simd]
 pub fn gainmap::apply_gainmap(&zenpixels::buffer::PixelBuffer, &GainMap, &GainMapMetadata, f32, gainmap::HdrOutputFormat, impl enough::Stop) -> Result<zenpixels::buffer::PixelBuffer> [also: gainmap::apply]
 pub fn gainmap::apply_gainmap_slice(zenpixels::buffer::PixelSlice<'_>, &GainMap, &GainMapMetadata, f32, gainmap::HdrOutputFormat, impl enough::Stop) -> Result<zenpixels::buffer::PixelBuffer> [also: gainmap::apply]
 pub fn gainmap::calculate_weight(f32, &GainMapMetadata) -> f32 [also: gainmap::apply]
 pub fn gainmap::compute_gainmap(&zenpixels::buffer::PixelBuffer, &zenpixels::buffer::PixelBuffer, &gainmap::GainMapConfig, impl enough::Stop) -> Result<(GainMap, GainMapMetadata)> [also: gainmap::compute]
+pub fn gainmap::compute_gainmap_content_fit(zenpixels::buffer::PixelSlice<'_>, zenpixels::buffer::PixelSlice<'_>, &gainmap::GainMapConfig, impl enough::Stop) -> Result<(GainMap, GainMapMetadata)> [also: gainmap::compute]
 pub fn gainmap::compute_gainmap_slice(zenpixels::buffer::PixelSlice<'_>, zenpixels::buffer::PixelSlice<'_>, &gainmap::GainMapConfig, impl enough::Stop) -> Result<(GainMap, GainMapMetadata)> [also: gainmap::compute]
 pub mod limits
 pub const limits::MAX_GAMMA: f64

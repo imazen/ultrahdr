@@ -19,7 +19,8 @@ features = ["std"]
 path = "../ultrahdr-rs"
 
 [dependencies.zenjpeg]
-path = "../../zenjpeg/zenjpeg"
+git = "https://github.com/imazen/zenjpeg"
+rev = "e63bfaf679d030ed6459e83486ea8f8dc9b67da0"
 
 [dependencies.zencodec]
 version = ">=0.1.26, <0.3.0"
@@ -37,6 +38,11 @@ members = ["."]
 # zenanalyze = "^0.2.0"` (crates.io latest is 0.1.0). Drop when zenanalyze
 # 0.2.0 publishes; keep in step with the root manifest.
 [patch.crates-io]
+# Shared ICC recognition used by the pinned JPEG HDR decoder.
+zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "1d3ddd2131b22e9e3754c765d4ce45ce3901de59" }
+zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "1d3ddd2131b22e9e3754c765d4ce45ce3901de59" }
+ultrahdr-core = { path = "../ultrahdr-core" }
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "7cc3d3ec6b41103ee8398c30b1582ebdbb6df914" }
 zenanalyze = { git = "https://github.com/imazen/zenanalyze" }
 
 [profile.release]

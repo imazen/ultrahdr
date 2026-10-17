@@ -23,7 +23,7 @@ The library has 47 unit tests embedded in source files, but **zero parity testin
 ### 1.1 Sample Ultra HDR Images
 
 **Sources:**
-- Google's libultrahdr test images: `https://github.com/google/libultrahdr/tree/main/tests/data`
+- libultrahdr test images: `https://github.com/google/libultrahdr/tree/main/tests/data`
 - Android device captures (Pixel phones produce Ultra HDR)
 - Adobe Lightroom exports (supports Ultra HDR)
 - HDR+ enhanced photos from Google Photos
