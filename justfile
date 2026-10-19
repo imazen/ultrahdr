@@ -164,3 +164,9 @@ contract-pin-check:
     just shared-contract-check
     just metadata-simd-ci
     cargo check --manifest-path fuzz/Cargo.toml --bins
+
+# Check compatibility after admitting the current archmage/magetypes beta.
+beta-cohort-check:
+    cargo fmt --check
+    cargo clippy --locked --workspace --lib -- -D warnings
+    cargo test --locked --workspace --lib --no-fail-fast

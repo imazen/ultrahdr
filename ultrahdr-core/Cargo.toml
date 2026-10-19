@@ -38,8 +38,8 @@ enough = "0.4"
 half = { version = "2.7.1", optional = true, default-features = false }
 
 # SIMD (optional - for explicit SIMD optimizations)
-archmage = { version = "0.9.30", default-features = false, features = ["macros"], optional = true }
-magetypes = { version = "0.9.30", default-features = false, optional = true }
+archmage = { version = ">=0.9.30, <=0.9.31-beta.1", default-features = false, features = ["macros"], optional = true }
+magetypes = { version = ">=0.9.30, <=0.9.31-beta.1", default-features = false, optional = true }
 
 # Types
 bytemuck = { version = "1.25.2", features = ["derive"] }
@@ -72,7 +72,7 @@ zenmeta = { git = "https://github.com/imazen/zencodec", rev = "d327434b0826a3e39
 # path that escapes the repo breaks `git = ...` consumers). Local lockstep
 # development against the sibling checkout comes from the workspace-root
 # `[patch.crates-io]` instead — same layout, same behavior.
-zentone = { version = "0.1.0", default-features = false, features = ["experimental"], optional = true }
+zentone = { version = ">=0.1.0, <0.3.0", default-features = false, features = ["experimental"], optional = true }
 
 # High-quality gain map resampling (optional)
 zenresize = { workspace = true, optional = true }
