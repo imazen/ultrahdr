@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Admit archmage/magetypes 0.9.31-beta.1 alongside compatible stable versions; use explicit-token aliases where needed. Formatting, strict library lint and library tests pass (`bdf7eea1`).
+
 All notable changes to this repository are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); crates follow [Semantic
 Versioning](https://semver.org/).
