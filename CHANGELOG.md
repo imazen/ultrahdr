@@ -14,6 +14,8 @@ own section below.
 
 ### Dependency integration
 
+- Use zencodec/zenmeta/testkit `d327434b` and JPEG `4196fa93` in the full and fuzz graphs, matching the consuming streaming pipeline. Core tests, SIMD tests and lint, the JPEG consumer check and standalone fuzz compilation pass with one gain-map type identity.
+
 - zenpixels/zenpixels-convert pinned to main 1d3ddd21 (converged 0.2.17), from 8f7ee87. `DiffuseWhite` comes from `zenpixels::hdr` instead of the root alias 0.2.17 deprecates.
 
 - Move the temporary zencodec/zenmeta pins to `fa49f7ce` (zencodec's `WholeFileIncremental`, PR 148) and the zenjpeg pin to its matching branch (`24181558`), so HEIC can adopt incremental decode with one gain-map type identity.

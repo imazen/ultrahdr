@@ -157,3 +157,10 @@ shared-contract-check:
     cargo test -p ultrahdr-core --lib
     cargo check -p ultrahdr-rs --features zencodec
     cargo clippy -p ultrahdr-core --lib -- -D warnings
+
+# One gain-map type identity in core, JPEG consumers and standalone fuzz builds.
+contract-pin-check:
+    cargo fmt -p ultrahdr-core -p ultrahdr-rs
+    just shared-contract-check
+    just metadata-simd-ci
+    cargo check --manifest-path fuzz/Cargo.toml --bins
