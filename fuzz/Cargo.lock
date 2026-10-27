@@ -338,6 +338,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "spin"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0134f9043ed38b087ac4f7d4af44c79e2c9e5094421fe3164f435ce585953b10"
+
+[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -397,8 +403,8 @@ dependencies = [
  "magetypes",
  "thiserror",
  "whereat",
- "zencodec",
- "zenmeta",
+ "zencodec 0.2.0",
+ "zenmeta 0.1.0 (git+https://github.com/imazen/zencodec?rev=f5a7fd46231048a7290f11df5b32e010a3e529a8)",
  "zenpixels",
  "zenpixels-convert",
  "zentone",
@@ -411,7 +417,7 @@ dependencies = [
  "libfuzzer-sys",
  "ultrahdr-core",
  "ultrahdr-rs",
- "zencodec",
+ "zencodec 0.2.0",
  "zenjpeg",
 ]
 
@@ -427,9 +433,9 @@ dependencies = [
  "thiserror",
  "ultrahdr-core",
  "whereat",
- "zencodec",
+ "zencodec 0.2.0",
  "zenjpeg",
- "zenmeta",
+ "zenmeta 0.1.0 (git+https://github.com/imazen/zencodec?rev=f5a7fd46231048a7290f11df5b32e010a3e529a8)",
 ]
 
 [[package]]
@@ -476,6 +482,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "zencodec"
+version = "0.2.0"
+source = "git+https://github.com/imazen/zencodec?rev=f5a7fd46231048a7290f11df5b32e010a3e529a8#f5a7fd46231048a7290f11df5b32e010a3e529a8"
+dependencies = [
+ "almost-enough",
+ "enough",
+ "how-far",
+ "spin",
+ "whereat",
+ "zenpixels",
+]
+
+[[package]]
 name = "zenjpeg"
 version = "0.9.0"
 source = "git+https://github.com/imazen/zenjpeg?rev=4196fa93d422bc367d1e3ddadbaddfe672b9cdfc#4196fa93d422bc367d1e3ddadbaddfe672b9cdfc"
@@ -496,8 +515,8 @@ dependencies = [
  "ultrahdr-core",
  "whereat",
  "zenanalyze",
- "zencodec",
- "zenmeta",
+ "zencodec 0.1.27",
+ "zenmeta 0.1.0 (git+https://github.com/imazen/zencodec?rev=d327434b0826a3e39633665c76f5081c0ceb34cc)",
  "zenpixels",
  "zenyuv",
 ]
@@ -508,7 +527,16 @@ version = "0.1.0"
 source = "git+https://github.com/imazen/zencodec?rev=d327434b0826a3e39633665c76f5081c0ceb34cc#d327434b0826a3e39633665c76f5081c0ceb34cc"
 dependencies = [
  "roxmltree",
- "zencodec",
+ "zencodec 0.1.27",
+ "zenpixels",
+]
+
+[[package]]
+name = "zenmeta"
+version = "0.1.0"
+source = "git+https://github.com/imazen/zencodec?rev=f5a7fd46231048a7290f11df5b32e010a3e529a8#f5a7fd46231048a7290f11df5b32e010a3e529a8"
+dependencies = [
+ "zencodec 0.2.0",
  "zenpixels",
 ]
 

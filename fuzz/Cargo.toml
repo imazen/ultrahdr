@@ -42,7 +42,7 @@ members = ["."]
 zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "1d3ddd2131b22e9e3754c765d4ce45ce3901de59" }
 zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "1d3ddd2131b22e9e3754c765d4ce45ce3901de59" }
 ultrahdr-core = { path = "../ultrahdr-core" }
-zencodec = { git = "https://github.com/imazen/zencodec", rev = "d327434b0826a3e39633665c76f5081c0ceb34cc" }
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "f5a7fd46231048a7290f11df5b32e010a3e529a8" }
 zenanalyze = { git = "https://github.com/imazen/zenanalyze" }
 
 [profile.release]
