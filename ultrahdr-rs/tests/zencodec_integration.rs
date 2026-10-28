@@ -284,3 +284,78 @@ fn decode_imageinfo_dimensions_are_nonzero() {
     assert_eq!(info.width, probe_info.width);
     assert_eq!(info.height, probe_info.height);
 }
+
+// =========================================================================
+// Pulse: the job retains the operation pulse; the native decode polls it
+// =========================================================================
+
+/// Reports cancellation on every poll.
+struct Cancelled;
+
+impl zencodec::enough::Stop for Cancelled {
+    fn check(&self) -> Result<(), zencodec::enough::StopReason> {
+        Err(zencodec::enough::StopReason::Cancelled)
+    }
+}
+
+fn decode_rgb8(
+    job: ultrahdr_rs::codec::UltraHdrDecodeJob,
+) -> Result<zencodec::decode::DecodeOutput, ultrahdr_rs::codec::ZenDecodeError> {
+    job.decoder(Cow::Borrowed(TEST_ULTRAHDR), &[PixelDescriptor::RGB8_SRGB])?
+        .decode()
+}
+
+fn assert_cancelled(
+    result: Result<zencodec::decode::DecodeOutput, ultrahdr_rs::codec::ZenDecodeError>,
+    what: &str,
+) {
+    match result {
+        Err(ultrahdr_rs::codec::ZenDecodeError::Stopped(reason)) => {
+            assert_eq!(reason, zencodec::enough::StopReason::Cancelled, "{what}")
+        }
+        Err(other) => panic!("{what}: another error: {other}"),
+        Ok(_) => panic!("{what}: decoded through a cancelled pulse"),
+    }
+}
+
+#[test]
+fn a_cancelled_pulse_stops_the_decode() {
+    let pulse = zencodec::SharedPulse::new(zencodec::how_far::StopOnly::new(
+        zencodec::StopToken::new(Cancelled),
+    ));
+    assert_cancelled(
+        decode_rgb8(UltraHdrDecoderConfig.job().with_pulse(pulse)),
+        "with_pulse",
+    );
+}
+
+#[test]
+#[allow(deprecated)] // The legacy cancellation-only setter must keep working.
+fn the_legacy_stop_setter_still_cancels() {
+    let job = UltraHdrDecoderConfig
+        .job()
+        .with_stop(zencodec::StopToken::new(Cancelled));
+    assert_cancelled(decode_rgb8(job), "with_stop");
+}
+
+#[test]
+fn an_unstopped_pulse_decodes_what_no_pulse_decodes() {
+    // A live pulse that never stops, unlike NoPulse.
+    let plain = decode_rgb8(UltraHdrDecoderConfig.job()).unwrap();
+    let pulsed = decode_rgb8(
+        UltraHdrDecoderConfig
+            .job()
+            .with_pulse(zencodec::SharedPulse::new(
+                zencodec::how_far::StopOnly::new(zencodec::Unstoppable),
+            )),
+    )
+    .unwrap();
+    assert_eq!(
+        (plain.info().width, plain.info().height),
+        (pulsed.info().width, pulsed.info().height)
+    );
+    assert_eq!(
+        plain.pixels().contiguous_bytes(),
+        pulsed.pixels().contiguous_bytes()
+    );
+}
