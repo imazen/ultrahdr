@@ -58,8 +58,9 @@ zenpixels = { version = ">=0.2.14, <0.4.0", default-features = false }
 # zencodec 0.2 family: a version edge, resolved by the root patch below (and by
 # each consumer's own root patch; dependency patch tables do not propagate).
 # crates.io ultrahdr-core 0.6.0 requires zencodec ^0.1, so 0.2 consumers patch
-# ultrahdr-core to a revision of this branch.
-zencodec = { version = ">=0.1.26, <0.3.0" }
+# ultrahdr-core to a revision of this branch. The 0.2 floor keeps a graph that
+# also holds crates.io zencodec 0.1.x from resolving this edge to it.
+zencodec = { version = ">=0.2.0, <0.3.0" }
 zenresize = { version = "0.2.2", default-features = false }
 
 # Testing

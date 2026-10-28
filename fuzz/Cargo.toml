@@ -23,7 +23,7 @@ git = "https://github.com/imazen/zenjpeg"
 rev = "4196fa93d422bc367d1e3ddadbaddfe672b9cdfc"
 
 [dependencies.zencodec]
-version = ">=0.1.26, <0.3.0"
+version = ">=0.2.0, <0.3.0"
 
 # Prevent this from interfering with workspace resolution
 [workspace]
