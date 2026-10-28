@@ -311,6 +311,10 @@ through this section ships together now, including the f16-gating and
 
 ### [Unreleased]
 
+### Fixed
+
+- The zencodec decode job retains the operation pulse (`with_pulse`, required by zencodec 0.2) and the native JPEG decode polls it, refusing with `Stopped` once the pulse is stopped; the deprecated `with_stop` still cancels through zencodec's cancellation-only pulse. The adapter had not compiled against zencodec 0.2 until the family graph was unified (`tests/zencodec_integration.rs`).
+
 ### Added
 
 - Incremental decode: `UltraHdrDecodeJob::dyn_incremental_decoder` returns zencodec's `WholeFileIncremental` and the decode capabilities declare `incremental`. `HeaderReady` comes as soon as a prefix probes; rows come from `push_decoder` once the whole file (primary image and gain map) is offered. `tests/sansio.rs` runs the testkit's incremental contract on both committed Ultra HDR JPEGs; CI now runs the zencodec adapter tests and clippy with feature `zencodec`.
