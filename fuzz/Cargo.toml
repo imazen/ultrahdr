@@ -19,8 +19,7 @@ features = ["std"]
 path = "../ultrahdr-rs"
 
 [dependencies.zenjpeg]
-git = "https://github.com/imazen/zenjpeg"
-rev = "4196fa93d422bc367d1e3ddadbaddfe672b9cdfc"
+version = "0.9.0"
 
 [dependencies.zencodec]
 version = ">=0.2.0, <0.3.0"
@@ -46,6 +45,7 @@ zencodec = { git = "https://github.com/imazen/zencodec", rev = "a15c28fdff95847e
 zencodec-io = { git = "https://github.com/imazen/zencodec", rev = "a15c28fdff95847e42dcb059f246a6defa0968cc" }
 zencodec-coroutine = { git = "https://github.com/imazen/zencodec", rev = "a15c28fdff95847e42dcb059f246a6defa0968cc" }
 zenmeta = { git = "https://github.com/imazen/zencodec", rev = "a15c28fdff95847e42dcb059f246a6defa0968cc" }
+zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "d099267c37b4f91b35fe5f15ddb680455e1d4bd8" }
 zenanalyze = { git = "https://github.com/imazen/zenanalyze" }
 
 [profile.release]

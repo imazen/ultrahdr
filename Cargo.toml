@@ -40,8 +40,9 @@ bytemuck = { version = "1.25.2", features = ["derive"] }
 # Error handling
 thiserror = "2.0.20"
 
-# Pin the codec while the metadata stack is integrated across repositories.
-zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "4196fa93d422bc367d1e3ddadbaddfe672b9cdfc", version = "0.9.0" }
+# A version edge: the root patch below pins the codec revision while the
+# metadata stack is integrated across repositories (consumers patch their own).
+zenjpeg = { version = "0.9.0" }
 
 # Color management
 moxcms = ">=0.8.1, <0.10"
@@ -81,6 +82,9 @@ zencodec-io = { git = "https://github.com/imazen/zencodec", rev = "a15c28fdff958
 zencodec-coroutine = { git = "https://github.com/imazen/zencodec", rev = "a15c28fdff95847e42dcb059f246a6defa0968cc" }
 zenmeta = { git = "https://github.com/imazen/zencodec", rev = "a15c28fdff95847e42dcb059f246a6defa0968cc" }
 zencodec-testkit = { git = "https://github.com/imazen/zencodec", rev = "a15c28fdff95847e42dcb059f246a6defa0968cc" }
+# zenjpeg main with the same family version edges (its own patch table, which
+# points ultrahdr-core back at this branch, applies only in its root).
+zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "d099267c37b4f91b35fe5f15ddb680455e1d4bd8" }
 # zenjpeg (a path sibling) depends on `zenanalyze = "0.2.0"` from the registry
 # and supplies it through its OWN `[patch.crates-io]`. A dependency's patch
 # table is ignored when that dependency is consumed as a path dep — only the
