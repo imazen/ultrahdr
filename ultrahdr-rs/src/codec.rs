@@ -48,8 +48,6 @@ use crate::Decoder;
 
 extern crate alloc;
 
-use enough::Stop as _;
-
 /// Extra data from Ultra HDR decode.
 ///
 /// Attached to [`DecodeOutput`] via `with_extras()`. Retrieve with
@@ -131,7 +129,7 @@ impl DecoderConfig for UltraHdrDecoderConfig {
         UltraHdrDecodeJob {
             _config: self,
             limits: None,
-            stop: None,
+            pulse: None,
         }
     }
 }
@@ -140,7 +138,9 @@ impl DecoderConfig for UltraHdrDecoderConfig {
 pub struct UltraHdrDecodeJob {
     _config: UltraHdrDecoderConfig,
     limits: Option<ResourceLimits>,
-    stop: Option<zencodec::StopToken>,
+    /// The operation's pulse. The native JPEG decode polls it as a `Stop`;
+    /// nothing reports progress through it yet.
+    pulse: Option<zencodec::SharedPulse>,
 }
 
 impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
@@ -149,8 +149,11 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
     type StreamDec = Unsupported<ZenDecodeError>;
     type AnimationFrameDec = Unsupported<ZenDecodeError>;
 
-    fn with_stop(mut self, stop: zencodec::StopToken) -> Self {
-        self.stop = Some(stop);
+    /// Retains the whole pulse (cancellation, progress, sharing). The
+    /// deprecated `with_stop` reaches here through zencodec's
+    /// cancellation-only wrapper.
+    fn with_pulse(mut self, pulse: zencodec::SharedPulse) -> Self {
+        self.pulse = Some(pulse);
         self
     }
 
@@ -233,7 +236,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
             data,
             want_rgba,
             limits,
-            stop: self.stop,
+            pulse: self.pulse,
         })
     }
 
@@ -280,7 +283,7 @@ pub struct UltraHdrDecoder<'a> {
     data: Cow<'a, [u8]>,
     want_rgba: bool,
     limits: ResourceLimits,
-    stop: Option<zencodec::StopToken>,
+    pulse: Option<zencodec::SharedPulse>,
 }
 
 impl<'a> Decode for UltraHdrDecoder<'a> {
@@ -309,14 +312,15 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
             JpegPixelFormat::Rgb
         };
 
-        let stop = self
-            .stop
-            .unwrap_or_else(|| zencodec::StopToken::new(enough::Unstoppable));
+        let stop: &dyn enough::Stop = match &self.pulse {
+            Some(pulse) => pulse,
+            None => &enough::Unstoppable,
+        };
         stop.check().map_err(ZenDecodeError::Stopped)?;
 
         let decoded = JpegDecoder::new()
             .output_format(output_fmt)
-            .decode(primary_jpeg, &stop)
+            .decode(primary_jpeg, stop)
             .map_err(|e| ZenDecodeError::Jpeg(e.to_string()))?;
 
         let width = decoded.width();
