@@ -20,7 +20,7 @@ own section below.
 
 ### Dependency integration
 
-- Review pin for the zencodec 0.2 family (ideal-api `f5a7fd46`, the Pulse operation-control contract): zencodec, zenmeta and the testkit move together so a 0.2 consumer can patch ultrahdr-core into one zencodec graph; crates.io ultrahdr-core 0.6.0 requires zencodec `^0.1`. The fuzz lockfile follows. ultrahdr-rs and the fuzz crate still pin JPEG `4196fa93`, whose zencodec is 0.1.x, and are not built at this pin until a zenjpeg on this family pin exists. Unreleased; not for main until zencodec 0.2 ships.
+- Review pin for the zencodec 0.2 family (ideal-api `79676215`, the Pulse operation-control contract): zencodec, zenmeta and the testkit move together so a 0.2 consumer can patch ultrahdr-core into one zencodec graph; crates.io ultrahdr-core 0.6.0 requires zencodec `^0.1`. The fuzz lockfile follows. ultrahdr-rs and the fuzz crate still pin JPEG `4196fa93`, whose zencodec is 0.1.x, and are not built at this pin until a zenjpeg on this family pin exists. Unreleased; not for main until zencodec 0.2 ships.
 
 - Use zencodec/zenmeta/testkit `d327434b` and JPEG `4196fa93` in the full and fuzz graphs, matching the consuming streaming pipeline. Core tests, SIMD tests and lint, the JPEG consumer check and standalone fuzz compilation pass with one gain-map type identity.
 

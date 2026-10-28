@@ -404,7 +404,7 @@ dependencies = [
  "thiserror",
  "whereat",
  "zencodec 0.2.0",
- "zenmeta 0.1.0 (git+https://github.com/imazen/zencodec?rev=f5a7fd46231048a7290f11df5b32e010a3e529a8)",
+ "zenmeta 0.1.0 (git+https://github.com/imazen/zencodec?rev=79676215c037bf222c414198813e4b4f6b6efb96)",
  "zenpixels",
  "zenpixels-convert",
  "zentone",
@@ -435,7 +435,7 @@ dependencies = [
  "whereat",
  "zencodec 0.2.0",
  "zenjpeg",
- "zenmeta 0.1.0 (git+https://github.com/imazen/zencodec?rev=f5a7fd46231048a7290f11df5b32e010a3e529a8)",
+ "zenmeta 0.1.0 (git+https://github.com/imazen/zencodec?rev=79676215c037bf222c414198813e4b4f6b6efb96)",
 ]
 
 [[package]]
@@ -484,7 +484,7 @@ dependencies = [
 [[package]]
 name = "zencodec"
 version = "0.2.0"
-source = "git+https://github.com/imazen/zencodec?rev=f5a7fd46231048a7290f11df5b32e010a3e529a8#f5a7fd46231048a7290f11df5b32e010a3e529a8"
+source = "git+https://github.com/imazen/zencodec?rev=79676215c037bf222c414198813e4b4f6b6efb96#79676215c037bf222c414198813e4b4f6b6efb96"
 dependencies = [
  "almost-enough",
  "enough",
@@ -524,19 +524,19 @@ dependencies = [
 [[package]]
 name = "zenmeta"
 version = "0.1.0"
-source = "git+https://github.com/imazen/zencodec?rev=d327434b0826a3e39633665c76f5081c0ceb34cc#d327434b0826a3e39633665c76f5081c0ceb34cc"
+source = "git+https://github.com/imazen/zencodec?rev=79676215c037bf222c414198813e4b4f6b6efb96#79676215c037bf222c414198813e4b4f6b6efb96"
 dependencies = [
- "roxmltree",
- "zencodec 0.1.27",
+ "zencodec 0.2.0",
  "zenpixels",
 ]
 
 [[package]]
 name = "zenmeta"
 version = "0.1.0"
-source = "git+https://github.com/imazen/zencodec?rev=f5a7fd46231048a7290f11df5b32e010a3e529a8#f5a7fd46231048a7290f11df5b32e010a3e529a8"
+source = "git+https://github.com/imazen/zencodec?rev=d327434b0826a3e39633665c76f5081c0ceb34cc#d327434b0826a3e39633665c76f5081c0ceb34cc"
 dependencies = [
- "zencodec 0.2.0",
+ "roxmltree",
+ "zencodec 0.1.27",
  "zenpixels",
 ]
 
