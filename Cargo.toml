@@ -55,7 +55,7 @@ linear-srgb = { version = "0.6.12", default-features = false, features = ["trans
 
 # Zen ecosystem interop
 zenpixels = { version = ">=0.2.14, <0.4.0", default-features = false }
-zencodec = { git = "https://github.com/imazen/zencodec", rev = "a51d4119d363678273758f1f196062694175bb1a", version = ">=0.1.26, <0.3.0" }
+zencodec = { version = ">=0.1.26, <0.3.0" }
 zenresize = { version = "0.2.2", default-features = false }
 
 # Testing
