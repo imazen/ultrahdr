@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Accept the archmage and magetypes 0.9.31 stable release.
+
 - Converge root/fuzz zencodec and pixel types; retain an owned Pulse at existing cancellation checkpoints without adding progress reporting. Preserve all existing assertions and external-oracle selection.
 
 - Admit archmage/magetypes 0.9.31-beta.1 alongside compatible stable versions; use explicit-token aliases where needed. Formatting, strict library lint and library tests pass (`bdf7eea1`).
