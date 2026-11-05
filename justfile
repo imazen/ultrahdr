@@ -170,3 +170,16 @@ beta-cohort-check:
     cargo fmt --check
     cargo clippy --locked --workspace --lib -- -D warnings
     cargo test --locked --workspace --lib --no-fail-fast
+
+# Dependency cohort gates. __pixel-parity is selected by the separate interop
+# workflow, which supplies ultrahdr_app; no test assertion is changed here.
+sibling-cohort-check:
+    cargo fmt -p ultrahdr-core -p ultrahdr-rs -p wasm-bench --check
+    cargo test --workspace --lib --tests -- --test-threads=4
+    cargo test --workspace --doc
+    cargo test --workspace --lib --tests --features simd,f16,resize,tonemap-bt2446a,zencodec -- --test-threads=4
+    cargo test --workspace --doc --features simd,f16,resize,tonemap-bt2446a,zencodec
+    cargo clippy --workspace --all-targets --features simd,f16,resize,tonemap-bt2446a,zencodec -- -D warnings
+    cargo check -p ultrahdr-core --no-default-features
+    cargo test -p ultrahdr-core --no-default-features --features std --lib --tests
+    cargo check --manifest-path fuzz/Cargo.toml --bins

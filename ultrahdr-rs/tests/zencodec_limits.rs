@@ -150,3 +150,44 @@ fn decode_succeeds_with_no_limits() {
         result.err()
     );
 }
+
+// The required Pulse setter retains the existing cancellation checkpoints.
+// No progress-reporting behavior is promised by this compatibility adapter.
+struct StopImmediately;
+impl enough::Stop for StopImmediately {
+    fn check(&self) -> Result<(), enough::StopReason> {
+        Err(enough::StopReason::TimedOut)
+    }
+}
+
+#[test]
+fn pulse_cancellation_reaches_existing_decode_checkpoint() {
+    let job = UltraHdrDecoderConfig
+        .job()
+        .with_pulse(zencodec::SharedPulse::new(
+            zencodec::how_far::StopOnly::new(StopImmediately),
+        ));
+    assert_stopped(job);
+}
+
+#[test]
+#[allow(deprecated)] // Preserve the published cancellation-only adapter.
+fn legacy_stop_cancellation_reaches_existing_decode_checkpoint() {
+    let job = UltraHdrDecoderConfig
+        .job()
+        .with_stop(zencodec::StopToken::new(StopImmediately));
+    assert_stopped(job);
+}
+
+fn assert_stopped(job: ultrahdr_rs::codec::UltraHdrDecodeJob) {
+    let result = job
+        .decoder(Cow::Borrowed(TEST_ULTRAHDR), &[])
+        .unwrap()
+        .decode();
+    assert!(matches!(
+        result,
+        Err(ultrahdr_rs::codec::ZenDecodeError::Stopped(
+            enough::StopReason::TimedOut
+        ))
+    ));
+}

@@ -12,6 +12,10 @@
 
 ## Known Bugs
 
+- The zencodec adapter retains `SharedPulse` and polls cancellation through the
+  existing decode checkpoints, but does not report progress or plan phases.
+  Dependency convergence does not qualify progress reporting.
+
 - Metadata integration CI exposed deprecated magetypes constructor calls in
   SIMD-only code and benchmarks. The 0.9.30 token constructors replace their
   forwarding aliases; keep the SIMD all-target check in the validation set.
@@ -124,3 +128,18 @@ ultrahdr-core instead of doing its own parallel container parsing.
 Core-only tests cannot detect mismatched JPEG metadata types in ultrahdr-rs.
 After changing shared contract pins, compile the full workspace and standalone
 fuzz workspace too; both JPEG pins must match the core metadata revision.
+
+### Sibling convergence qualification (2026-11-05)
+
+Root and standalone fuzz graphs contain exactly one zencodec (`1816b4d0`)
+and one zenpixels/convert (`fa836abf`) source. JPEG is `4b0f1bfa`;
+the optional resizer is `e3975fb9` (0.3.1) to remove its old pixel types.
+`just sibling-cohort-check`: 391 default tests, 431 production-feature tests,
+five doctests in each configuration, 117 core tests without tone mapping,
+strict all-target lint, no-default-features check and seven fuzz binaries pass.
+One existing runtime ignore remains; the production docs retain one existing
+ignore. The external `ultrahdr_app` suite remains caller-selected in interop CI.
+No kernel, fixture, expected value or assertion was changed. Cancellation-only
+and Pulse controls both reach the existing decode checkpoint in two new tests.
+Validation wrapper: rc=0, 87 s, peak RSS 0.68 GiB, minimum available 7623 MiB,
+peak load 3.26. These describe the validation process, not codec performance.
