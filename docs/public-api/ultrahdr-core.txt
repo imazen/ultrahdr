@@ -6,14 +6,14 @@
 # impls omitted; re-export duplicates annotated `[also: path]`.
 # DO NOT EDIT BY HAND — commit regenerated changes with the code.
 #
-# files: ultrahdr-core.txt 305 lines (supported surface) | ultrahdr-core.features.txt 20 added (features: archmage,f16,magetypes,resize,simd,std,tonemap,tonemap-bt2446a) | ultrahdr-core.internal.txt 113 lines (132 hidden + 0 excluded-feature)
+# files: ultrahdr-core.txt 306 lines (supported surface) | ultrahdr-core.features.txt 20 added (features: archmage,f16,magetypes,resize,simd,std,tonemap,tonemap-bt2446a) | ultrahdr-core.internal.txt 113 lines (132 hidden + 0 excluded-feature)
 
 ## summary
 #
 #   pub modules                                15
 #   pub types (struct/enum/trait/alias)        40
 #   pub consts/statics                         25
-#   free functions                             75
+#   free functions                             77
 #   inherent methods                           53
 #   struct fields                              63
 #   enum variants                              45
@@ -23,13 +23,13 @@
 #
 # per-module pub lines:
 #   (root)                           98
-#   color                           131
+#   color                           133
 #   gainmap                          65
 #   limits                           10
 #   luminance                         4
 #   metadata                         30
 
-## items (285 lines)
+## items (286 lines)
 
 pub mod ultrahdr_core
 pub use Bt2408Yrgb
@@ -151,6 +151,7 @@ pub fn color::srgb_eotf(f32) -> f32 [also: color::transfer]
 pub fn color::srgb_oetf(f32) -> f32 [also: color::transfer]
 pub fn color::tonemap_hlg_to_sdr([f32; 3], &color::ToneMapConfig) -> [f32; 3] [also: color::tonemap]
 pub fn color::tonemap_image_to_srgb8(&zenpixels::buffer::PixelBuffer, zenpixels::descriptor::ColorPrimaries) -> Result<alloc::vec::Vec<u8>> [also: color::tonemap]
+pub fn color::tonemap_image_to_srgb8_with_stop(&zenpixels::buffer::PixelBuffer, zenpixels::descriptor::ColorPrimaries, &impl enough::Stop) -> Result<alloc::vec::Vec<u8>> [also: color::tonemap]
 pub fn color::tonemap_pq_to_sdr([f32; 3], &color::ToneMapConfig) -> [f32; 3] [also: color::tonemap]
 pub fn color::tonemap_to_sdr([f32; 3], zenpixels::descriptor::TransferFunction, &color::ToneMapConfig) -> [f32; 3] [also: color::tonemap]
 pub fn color::tonemap_to_srgb8([f32; 3], zenpixels::descriptor::TransferFunction, &color::ToneMapConfig) -> [u8; 3] [also: color::tonemap]

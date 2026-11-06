@@ -188,3 +188,24 @@ sibling-cohort-check:
 cohort-core-check:
     cargo test -p ultrahdr-core --all-features --lib --tests
     cargo clippy -p ultrahdr-core --all-features --all-targets -- -D warnings
+
+# Run outside ambient workspace overrides with the exact reviewed root lock.
+# ULTRAHDR_APP must name the independently built pixel-parity oracle.
+cohort-full-tests:
+    cp benchmarks/sansio_full_dependencies.lock Cargo.lock
+    test -n "$ULTRAHDR_APP"
+    cargo fmt --all --check
+    cargo clippy --locked --workspace --all-features --all-targets -- -D warnings
+    RUST_TEST_THREADS=2 cargo test --locked --workspace --all-features --lib --tests
+    cargo test --locked --workspace --all-features --doc
+
+cohort-portability-check:
+    RUST_TEST_THREADS=2 cargo test --locked --workspace --lib --tests
+    cargo test --locked --workspace --doc
+    cargo test --locked -p ultrahdr-core --no-default-features --features std --lib --tests
+    cargo check --locked -p ultrahdr-core --no-default-features --target x86_64-unknown-none
+    cargo check --locked -p ultrahdr-core --no-default-features --target wasm32-unknown-unknown
+    cargo check --locked --manifest-path fuzz/Cargo.toml --bins
+
+cohort-api-check:
+    ZEN_API_DOC_TOOLCHAIN=nightly-2026-07-13 ZEN_API_DOC=check cargo test --locked --manifest-path apidoc/Cargo.toml
