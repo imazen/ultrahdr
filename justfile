@@ -183,3 +183,8 @@ sibling-cohort-check:
     cargo check -p ultrahdr-core --no-default-features
     cargo test -p ultrahdr-core --no-default-features --features std --lib --tests
     cargo check --manifest-path fuzz/Cargo.toml --bins
+
+# Run in the explicitly patched isolated cohort export described by the receipt.
+cohort-core-check:
+    cargo test -p ultrahdr-core --all-features --lib --tests
+    cargo clippy -p ultrahdr-core --all-features --all-targets -- -D warnings

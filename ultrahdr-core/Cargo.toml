@@ -95,6 +95,8 @@ zenpixels-convert = { version = ">=0.3.1, <0.4.0", git = "https://github.com/ima
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 proptest = "1.11.0"
 criterion = "0.8.2"
+# Benchmarks name the beta.2 relaxed operation explicitly; runtime floors stay unchanged.
+magetypes = { version = ">=0.9.31-beta.2, <=0.9.31-beta.2", default-features = false }
 
 [[bench]]
 name = "gainmap"

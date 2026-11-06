@@ -22,7 +22,7 @@ cargo clippy -p ultrahdr-core --all-features --lib --tests -- -D warnings
 cargo clippy -p ultrahdr-core --all-features --all-targets -- -D warnings
 ```
 
-The all-feature library/integration tests pass: 180 unit, five reference-parity and three SIMD-consistency controls, zero ignored or filtered. Their existing expected values/tolerances remain unchanged. Strict library/test Clippy passes. The broader all-target Clippy FAILS at the unchanged simd_xplat benchmark's deprecated `mul_add` call (line 283). No warning suppression or arithmetic rewrite was made. Keep the cohort in draft until this and applicable workspace/platform gates pass.
+The all-feature library/integration tests pass: 180 unit, five reference-parity and three SIMD-consistency controls, zero ignored or filtered. Their existing expected values/tolerances remain unchanged. Strict library/test Clippy passes. The first broader all-target Clippy failed at the simd_xplat benchmark's deprecated `mul_add` call (line 283). A separate reviewed benchmark-only migration now names `mul_add_relaxed`. Exact beta.2 f32x8 implementation lines342–344 show that the old method delegates directly to it, so this preserves the selected cohort's operation and rounding. A dev-only beta.2 requirement supplies that method without raising the runtime dependency floors. No numeric assertion or warning suppression changes. Strict all-target Clippy and all three all-feature doctests now pass. The complete workspace/platform gates remain open, so retain the draft.
 
 The pre-forwarding full-feature test failed because Bt2446A was configured out; the same command succeeds after the separate feature commit. Default+simd,f16,resize numeric controls also passed before forwarding. All logs are retained by the coordinating integration lane; these results establish neither performance nor a process-memory bound.
 
@@ -33,3 +33,5 @@ Full JPEG graph Clippy and native PNG controls get past resolution, then fail th
 The isolated core lock has one identity each for core, pixels, converter, enough 0.4.5 and whereat 0.1.5; archmage, macros and magetypes all select beta.2. No tracked workspace lock was changed: its old multi-member graph is not represented as a passing baseline. The exact qualification lock SHA-256 is `06b6f7b5643a05f69afe273b0aa7f6fb016c99701c4b773f9a5d1af6fe4cbf6b`.
 
 The reviewed source still requires coordinated root graph pins. The source workspace's older codec/pixel patches are not qualified by this isolated export. Do not land or publish this candidate independently.
+
+PR199 compatibility: in a separate export/target with only core88fc5871, pixelsb6b12bbe and garb58ce9cad substituted together, the same 180+5+3 all-feature core tests pass unchanged. This does not merge PR199 or change the main-cohort pin in this candidate.
