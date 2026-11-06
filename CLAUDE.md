@@ -143,3 +143,14 @@ No kernel, fixture, expected value or assertion was changed. Cancellation-only
 and Pulse controls both reach the existing decode checkpoint in two new tests.
 Validation wrapper: rc=0, 87 s, peak RSS 0.68 GiB, minimum available 7623 MiB,
 peak load 3.26. These describe the validation process, not codec performance.
+
+## Known Bugs: paired pixel full-image clone (2026-11-06)
+
+The canonical-plane pixel cohort makes crop_copy fallible. The old clone helper
+failed compilation because it returned that Result as PixelBuffer. A private
+compatibility adapter accepts either cohort and retains the existing infallible
+public signature. Allocation failure still panics at this infallible boundary.
+
+The isolated native JPEG harness on zencodec 1fb997bb / pixels fde59b96
+compiles this adapter and verifies a 3x2 RGB8 clone's descriptor and both sample
+rows. This qualifies cloning on the paired graph, not the full HDR pipeline.

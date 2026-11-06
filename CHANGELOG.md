@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### QUEUED BREAKING CHANGES
+
+None.
+
+### Fixed
+
+- Keep the existing infallible pixel clone helper compatible with fallible full-image copying in the next pixel cohort.
+
 ### Changed
 
 - Accept the archmage and magetypes 0.9.31 stable release.

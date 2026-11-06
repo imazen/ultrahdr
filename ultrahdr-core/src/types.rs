@@ -278,7 +278,23 @@ pub fn new_pixel_buffer(
 /// gives ultrahdr-core callers a single owned duplicate (tightly packed, same
 /// descriptor) when they genuinely need one.
 pub fn clone_pixel_buffer(src: &PixelBuffer) -> PixelBuffer {
-    src.crop_copy(0, 0, src.width(), src.height())
+    CloneOutcome::into_pixel(src.crop_copy(0, 0, src.width(), src.height()))
+}
+
+// Accept both pixel cohorts while preserving this existing infallible helper.
+// The fallible pixel API exposes allocation failure; this helper cannot return it.
+trait CloneOutcome {
+    fn into_pixel(self) -> PixelBuffer;
+}
+impl CloneOutcome for PixelBuffer {
+    fn into_pixel(self) -> PixelBuffer {
+        self
+    }
+}
+impl<E: core::fmt::Debug> CloneOutcome for core::result::Result<PixelBuffer, E> {
+    fn into_pixel(self) -> PixelBuffer {
+        self.expect("full-image pixel clone allocation")
+    }
 }
 
 /// Wrap an existing `Vec<u8>` as a [`PixelBuffer`], validating ultrahdr-core's
