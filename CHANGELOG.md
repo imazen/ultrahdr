@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Admit published archmage/magetypes 0.9.31-beta.2 for integration with the
+  current pixel-storage cohort. Verified in the zensally embedded-depth consumer.
+
 ### QUEUED BREAKING CHANGES
 
 None.
@@ -11,6 +14,9 @@ None.
 - Keep the existing infallible pixel clone helper compatible with fallible full-image copying in the next pixel cohort.
 
 ### Changed
+
+- Pin standalone codec/pixel operation dependencies to the verified saliency consumer cohort.
+  Full standalone resolution still needs other optional/dev crates to admit SIMD beta.2.
 
 - Accept the archmage and magetypes 0.9.31 stable release.
 
