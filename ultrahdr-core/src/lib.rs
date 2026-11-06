@@ -31,10 +31,9 @@
 //!
 //! # no_std Support
 //!
-//! This crate is `no_std` compatible with alloc. Disable default features:
-//! ```toml
-//! ultrahdr-core = { version = "0.6", default-features = false }
-//! ```
+//! The current freestanding path is unqualified: disabling default features
+//! exposes float-math backend gaps. The qualified path enables `std`.
+//! See `benchmarks/simd_cohort_2026-11-06.md` for the exact target failures.
 //!
 //! # Cooperative Cancellation
 //!

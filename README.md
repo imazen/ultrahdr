@@ -14,7 +14,7 @@ The wire format is also defined by ISO/IEC 21496-1 (Gain map metadata for image 
 
 | Crate | Description |
 |-------|-------------|
-| [`ultrahdr-core`](https://github.com/imazen/ultrahdr/tree/main/ultrahdr-core) | Core gain map math and metadata for Ultra HDR — no codec dependencies (`no_std + alloc`, WASM-compatible) |
+| [`ultrahdr-core`](https://github.com/imazen/ultrahdr/tree/main/ultrahdr-core) | Core gain map math and metadata for Ultra HDR — no codec dependencies (std/WASM; freestanding math unqualified) |
 | [`ultrahdr-rs`](https://github.com/imazen/ultrahdr/tree/main/ultrahdr-rs) | Pure Rust Ultra HDR (JPEG with gain map) encoder/decoder, with [zenjpeg](https://github.com/imazen/zenjpeg) bundled |
 
 `ultrahdr-core` carries the per-pixel kernels, the `GainMapMetadata` types, and the validators. `ultrahdr-rs` adds JPEG container assembly, MPF, XMP, ISO 21496-1 APP2 wiring, and the `Encoder` / `Decoder` types that hand you HDR or SDR pixels back. Pull `ultrahdr-core` directly if you already have your own JPEG codec, are decoding gain maps stored in AVIF/JXL/HEIF containers, or want to run on WASM.
@@ -270,7 +270,7 @@ This is a partial port aimed at the encode/decode and gain-map-application paths
 | GPU acceleration | no | yes (OpenGL) |
 | Pure Rust, no C deps | yes | C++ |
 | WASM build target | yes (`ultrahdr-core`) | no |
-| `no_std + alloc` build | yes (`ultrahdr-core`) | no |
+| `no_std + alloc` build | unqualified: float-math backend gaps | no |
 
 Bit-exact `applyGain` and `applyGainCore` parity against libultrahdr and libavif goldens is enforced in `ultrahdr-core/tests/reference_parity.rs` (5 reference parity tests, see CHANGELOG entry for 0.5.0). One documented divergence: libultrahdr's `computeGain` clamps near-black pixels with hardcoded constants; this crate uses configurable `min_boost` / `max_boost` from `GainMapConfig` instead.
 

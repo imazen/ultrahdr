@@ -154,3 +154,19 @@ public signature. Allocation failure still panics at this infallible boundary.
 The isolated native JPEG harness on zencodec 1fb997bb / pixels fde59b96
 compiles this adapter and verifies a 3x2 RGB8 clone's descriptor and both sample
 rows. This qualifies cloning on the paired graph, not the full HDR pipeline.
+
+## Known Bugs: genuine freestanding core dependency (2026-11-06)
+
+A real x86_64-unknown-none check of the reviewed cohort fails because
+thiserror's default std feature stayed enabled despite disabling core defaults.
+The manifest now disables that implicit edge and forwards thiserror/std only
+through the crate's std feature. Ordinary std behavior and arithmetic stay
+unchanged. Host-target no-default builds alone do not establish freestanding
+support; retain the genuine target gate in cohort-portability-check.
+
+Removing the implicit edge exposes43 missing float methods (powf, log/exp,
+sqrt, floor/round) in transfer and gain-map code on both genuine freestanding
+and WASM without std. A portable backend needs separate numeric qualification;
+none is substituted in this cohort. Full std workspace/pixel gates pass.
+README and crate docs now describe that verified limit; no_std remains a
+failing gate, and thresholds/assertions remain unchanged.

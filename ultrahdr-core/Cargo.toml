@@ -46,8 +46,8 @@ magetypes = { version = ">=0.9.30, <=0.9.31-beta.2", default-features = false, o
 # Types
 bytemuck = { version = "1.25.2", features = ["derive"] }
 
-# Error handling - std only for now
-thiserror = "2.0.20"
+# Error derives support core; opt into their std feature with this crate.
+thiserror = { version = "2.0.20", default-features = false }
 
 # Error location tracking (At<Error> server-side stack traces). no_std-compatible;
 # its `std` feature is gated into this crate's `std` feature below.
@@ -109,7 +109,7 @@ required-features = ["simd"]
 
 [features]
 default = ["std", "tonemap"]
-std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone?/std", "whereat/std", "zenpixels-convert?/std", "half?/std"]
+std = ["thiserror/std", "enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zentone?/std", "whereat/std", "zenpixels-convert?/std", "half?/std"]
 # Gates the zentone-backed re-exports (LumaToneMap, LumaGainMapSplitter,
 # Bt2408Yrgb, HableFilmic, ExtendedReinhardLuma, LumaFn, SplitConfig,
 # SplitStats) at the crate root, plus the `color::tonemap` and
