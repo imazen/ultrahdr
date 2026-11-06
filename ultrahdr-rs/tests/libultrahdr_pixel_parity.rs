@@ -326,11 +326,11 @@ fn sdr_decode_matches_libultrahdr() {
     let h = our_sdr.height() as usize;
     let row_bytes = w * 4;
     let row_bucket = |y: usize| y / 16;
-    let n_buckets = (h + 15) / 16;
+    let n_buckets = h.div_ceil(16);
     let mut row_max = vec![0i32; n_buckets];
     // Per-column bucket max (columns in groups of 16).
     let col_bucket = |x: usize| (x / 4) / 16;
-    let n_col_buckets = (w + 15) / 16;
+    let n_col_buckets = w.div_ceil(16);
     let mut col_max = vec![0i32; n_col_buckets];
     // Sample high-delta hotspots.
     let mut hot: Vec<(usize, usize, u8, i32)> = Vec::new(); // (y, x, channel, delta)
@@ -383,20 +383,20 @@ fn sdr_decode_matches_libultrahdr() {
     // Row bucket max — look for MCU-row bottom boundaries (y % 16 == 15)
     // or MCU-row top (y % 16 == 0).
     eprintln!("  per-16-row max delta (first 8 + last 4):");
-    for rb in 0..n_buckets.min(8) {
+    for (rb, max_delta) in row_max.iter().enumerate().take(n_buckets.min(8)) {
         eprintln!(
             "    rows {:>5}..{:>5}: max={}",
             rb * 16,
             rb * 16 + 15,
-            row_max[rb]
+            max_delta
         );
     }
-    for rb in n_buckets.saturating_sub(4)..n_buckets {
+    for (rb, max_delta) in row_max.iter().enumerate().skip(n_buckets.saturating_sub(4)) {
         eprintln!(
             "    rows {:>5}..{:>5}: max={}",
             rb * 16,
             rb * 16 + 15,
-            row_max[rb]
+            max_delta
         );
     }
     // Column bucket max — should be roughly flat unless there's a horizontal edge issue.
@@ -500,7 +500,7 @@ fn hdr_decode_matches_libultrahdr() {
             "{name}: HDR byte size mismatch (expected 8 bytes/pixel for f16 RGBA)"
         );
 
-        let our_floats: &[f32] = bytemuck::cast_slice(&our_hdr.as_slice().as_strided_bytes());
+        let our_floats: &[f32] = bytemuck::cast_slice(our_hdr.as_slice().as_strided_bytes());
         assert_eq!(
             our_floats.len(),
             lib_halfs.len(),

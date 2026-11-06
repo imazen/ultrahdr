@@ -11,4 +11,4 @@ publish = false
 [workspace]
 
 [dependencies]
-zenutils-apidoc = "0.1.0"
+zenutils-apidoc = "0.1.1"
