@@ -85,10 +85,11 @@ zenresize = { workspace = true, optional = true }
 # Bt2446A wins mean ΔE2000 by 2-5× over every channel-independent curve;
 # `measure_max` wins 3 of 6 ranking criteria for peak measurement). Gated
 # behind `tonemap-bt2446a` (default-off — pulls archmage/magetypes/garb/libm
-# beyond ultrahdr-core's minimal-deps mandate). Pulls `hdr-experimental` from
-# zenpixels-convert; the underlying math is stable, the gate covers expected
-# 0.3.0 surface churn (the `measure_robust` → `measure` rename).
-zenpixels-convert = { version = ">=0.3.1, <0.4.0", default-features = false, features = ["hdr-experimental"], optional = true }
+# beyond ultrahdr-core's minimal-deps mandate). The explicit bt2446a feature
+# first exists at pixel commit e70065f77aef0fbe9a7bc3349eb9f2cb5de6af58.
+# Version 0.3.1 alone does not identify those unpublished contents; retain the
+# reviewed main-cohort revision until a release supplies this feature.
+zenpixels-convert = { version = ">=0.3.1, <0.4.0", git = "https://github.com/imazen/zenpixels", rev = "fde59b96632557592cffa9b7301acd8db96ed078", default-features = false, features = ["hdr-experimental"], optional = true }
 
 # Native-only: proptest uses rusty-fork/wait-timeout (no wasm32 support)
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
@@ -120,7 +121,7 @@ tonemap = ["dep:zentone"]
 # ultrahdr-core's minimal-deps mandate. Opt-in with
 # `features = ["tonemap-bt2446a"]` to access the audited-winner curve and
 # measurement primitives without depending on zenpixels-convert directly.
-tonemap-bt2446a = ["dep:zenpixels-convert"]
+tonemap-bt2446a = ["dep:zenpixels-convert", "zenpixels-convert/bt2446a"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
 # f16 (IEEE 754 half-precision) pixel support via the `half` crate. Default-off
 # (opt-in). Enables: reading `RgbaF16`/`RgbF16` SDR/HDR input (otherwise rejected
