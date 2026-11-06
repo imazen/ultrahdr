@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Admit published archmage/magetypes 0.9.31-beta.2 for integration with the
+  current pixel-storage cohort. Verified in the zensally embedded-depth consumer.
+
 ### QUEUED BREAKING CHANGES
 
 None.
