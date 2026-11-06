@@ -15,6 +15,9 @@ None.
 
 ### Changed
 
+- Pin standalone codec/pixel operation dependencies to the verified saliency consumer cohort.
+  Full standalone resolution still needs other optional/dev crates to admit SIMD beta.2.
+
 - Accept the archmage and magetypes 0.9.31 stable release.
 
 - Converge root/fuzz zencodec and pixel types; retain an owned Pulse at existing cancellation checkpoints without adding progress reporting. Preserve all existing assertions and external-oracle selection.
