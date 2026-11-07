@@ -38,7 +38,7 @@ members = ["."]
 # zenanalyze = "^0.2.0"` (crates.io latest is 0.1.0). Drop when zenanalyze
 # 0.2.0 publishes; keep in step with the root manifest.
 [patch.crates-io]
-zenresize = { git = "https://github.com/imazen/zenresize", rev = "4ad64b3c0a29469e68ddfdda3798de20c60c3421" }
+zenresize = { git = "https://github.com/imazen/zenresize", rev = "5c5fe0d53b8264a162bc1eba08d2cd4ea2094f4b" }
 # Shared ICC recognition used by the pinned JPEG HDR decoder.
 zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "fde59b96632557592cffa9b7301acd8db96ed078" }
 zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "fde59b96632557592cffa9b7301acd8db96ed078" }
@@ -50,10 +50,10 @@ zenmeta = { git = "https://github.com/imazen/zencodec", rev = "1fb997bb88e7405e6
 zencodec-testkit = { git = "https://github.com/imazen/zencodec", rev = "1fb997bb88e7405e6a315bf1f0b22f71e99be272" }
 
 # Match the reviewed root cohort; private dependency patches do not propagate.
-garb = { git = "https://github.com/imazen/garb", rev = "605276d717ea0b31a1cd2a36ae05301383c7b8b5" }
+garb = { git = "https://github.com/imazen/garb", rev = "8f9aa10d09f84bb0a1e3fdbd1773f610eec1b784" }
 linear-srgb = { git = "https://github.com/imazen/linear-srgb", rev = "2969ee846e92a4f00f34ab447edaf1eb6857ebe0" }
-zentone = { git = "https://github.com/imazen/zentone", rev = "a8e3394cc0a2c8444f0cd74e8ab392964ab87f62" }
-zenblend = { git = "https://github.com/imazen/zenblend", rev = "c61d051bb0a1fd0afb0a73d15ed6de8dcbf1eeed" }
+zentone = { git = "https://github.com/imazen/zentone", rev = "2598054c140bad5cdbe66205dacedc49150dea3d" }
+zenblend = { git = "https://github.com/imazen/zenblend", rev = "d477b29c4ffbbcf8bb5f20070b44dac2caf6cf26" }
 zencodec-io = { git = "https://github.com/imazen/zencodec", rev = "1fb997bb88e7405e6a315bf1f0b22f71e99be272" }
 
 [profile.release]
