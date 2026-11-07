@@ -209,3 +209,11 @@ cohort-portability-check:
 
 cohort-api-check:
     ZEN_API_DOC_TOOLCHAIN=nightly-2026-07-13 ZEN_API_DOC=check cargo test --locked --manifest-path apidoc/Cargo.toml
+
+# Retain both genuine freestanding failures; never qualify std as no_std.
+stable-freestanding-check:
+    #!/usr/bin/env bash
+    failed=0
+    cargo check --locked -p ultrahdr-core --no-default-features --target x86_64-unknown-none || failed=1
+    cargo check --locked -p ultrahdr-core --no-default-features --target wasm32-unknown-unknown || failed=1
+    exit "$failed"
