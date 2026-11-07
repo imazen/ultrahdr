@@ -38,10 +38,9 @@ enough = "0.4"
 half = { version = "2.7.1", optional = true, default-features = false }
 
 # SIMD (optional - for explicit SIMD optimizations)
-# Preserve the stable 0.9.30 floor and explicitly admit the tested beta.2.
-# A stable-only upper bound does not opt Cargo into prerelease selection.
-archmage = { version = ">=0.9.30, <=0.9.31-beta.2", default-features = false, features = ["macros"], optional = true }
-magetypes = { version = ">=0.9.30, <=0.9.31-beta.2", default-features = false, optional = true }
+# Preserve the runtime floor while admitting stable 0.9.31.
+archmage = { version = ">=0.9.30, <0.10.0", default-features = false, features = ["macros"], optional = true }
+magetypes = { version = ">=0.9.30, <0.10.0", default-features = false, optional = true }
 
 # Types
 bytemuck = { version = "1.25.2", features = ["derive"] }
@@ -95,8 +94,8 @@ zenpixels-convert = { version = ">=0.3.1, <0.4.0", git = "https://github.com/ima
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 proptest = "1.11.0"
 criterion = "0.8.2"
-# Benchmarks name the beta.2 relaxed operation explicitly; runtime floors stay unchanged.
-magetypes = { version = ">=0.9.31-beta.2, <=0.9.31-beta.2", default-features = false }
+# Benchmarks require the released explicit relaxed operation; runtime floors stay unchanged.
+magetypes = { version = "0.9.31", default-features = false }
 
 [[bench]]
 name = "gainmap"

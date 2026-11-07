@@ -44,7 +44,7 @@ thiserror = "2.0.20"
 zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "4b0f1bfa35444d982ce2a26e04bac19293487790", version = "0.9.0" }
 
 # Color management
-moxcms = ">=0.8.1, <0.10"
+moxcms = "0.9.2"
 
 # Image buffer abstractions
 imgref = "1.12.3"
