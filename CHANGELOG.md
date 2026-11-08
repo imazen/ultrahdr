@@ -506,3 +506,7 @@ all of it ships together now.
 - Added criterion benchmarks for core gain map operations (f1d2f39)
 - Added WASI benchmark testing with wasmtime (1253735)
 - Added WASM SIMD128 build support and `justfile` targets (413bede)
+
+## Frozen consumer compatibility (2026-11-08)
+
+Carry the pixel clone compatibility implementation from aadf1021 onto frozen 7e9d296c. Preserve the existing infallible clone contract and numerical kernels. AV1 consumer qualification belongs to zencodec PR201.
