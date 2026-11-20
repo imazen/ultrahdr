@@ -41,7 +41,7 @@ bytemuck = { version = "1.25.2", features = ["derive"] }
 thiserror = "2.0.20"
 
 # Pin the codec while the metadata stack is integrated across repositories.
-zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "4b0f1bfa35444d982ce2a26e04bac19293487790", version = "0.9.0" }
+zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "f39ab8359305c086916d36ed942dd27c41ae8e3c", version = "0.9.0" }
 
 # Color management
 moxcms = ">=0.8.1, <0.10"
@@ -80,4 +80,4 @@ zenmeta = { git = "https://github.com/imazen/zencodec", rev = "1816b4d082234c04c
 # (crates.io latest is 0.1.0; the 0.2.x line lives on git until it publishes).
 # Git rather than path: CI clones some siblings but not zenanalyze. Remove this
 # once zenanalyze 0.2.0 is published. Same fix as zenjxl 1ae0da79.
-zenanalyze = { git = "https://github.com/imazen/zenanalyze", rev = "38dc80f73887dafae6bf5ebfe9a03be5ef78ebe0" }
+zenanalyze = { git = "https://github.com/imazen/zenanalyze", rev = "9c8d6c55f44505fcad213bed2f0d1d5b403ae72a" }

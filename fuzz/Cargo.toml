@@ -20,7 +20,7 @@ path = "../ultrahdr-rs"
 
 [dependencies.zenjpeg]
 git = "https://github.com/imazen/zenjpeg"
-rev = "4b0f1bfa35444d982ce2a26e04bac19293487790"
+rev = "f39ab8359305c086916d36ed942dd27c41ae8e3c"
 
 [dependencies.zencodec]
 version = ">=0.2.0, <0.3.0"
@@ -44,7 +44,7 @@ zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "fa836abf72afe9
 zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "fa836abf72afe9826e866dc25712b7c800323962" }
 ultrahdr-core = { path = "../ultrahdr-core" }
 zencodec = { git = "https://github.com/imazen/zencodec", rev = "1816b4d082234c04c3805411b437b8396040f522" }
-zenanalyze = { git = "https://github.com/imazen/zenanalyze", rev = "38dc80f73887dafae6bf5ebfe9a03be5ef78ebe0" }
+zenanalyze = { git = "https://github.com/imazen/zenanalyze", rev = "9c8d6c55f44505fcad213bed2f0d1d5b403ae72a" }
 
 zenmeta = { git = "https://github.com/imazen/zencodec", rev = "1816b4d082234c04c3805411b437b8396040f522" }
 zencodec-testkit = { git = "https://github.com/imazen/zencodec", rev = "1816b4d082234c04c3805411b437b8396040f522" }

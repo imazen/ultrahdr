@@ -280,7 +280,7 @@ mod simd_impl {
             };
 
             // Compute log_gain = log_min + linear * log_range
-            let log_gain = linear.mul_add(log_range_v, log_min_v);
+            let log_gain = linear.mul_add_relaxed(log_range_v, log_min_v);
 
             // Compute gain = exp(log_gain * weight)
             let g = (log_gain * weight_v).exp_midp();

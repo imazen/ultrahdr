@@ -28,9 +28,9 @@ checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
 
 [[package]]
 name = "archmage"
-version = "0.9.30"
+version = "0.9.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15785ee3576fbd41276a25f063b1e6b5bf323af9b4924632e25a8de6a3065f06"
+checksum = "a92f0e72adfba3f34ee8726e42cffed7384571e95411265060c638ece0f00ff2"
 dependencies = [
  "archmage-macros",
  "safe_unaligned_simd",
@@ -39,9 +39,9 @@ dependencies = [
 
 [[package]]
 name = "archmage-macros"
-version = "0.9.30"
+version = "0.9.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce7707714970d5cf476caccbae2d282000c6c14ca5aada878e722a10d8e1c153"
+checksum = "3d4e76b4cdc9779ac80e4b04cbc6c15fdb5b714116a7047eea481fb2f45017d2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -224,12 +224,11 @@ dependencies = [
 
 [[package]]
 name = "magetypes"
-version = "0.9.30"
+version = "0.9.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5726fd3335b1d2814036c420a5c8d105abcc0e0b43eebb477e48f8c725fc8fb2"
+checksum = "4a4bf97ae47bb9993221b6e00114dd4ef0920c11e72d39bc550d46ecd50c257c"
 dependencies = [
  "archmage",
- "libm",
  "rustversion",
 ]
 
@@ -473,7 +472,7 @@ dependencies = [
 [[package]]
 name = "zenjpeg"
 version = "0.9.0"
-source = "git+https://github.com/imazen/zenjpeg?rev=4b0f1bfa35444d982ce2a26e04bac19293487790#4b0f1bfa35444d982ce2a26e04bac19293487790"
+source = "git+https://github.com/imazen/zenjpeg?rev=f39ab8359305c086916d36ed942dd27c41ae8e3c#f39ab8359305c086916d36ed942dd27c41ae8e3c"
 dependencies = [
  "aligned-vec",
  "archmage",
@@ -550,7 +549,7 @@ dependencies = [
 [[package]]
 name = "zenyuv"
 version = "0.1.3"
-source = "git+https://github.com/imazen/zenjpeg?rev=4b0f1bfa35444d982ce2a26e04bac19293487790#4b0f1bfa35444d982ce2a26e04bac19293487790"
+source = "git+https://github.com/imazen/zenjpeg?rev=f39ab8359305c086916d36ed942dd27c41ae8e3c#f39ab8359305c086916d36ed942dd27c41ae8e3c"
 dependencies = [
  "archmage",
  "imgref",
@@ -583,7 +582,7 @@ dependencies = [
 [[patch.unused]]
 name = "zenanalyze"
 version = "0.2.0"
-source = "git+https://github.com/imazen/zenanalyze?rev=38dc80f73887dafae6bf5ebfe9a03be5ef78ebe0#38dc80f73887dafae6bf5ebfe9a03be5ef78ebe0"
+source = "git+https://github.com/imazen/zenanalyze?rev=9c8d6c55f44505fcad213bed2f0d1d5b403ae72a#9c8d6c55f44505fcad213bed2f0d1d5b403ae72a"
 
 [[patch.unused]]
 name = "zencodec-testkit"
