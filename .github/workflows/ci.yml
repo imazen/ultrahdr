@@ -285,6 +285,8 @@ jobs:
   metadata-policy-i686:
     name: Metadata policy (i686)
     runs-on: ubuntu-latest
+    env:
+      CROSS_CONTAINER_OPTS: --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
