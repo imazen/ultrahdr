@@ -14,6 +14,7 @@ None.
 
 ### Changed
 
+- Upgrade `archmage` and `magetypes` to `0.9.33` (including `fuzz/Cargo.lock`).
 - Bump `enough` (`0.4.5`), `thiserror` (`2.0.21`), and `zenutils-apidoc` (`0.1.1`), refresh `fuzz/` and `apidoc/` lockfiles, and regenerate `docs/public-api/` snapshots.
 - Accept the archmage and magetypes 0.9.31 stable release.
 
