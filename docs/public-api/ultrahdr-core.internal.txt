@@ -12,19 +12,16 @@
 #   pub modules                                 2
 #   pub types (struct/enum/trait/alias)        14
 #   free functions                             10
-#   inherent methods                           52
+#   inherent methods                           49
 #   re-exports                                 36
 #   trait roster entries (type × trait)        11
 #
 # per-module pub lines:
-#   (root)                            1
-#   color                            63
-#   gainmap                          50
+#   color                            62
+#   gainmap                          49
 
-## items (102 lines)
+## items (99 lines)
 
-pub fn GainMapEncodingFormat::assert_fields_are_eq(&self)
-pub fn color::FitMode::assert_fields_are_eq(&self)
 pub fn color::HlgOetfInvLut::default() -> Self
 pub fn color::HlgOetfInvLut::lookup(&self, u16) -> f32
 pub fn color::HlgOetfInvLut::new() -> Self
@@ -39,7 +36,6 @@ pub fn color::apply_oetf(f32, zenpixels::descriptor::TransferFunction) -> f32 [a
 pub fn color::hlg_oetf(f32) -> f32 [also: color::transfer]
 pub fn color::nits_to_pq(f32) -> f32 [also: color::transfer]
 pub fn color::pq_to_nits(f32) -> f32 [also: color::transfer]
-pub fn gainmap::HdrOutputFormat::assert_fields_are_eq(&self)
 pub fn gainmap::RowDecoder::current_row(&self) -> u32
 pub fn gainmap::RowDecoder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn gainmap::RowDecoder::gamut(&self) -> zenpixels::descriptor::ColorPrimaries

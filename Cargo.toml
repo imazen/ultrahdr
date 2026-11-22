@@ -28,7 +28,7 @@ repository = "https://github.com/imazen/ultrahdr"
 ultrahdr-core = { path = "ultrahdr-core", version = "0.6.0" }
 
 # Cooperative cancellation
-enough = "0.4"
+enough = "0.4.5"
 
 # Math — f16 conversion. Opt-in via ultrahdr-core's `f16` feature; in
 # ultrahdr-rs it is test-only (libultrahdr pixel-parity comparison).
@@ -38,7 +38,7 @@ half = "2.7.1"
 bytemuck = { version = "1.25.2", features = ["derive"] }
 
 # Error handling
-thiserror = "2.0.20"
+thiserror = "2.0.21"
 
 # Pin the codec while the metadata stack is integrated across repositories.
 zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "f39ab8359305c086916d36ed942dd27c41ae8e3c", version = "0.9.0" }

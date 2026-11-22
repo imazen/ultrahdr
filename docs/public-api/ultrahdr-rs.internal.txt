@@ -9,17 +9,15 @@
 
 ## summary
 #
-#   inherent methods                            2
+#   inherent methods                            1
 #   trait roster entries (type × trait)         3
 #
 # per-module pub lines:
 #   (root)                            1
-#   jpeg                              1
 
-## items (2 lines)
+## items (1 lines)
 
 pub fn ResourceLimits::assert_fields_are_eq(&self)
-pub fn jpeg::Marker::assert_fields_are_eq(&self)
 
 ## trait impls (3 types)
 

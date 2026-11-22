@@ -28,7 +28,7 @@ exclude = [
 
 [dependencies]
 # Cooperative cancellation
-enough = "0.4"
+enough = "0.4.5"
 
 # Math — f16 (IEEE 754 half-precision) conversion for `RgbaF16`/`RgbF16`
 # pixel I/O and the `HdrOutputFormat::LinearF16` decode output. Optional:
@@ -45,7 +45,7 @@ magetypes = { version = "0.9.32", default-features = false, optional = true }
 bytemuck = { version = "1.25.2", features = ["derive"] }
 
 # Error handling - std only for now
-thiserror = "2.0.20"
+thiserror = "2.0.21"
 
 # Error location tracking (At<Error> server-side stack traces). no_std-compatible;
 # its `std` feature is gated into this crate's `std` feature below.

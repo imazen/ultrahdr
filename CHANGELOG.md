@@ -8,10 +8,13 @@ None.
 
 ### Fixed
 
+- Fix Rust 1.100.0 Clippy `needless_range_loop` lints in `ultrahdr-core` and `ultrahdr-rs` tests.
+- Add `CROSS_CONTAINER_OPTS: --security-opt seccomp=unconfined` to the `metadata-policy-i686` CI job.
 - Keep the existing infallible pixel clone helper compatible with fallible full-image copying in the next pixel cohort.
 
 ### Changed
 
+- Bump `enough` (`0.4.5`), `thiserror` (`2.0.21`), and `zenutils-apidoc` (`0.1.1`), refresh `fuzz/` and `apidoc/` lockfiles, and regenerate `docs/public-api/` snapshots.
 - Accept the archmage and magetypes 0.9.31 stable release.
 
 - Converge root/fuzz zencodec and pixel types; retain an owned Pulse at existing cancellation checkpoints without adding progress reporting. Preserve all existing assertions and external-oracle selection.
