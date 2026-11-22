@@ -242,12 +242,12 @@ impl RowDecoder {
             );
 
             // Scatter into packed RGBA output.
-            for x in 0..row_pixels {
-                let out_idx = output_start + x * 4;
-                output[out_idx] = self.hdr_row[x][0];
-                output[out_idx + 1] = self.hdr_row[x][1];
-                output[out_idx + 2] = self.hdr_row[x][2];
-                output[out_idx + 3] = 1.0;
+            for (hdr, out) in self.hdr_row[..row_pixels].iter().zip(
+                output[output_start..output_start + output_stride]
+                    .as_chunks_mut::<4>()
+                    .0,
+            ) {
+                *out = [hdr[0], hdr[1], hdr[2], 1.0];
             }
         }
 
@@ -564,12 +564,12 @@ impl StreamDecoder {
             );
 
             // Scatter into packed RGBA output.
-            for x in 0..row_pixels {
-                let out_idx = output_start + x * 4;
-                output[out_idx] = self.hdr_row[x][0];
-                output[out_idx + 1] = self.hdr_row[x][1];
-                output[out_idx + 2] = self.hdr_row[x][2];
-                output[out_idx + 3] = 1.0;
+            for (hdr, out) in self.hdr_row[..row_pixels].iter().zip(
+                output[output_start..output_start + output_stride]
+                    .as_chunks_mut::<4>()
+                    .0,
+            ) {
+                *out = [hdr[0], hdr[1], hdr[2], 1.0];
             }
         }
 

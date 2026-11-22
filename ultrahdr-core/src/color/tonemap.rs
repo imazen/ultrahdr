@@ -1581,8 +1581,8 @@ mod tests {
     #[test]
     fn test_scale_gainmap() {
         let mut gm = GainMap::new(4, 4).unwrap();
-        for i in 0..16 {
-            gm.data[i] = (i * 16) as u8;
+        for (i, dst) in gm.data.iter_mut().enumerate().take(16) {
+            *dst = (i * 16) as u8;
         }
 
         let scaled = scale_gainmap(&gm, 8, 8).unwrap();
@@ -1594,8 +1594,8 @@ mod tests {
     #[test]
     fn test_crop_gainmap() {
         let mut gm = GainMap::new(10, 10).unwrap();
-        for i in 0..100 {
-            gm.data[i] = i as u8;
+        for (i, dst) in gm.data.iter_mut().enumerate().take(100) {
+            *dst = i as u8;
         }
 
         // Crop center 50%
@@ -1746,8 +1746,8 @@ mod tests {
     #[test]
     fn test_scale_gainmap_identity() {
         let mut gm = GainMap::new(4, 4).unwrap();
-        for i in 0..16 {
-            gm.data[i] = (i * 15 + 10) as u8;
+        for (i, dst) in gm.data.iter_mut().enumerate().take(16) {
+            *dst = (i * 15 + 10) as u8;
         }
 
         // Scale to same dimensions
@@ -1798,8 +1798,8 @@ mod tests {
     #[test]
     fn test_crop_gainmap_full() {
         let mut gm = GainMap::new(4, 4).unwrap();
-        for i in 0..16 {
-            gm.data[i] = (i * 16) as u8;
+        for (i, dst) in gm.data.iter_mut().enumerate().take(16) {
+            *dst = (i * 16) as u8;
         }
 
         // Crop with rect covering entire image (SDR is same size as gainmap here)

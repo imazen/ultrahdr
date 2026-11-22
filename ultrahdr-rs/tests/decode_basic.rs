@@ -193,25 +193,21 @@ fn test_metadata_value_ranges() {
     let metadata = decoder.metadata().unwrap();
 
     // Check all channels
-    for i in 0..3 {
+    for (i, ch) in metadata.channels.iter().enumerate() {
         assert!(
-            metadata.channels[i].max >= metadata.channels[i].min,
+            ch.max >= ch.min,
             "max_content_boost[{}] should be >= min_content_boost[{}]",
             i,
             i
         );
+        assert!(ch.gamma > 0.0, "gamma[{}] should be positive", i);
         assert!(
-            metadata.channels[i].gamma > 0.0,
-            "gamma[{}] should be positive",
-            i
-        );
-        assert!(
-            metadata.channels[i].base_offset >= 0.0,
+            ch.base_offset >= 0.0,
             "offset_sdr[{}] should be non-negative",
             i
         );
         assert!(
-            metadata.channels[i].alternate_offset >= 0.0,
+            ch.alternate_offset >= 0.0,
             "offset_hdr[{}] should be non-negative",
             i
         );
