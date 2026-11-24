@@ -52,7 +52,7 @@ fn create_test_hdr_image(width: u32, height: u32) -> PixelBuffer {
         pixels,
         width,
         height,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
     )
@@ -63,7 +63,7 @@ fn create_test_hdr_image(width: u32, height: u32) -> PixelBuffer {
 fn create_sdr_from_hdr(hdr: &PixelBuffer) -> PixelBuffer {
     let mut pixels = Vec::with_capacity((hdr.width() * hdr.height() * 4) as usize);
 
-    let hdr_data = &hdr.as_slice().as_strided_bytes();
+    let hdr_data = &hdr.as_view().as_strided_bytes();
     for i in 0..(hdr.width() * hdr.height()) as usize {
         let idx = i * 16;
         let r = f32::from_le_bytes([
@@ -99,7 +99,7 @@ fn create_sdr_from_hdr(hdr: &PixelBuffer) -> PixelBuffer {
         pixels,
         hdr.width(),
         hdr.height(),
-        PixelFormat::Rgba8,
+        PixelFormat::RGBA8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
     )
@@ -119,7 +119,7 @@ fn linear_to_srgb_u8(linear: f32) -> u8 {
 fn rgba8_to_rgb8(img: &PixelBuffer) -> Vec<u8> {
     let width = img.width();
     let height = img.height();
-    let data = img.as_slice();
+    let data = img.as_view();
     let bytes = data.as_strided_bytes();
     let mut rgb = Vec::with_capacity((width * height * 3) as usize);
     for i in 0..(width * height) as usize {
@@ -146,7 +146,7 @@ fn rgb8_to_raw_image(data: &[u8], width: u32, height: u32) -> PixelBuffer {
         rgba,
         width,
         height,
-        PixelFormat::Rgba8,
+        PixelFormat::RGBA8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
     )
@@ -307,7 +307,7 @@ fn test_gainmap_apply() {
     assert_eq!(reconstructed.height(), height);
 
     // Verify HDR values exist
-    let data = &reconstructed.as_slice().as_strided_bytes();
+    let data = &reconstructed.as_view().as_strided_bytes();
     let mut max_value = 0.0f32;
     for i in 0..(width * height) as usize {
         let idx = i * 16;
@@ -534,7 +534,7 @@ fn test_ultrahdr_roundtrip() {
     assert_eq!(reconstructed.height(), height);
 
     // Verify HDR values
-    let data = &reconstructed.as_slice().as_strided_bytes();
+    let data = &reconstructed.as_view().as_strided_bytes();
     let mut max_value = 0.0f32;
     for i in 0..(width * height) as usize {
         let idx = i * 16;
@@ -723,13 +723,10 @@ fn test_readme_workflow_encode_decode() {
     // Verify HDR reconstruction
     assert_eq!(hdr_reconstructed.width(), width);
     assert_eq!(hdr_reconstructed.height(), height);
-    assert_eq!(
-        hdr_reconstructed.descriptor().pixel_format(),
-        PixelFormat::RgbaF32
-    );
+    assert_eq!(hdr_reconstructed.spec().layout, PixelFormat::RGBAF32);
 
     // Verify HDR values exceed SDR range (> 1.0)
-    let hdr_data = &hdr_reconstructed.as_slice().as_strided_bytes();
+    let hdr_data = &hdr_reconstructed.as_view().as_strided_bytes();
     let mut max_value = 0.0f32;
     for i in 0..(width * height) as usize {
         let idx = i * 16; // 4 floats × 4 bytes

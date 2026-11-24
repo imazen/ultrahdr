@@ -169,9 +169,9 @@ fn run_apply_gainmap(data: &[u8]) {
     };
 
     let sdr_format = if sdr_format_idx == 0 {
-        ultrahdr_core::PixelFormat::Rgba8
+        ultrahdr_core::PixelFormat::RGBA8
     } else {
-        ultrahdr_core::PixelFormat::Rgb8
+        ultrahdr_core::PixelFormat::RGB8
     };
 
     let pixel_data_start = 24;
@@ -324,9 +324,9 @@ fn run_tonemap_arm(op: u8, remaining: &[u8]) {
             let height = remaining[1].clamp(1, 16) as u32;
             // `fmt_idx == 0` in the fuzz target, where `fmt_idx = remaining[2] % 2`.
             let format = if remaining[2].is_multiple_of(2) {
-                ultrahdr_core::PixelFormat::RgbaF32
+                ultrahdr_core::PixelFormat::RGBAF32
             } else {
-                ultrahdr_core::PixelFormat::Rgba8
+                ultrahdr_core::PixelFormat::RGBA8
             };
             let gamut = match remaining[3] % 3 {
                 0 => ultrahdr_core::ColorPrimaries::Bt709,
@@ -337,7 +337,7 @@ fn run_tonemap_arm(op: u8, remaining: &[u8]) {
                 0 => ultrahdr_core::TransferFunction::Srgb,
                 1 => ultrahdr_core::TransferFunction::Linear,
                 2 => ultrahdr_core::TransferFunction::Pq,
-                _ => ultrahdr_core::TransferFunction::Hlg,
+                _ => ultrahdr_core::TransferFunction::Hlg(zenpixels::HlgMode::Scene),
             };
 
             let pixel_start = 5;
@@ -348,7 +348,7 @@ fn run_tonemap_arm(op: u8, remaining: &[u8]) {
             }
 
             let mut pixel_data = remaining[pixel_start..pixel_start + needed].to_vec();
-            if format == ultrahdr_core::PixelFormat::RgbaF32 {
+            if format == ultrahdr_core::PixelFormat::RGBAF32 {
                 for chunk in pixel_data.as_chunks_mut::<4>().0 {
                     let val = f32::from_le_bytes(*chunk);
                     let clamped = if val.is_finite() {

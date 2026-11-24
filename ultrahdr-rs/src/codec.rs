@@ -42,7 +42,7 @@ use zencodec::{
     ImageFormat as ZenImageFormat, ImageInfo as ZenImageInfo, LimitExceeded, ResourceLimits,
     Unsupported, UnsupportedOperation,
 };
-use zenpixels::{PixelBuffer, PixelDescriptor};
+use zenpixels::{ImageSpec, PixelBuf};
 
 use crate::Decoder;
 
@@ -110,8 +110,9 @@ impl DecoderConfig for UltraHdrDecoderConfig {
         &[ZenImageFormat::Jpeg] // Ultra HDR is JPEG-based
     }
 
-    fn supported_descriptors() -> &'static [PixelDescriptor] {
-        &[PixelDescriptor::RGB8_SRGB, PixelDescriptor::RGBA8_SRGB]
+    fn supported_descriptors() -> &'static [ImageSpec] {
+        static SUPPORTED: &[ImageSpec] = &[ImageSpec::rgb8_srgb(), ImageSpec::rgba8_srgb()];
+        SUPPORTED
     }
 
     fn capabilities() -> &'static DecodeCapabilities {
@@ -214,20 +215,20 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
         } else {
             (0, 0)
         };
-        Ok(OutputInfo::full_decode(w, h, PixelDescriptor::RGB8_SRGB))
+        Ok(OutputInfo::full_decode(w, h, ImageSpec::rgb8_srgb()))
     }
 
     fn decoder(
         self,
         data: Cow<'a, [u8]>,
-        preferred: &[PixelDescriptor],
+        preferred: &[ImageSpec],
     ) -> Result<Self::Dec, Self::Error> {
         let limits = self.limits.unwrap_or(ResourceLimits::none());
 
         // Check input size before proceeding
         limits.check_input_size(data.len() as u64)?;
 
-        let want_rgba = preferred.iter().any(|d| d.layout().has_alpha());
+        let want_rgba = preferred.iter().any(|d| d.layout.order.has_alpha_slot());
 
         Ok(UltraHdrDecoder {
             data,
@@ -241,7 +242,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
         self,
         data: Cow<'a, [u8]>,
         sink: &mut dyn zencodec::decode::DecodeRowSink,
-        preferred: &[PixelDescriptor],
+        preferred: &[ImageSpec],
     ) -> Result<OutputInfo, Self::Error> {
         zencodec::helpers::copy_decode_to_sink(self, data, sink, preferred, ZenDecodeError::Sink)
     }
@@ -249,7 +250,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
     fn streaming_decoder(
         self,
         _data: Cow<'a, [u8]>,
-        _preferred: &[PixelDescriptor],
+        _preferred: &[ImageSpec],
     ) -> Result<Self::StreamDec, Self::Error> {
         Err(UnsupportedOperation::RowLevelDecode.into())
     }
@@ -257,7 +258,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
     fn animation_frame_decoder(
         self,
         _data: Cow<'a, [u8]>,
-        _preferred: &[PixelDescriptor],
+        _preferred: &[ImageSpec],
     ) -> Result<Self::AnimationFrameDec, Self::Error> {
         Err(UnsupportedOperation::AnimationDecode.into())
     }
@@ -267,7 +268,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
     /// file is offered (the gain map sits after the primary image).
     fn dyn_incremental_decoder(
         self,
-        preferred: &[PixelDescriptor],
+        preferred: &[ImageSpec],
     ) -> Result<Box<zencodec::decode::DynIncrementalDecoder>, zencodec::decode::BoxedError> {
         Ok(zencodec::decode::erase_incremental(
             zencodec::helpers::WholeFileIncremental::new(self, preferred),
@@ -336,12 +337,12 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
             .ok_or_else(|| ZenDecodeError::Jpeg("no pixel data".into()))?;
 
         let descriptor = if self.want_rgba {
-            PixelDescriptor::RGBA8_SRGB
+            ImageSpec::rgba8_srgb()
         } else {
-            PixelDescriptor::RGB8_SRGB
+            ImageSpec::rgb8_srgb()
         };
 
-        let pixel_buf = PixelBuffer::from_vec(pixels_u8.to_vec(), width, height, descriptor)
+        let pixel_buf = PixelBuf::from_bytes(pixels_u8.to_vec(), width, height, descriptor)
             .map_err(|e| ZenDecodeError::Jpeg(format!("pixel buffer: {e}")))?;
 
         let zen_info = ZenImageInfo::new(width, height, ZenImageFormat::Jpeg)

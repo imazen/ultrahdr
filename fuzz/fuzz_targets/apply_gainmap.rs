@@ -51,9 +51,9 @@ fuzz_target!(|data: &[u8]| {
     };
 
     let sdr_format = if sdr_format_idx == 0 {
-        ultrahdr_core::PixelFormat::Rgba8
+        ultrahdr_core::PixelFormat::RGBA8
     } else {
-        ultrahdr_core::PixelFormat::Rgb8
+        ultrahdr_core::PixelFormat::RGB8
     };
 
     let pixel_data_start = 24;

@@ -114,9 +114,9 @@ fuzz_target!(|data: &[u8]| {
             let transfer_idx = remaining[4] % 4;
 
             let format = if fmt_idx == 0 {
-                ultrahdr_core::PixelFormat::RgbaF32
+                ultrahdr_core::PixelFormat::RGBAF32
             } else {
-                ultrahdr_core::PixelFormat::Rgba8
+                ultrahdr_core::PixelFormat::RGBA8
             };
             let gamut = match gamut_idx {
                 0 => ultrahdr_core::ColorPrimaries::Bt709,
@@ -139,7 +139,7 @@ fuzz_target!(|data: &[u8]| {
 
             let mut pixel_data = remaining[pixel_start..pixel_start + needed].to_vec();
             // For RgbaF32, clamp f32 values to avoid upstream linear-srgb panic
-            if format == ultrahdr_core::PixelFormat::RgbaF32 {
+            if format == ultrahdr_core::PixelFormat::RGBAF32 {
                 for chunk in pixel_data.as_chunks_mut::<4>().0 {
                     let val = f32::from_le_bytes(*chunk);
                     let clamped = if val.is_finite() { val.clamp(0.0, 10.0) } else { 0.5 };

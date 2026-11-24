@@ -44,13 +44,9 @@ fn test_decode_sdr() {
 
     assert!(sdr.width() > 0, "Width should be positive");
     assert!(sdr.height() > 0, "Height should be positive");
+    assert_eq!(sdr.spec().layout, PixelFormat::RGBA8, "SDR should be RGBA8");
     assert_eq!(
-        sdr.descriptor().pixel_format(),
-        PixelFormat::Rgba8,
-        "SDR should be RGBA8"
-    );
-    assert_eq!(
-        sdr.as_slice().as_strided_bytes().len(),
+        sdr.as_view().as_strided_bytes().len(),
         (sdr.width() * sdr.height() * 4) as usize,
         "Data size should match dimensions"
     );
@@ -116,10 +112,10 @@ fn test_decode_hdr_4x_boost() {
     assert!(hdr.width() > 0);
     assert!(hdr.height() > 0);
     assert_eq!(
-        hdr.descriptor().pixel_format(),
-        PixelFormat::RgbaF32,
+        hdr.spec().layout,
+        PixelFormat::RGBAF32,
         "HDR output should be linear float RGBA, got {:?}",
-        hdr.descriptor().pixel_format()
+        hdr.spec().layout
     );
 }
 
@@ -226,7 +222,7 @@ fn test_pixel_values_valid() {
     let sdr = decoder.decode_sdr().unwrap();
 
     // Check first few pixels are valid RGBA
-    for chunk in sdr.as_slice().as_strided_bytes().chunks(4).take(100) {
+    for chunk in sdr.as_view().as_strided_bytes().chunks(4).take(100) {
         assert_eq!(chunk.len(), 4, "Each pixel should be 4 bytes");
         // Alpha should typically be 255 for opaque images
     }

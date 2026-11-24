@@ -36,7 +36,7 @@ fn sdr_base(w: u32, h: u32) -> ultrahdr_core::PixelBuffer {
         data,
         w,
         h,
-        PixelFormat::Rgb8,
+        PixelFormat::RGB8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
     )
@@ -175,7 +175,7 @@ fn rgb_gainmap_encodes_from_raw_multichannel_map() {
         hdr_px,
         bw,
         bh,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
     )

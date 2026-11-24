@@ -53,15 +53,15 @@ fn test_roundtrip_sdr_quality() {
 
     // Check pixels are similar (JPEG is lossy)
     let mut max_diff = 0i16;
-    for (i, chunk) in sdr_out.as_slice().as_strided_bytes().chunks(4).enumerate() {
+    for (i, chunk) in sdr_out.as_view().as_strided_bytes().chunks(4).enumerate() {
         let orig_offset = i * 4;
-        if orig_offset + 2 < sdr.as_slice().as_strided_bytes().len() {
+        if orig_offset + 2 < sdr.as_view().as_strided_bytes().len() {
             let diff_r =
-                (chunk[0] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset] as i16).abs();
+                (chunk[0] as i16 - sdr.as_view().as_strided_bytes()[orig_offset] as i16).abs();
             let diff_g =
-                (chunk[1] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 1] as i16).abs();
+                (chunk[1] as i16 - sdr.as_view().as_strided_bytes()[orig_offset + 1] as i16).abs();
             let diff_b =
-                (chunk[2] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset + 2] as i16).abs();
+                (chunk[2] as i16 - sdr.as_view().as_strided_bytes()[orig_offset + 2] as i16).abs();
             max_diff = max_diff.max(diff_r).max(diff_g).max(diff_b);
         }
     }
@@ -95,16 +95,16 @@ fn test_roundtrip_gradient() {
     let mut total_error: u64 = 0;
     let pixel_count = (sdr_out.width() * sdr_out.height()) as usize;
 
-    for (i, chunk) in sdr_out.as_slice().as_strided_bytes().chunks(4).enumerate() {
+    for (i, chunk) in sdr_out.as_view().as_strided_bytes().chunks(4).enumerate() {
         let orig_offset = i * 4;
-        if orig_offset + 2 < sdr.as_slice().as_strided_bytes().len() {
-            total_error += (chunk[0] as i16 - sdr.as_slice().as_strided_bytes()[orig_offset] as i16)
+        if orig_offset + 2 < sdr.as_view().as_strided_bytes().len() {
+            total_error += (chunk[0] as i16 - sdr.as_view().as_strided_bytes()[orig_offset] as i16)
                 .unsigned_abs() as u64;
             total_error += (chunk[1] as i16
-                - sdr.as_slice().as_strided_bytes()[orig_offset + 1] as i16)
+                - sdr.as_view().as_strided_bytes()[orig_offset + 1] as i16)
                 .unsigned_abs() as u64;
             total_error += (chunk[2] as i16
-                - sdr.as_slice().as_strided_bytes()[orig_offset + 2] as i16)
+                - sdr.as_view().as_strided_bytes()[orig_offset + 2] as i16)
                 .unsigned_abs() as u64;
         }
     }
@@ -161,16 +161,16 @@ fn test_roundtrip_hdr_brighter_than_sdr() {
 
     // Compare center pixel (highlight region)
     let center = (32 * 64 + 32) as usize;
-    let sdr_center = &sdr_out.as_slice().as_strided_bytes()[center * 4..(center + 1) * 4];
+    let sdr_center = &sdr_out.as_view().as_strided_bytes()[center * 4..(center + 1) * 4];
 
     // HDR is float, need to interpret the bytes
     let hdr_offset = center * 16; // RGBA32F
-    if hdr_offset + 4 <= hdr_out.as_slice().as_strided_bytes().len() {
+    if hdr_offset + 4 <= hdr_out.as_view().as_strided_bytes().len() {
         let hdr_r = f32::from_le_bytes([
-            hdr_out.as_slice().as_strided_bytes()[hdr_offset],
-            hdr_out.as_slice().as_strided_bytes()[hdr_offset + 1],
-            hdr_out.as_slice().as_strided_bytes()[hdr_offset + 2],
-            hdr_out.as_slice().as_strided_bytes()[hdr_offset + 3],
+            hdr_out.as_view().as_strided_bytes()[hdr_offset],
+            hdr_out.as_view().as_strided_bytes()[hdr_offset + 1],
+            hdr_out.as_view().as_strided_bytes()[hdr_offset + 2],
+            hdr_out.as_view().as_strided_bytes()[hdr_offset + 3],
         ]);
 
         let sdr_r_linear = (sdr_center[0] as f32 / 255.0).powf(2.2); // Approximate sRGB to linear

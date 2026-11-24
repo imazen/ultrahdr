@@ -12,6 +12,12 @@
 
 ## Known Bugs
 
+- The zenpixels 0.5 draft uses a zencodec integration revision that still
+  declares 0.2.0. The pinned JPEG crate takes that revision via the root
+  patch while its own pixel edge stays on 0.3. The EXIF orientation type and
+  legacy ICC feature then fail inside zenjpeg. Qualify core independently
+  and converge the JPEG and codec family before promoting the branch.
+
 - The zencodec adapter retains `SharedPulse` and polls cancellation through the
   existing decode checkpoints, but does not report progress or plan phases.
   Dependency convergence does not qualify progress reporting.

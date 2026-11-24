@@ -338,7 +338,7 @@ fn sdr_decode_matches_libultrahdr() {
         let our_row_start = y * our_sdr.stride();
         let lib_row_start = y * row_bytes;
         for x in 0..row_bytes {
-            let a = our_sdr.as_slice().as_strided_bytes()[our_row_start + x] as i32;
+            let a = our_sdr.as_view().as_strided_bytes()[our_row_start + x] as i32;
             let b = lib_raw[lib_row_start + x] as i32;
             let d = (a - b).abs();
             if d > max_delta {
@@ -500,7 +500,7 @@ fn hdr_decode_matches_libultrahdr() {
             "{name}: HDR byte size mismatch (expected 8 bytes/pixel for f16 RGBA)"
         );
 
-        let our_floats: &[f32] = bytemuck::cast_slice(&our_hdr.as_slice().as_strided_bytes());
+        let our_floats: &[f32] = bytemuck::cast_slice(&our_hdr.as_view().as_strided_bytes());
         assert_eq!(
             our_floats.len(),
             lib_halfs.len(),

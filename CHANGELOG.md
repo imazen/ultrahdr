@@ -4,7 +4,15 @@
 
 ### QUEUED BREAKING CHANGES
 
-None.
+- Migrate the pixel API to zenpixels 0.5. The existing Ultra HDR type names
+  refer to `PixelBuf`, `PixelView`, `PixelViewMut`, `SampleLayout`,
+  `Primaries`, and `Transfer`. Buffer access uses views and image specs,
+  HLG carries a mode, and content-light measurement is exposed as
+  `measure_cll` with an explicit diffuse-white anchor and optional HLG rendering.
+- The draft integration requires one matching 0.5 pixel cohort. The zencodec
+  integration still advertises 0.2.0, so the pinned JPEG revision selects
+  a codec dependency with a different pixel type identity. JPEG-backed
+  builds require a matching zenjpeg revision.
 
 ### Fixed
 

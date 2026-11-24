@@ -117,7 +117,7 @@ tonemap-bt2446a = ["ultrahdr-core/tonemap-bt2446a"]
 # this in the Gain Map Interop workflow where `ultrahdr_app` is installed.
 # The caller (CI) decides whether to run these — no runtime "silent skip".
 __pixel-parity = []
-zencodec = ["dep:zenpixels"]  # zencodec trait integration (zencodec itself is already unconditional)
+zencodec = []  # Enable the zencodec trait adapter.
 # Soft-removed `ffi-tests` (libultrahdr C++ parity tests against the imazen
 # fork at `imazen/libultrahdr-rs`). The optional `libultrahdr_rs` dep and the
 # `tests/parity_libultrahdr.rs` harness were removed in commit `bc0e12f4`;
@@ -139,5 +139,4 @@ workspace = true
 
 [dependencies.zenpixels]
 workspace = true
-optional = true
 

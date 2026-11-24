@@ -257,7 +257,7 @@ fn test_value_negative() {
         data,
         32,
         32,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
     )
@@ -292,7 +292,7 @@ fn test_value_nan() {
         data,
         32,
         32,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
     )
@@ -327,7 +327,7 @@ fn test_value_infinity() {
         data,
         32,
         32,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
     )
@@ -476,7 +476,7 @@ fn test_color_p3_gamut() {
         data,
         64,
         64,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::DisplayP3,
         TransferFunction::Linear,
     )
@@ -506,7 +506,7 @@ fn test_color_bt2100_gamut() {
         data,
         64,
         64,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt2020,
         TransferFunction::Linear,
     )

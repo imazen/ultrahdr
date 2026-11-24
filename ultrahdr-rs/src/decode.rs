@@ -412,7 +412,7 @@ impl<'a> Decoder<'a> {
     ///    (`apply_gainmap` → `HdrOutputFormat::LinearFloat`,
     ///    `1.0` = BT.2408 SDR white = 203 nits).
     /// 2. Auto-measure the source peak via
-    ///    [`CllMeasure::measure_max`](ultrahdr_core::CllMeasure::measure_max)
+    ///    a native-RGB MaxCLL scan
     ///    (MaxRgb reduction, BT.2408 anchor) — the audited-winner peak
     ///    measurement that won 3 of 6 ranking criteria in the 2026-06-22
     ///    shootout.
@@ -435,10 +435,7 @@ impl<'a> Decoder<'a> {
     #[cfg(feature = "tonemap-bt2446a")]
     pub fn decode_full_sdr(&self, target_primaries: ColorPrimaries) -> Result<PixelBuffer> {
         use ultrahdr_core::color::transfer::srgb_oetf;
-        use ultrahdr_core::{
-            Bt2446A, CllMeasure, ContentLightLevel, DiffuseWhite, LightLevelMethod,
-            new_pixel_buffer,
-        };
+        use ultrahdr_core::{Bt2446A, DiffuseWhite, new_pixel_buffer};
 
         let _ = target_primaries; // informational for now; see docs
 
@@ -459,22 +456,20 @@ impl<'a> Decoder<'a> {
             .max(1.0);
         let hdr = self.decode_hdr_with_format(display_boost, HdrOutputFormat::LinearFloat)?;
 
-        // Step 2: measure peak via audited-winner `measure_max` (MaxRgb /
-        // BT.2408). The reconstructed buffer is RgbaF32 linear, so this hits
-        // the `CllMeasure::measure_max` happy path directly.
-        let cll: ContentLightLevel = ContentLightLevel::measure_max(
-            hdr.as_slice(),
-            DiffuseWhite::BT2408,
-            LightLevelMethod::MaxRgb,
-        )
-        .ok_or_else(|| {
-            at!(Error::DecodeError(
-                "measure_max returned None on RgbaF32 HDR buffer".into(),
-            ))
-        })?;
-        // `measure_max` writes the MaxCLL field directly in cd/m². Clamp to
-        // SDR peak so peaks below 100 nits don't break the curve.
-        let hdr_peak_nits = (cll.max_content_light_level as f32).max(100.0);
+        // Preserve the native-RGB peak used by the previous CllMeasure scan.
+        // zenpixels-convert 0.5 measure_cll reduces RGB after conversion to BT.2020.
+        let hdr_slice = hdr.as_view();
+        let mut native_peak = 0.0f32;
+        for y in 0..hdr_slice.rows() {
+            let row = hdr_slice
+                .row_as::<[f32; 4]>(y)
+                .map_err(|e| at!(Error::from(e)))?;
+            for pixel in row {
+                native_peak = native_peak.max(pixel[0]).max(pixel[1]).max(pixel[2]);
+            }
+        }
+        let cll = (f64::from(native_peak) * f64::from(DiffuseWhite::BT2408.nits()) + 0.5) as u16;
+        let hdr_peak_nits = f32::from(cll).max(100.0);
 
         // Step 3: apply Bt2446A. The curve expects normalized
         // `1.0 = hdr_peak_nits` in, normalized `1.0 = sdr_peak_nits` out.
@@ -496,15 +491,14 @@ impl<'a> Decoder<'a> {
         let mut out = new_pixel_buffer(
             width,
             height,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )?;
-        let hdr_slice = hdr.as_slice();
         let hdr_stride = hdr_slice.stride();
         let hdr_bytes = hdr_slice.as_strided_bytes();
         let out_stride = out.stride();
-        let mut out_view = out.as_slice_mut();
+        let mut out_view = out.as_view_mut();
         let out_bytes = out_view.as_strided_bytes_mut();
 
         for y in 0..height as usize {
@@ -512,19 +506,19 @@ impl<'a> Decoder<'a> {
             let out_row = y * out_stride;
             for x in 0..width as usize {
                 let idx = in_row + x * 16;
-                let r = f32::from_le_bytes([
+                let r = f32::from_ne_bytes([
                     hdr_bytes[idx],
                     hdr_bytes[idx + 1],
                     hdr_bytes[idx + 2],
                     hdr_bytes[idx + 3],
                 ]);
-                let g = f32::from_le_bytes([
+                let g = f32::from_ne_bytes([
                     hdr_bytes[idx + 4],
                     hdr_bytes[idx + 5],
                     hdr_bytes[idx + 6],
                     hdr_bytes[idx + 7],
                 ]);
-                let b = f32::from_le_bytes([
+                let b = f32::from_ne_bytes([
                     hdr_bytes[idx + 8],
                     hdr_bytes[idx + 9],
                     hdr_bytes[idx + 10],
@@ -851,7 +845,7 @@ fn decode_jpeg_to_rgb(
         data,
         width,
         height,
-        PixelFormat::Rgba8,
+        PixelFormat::RGBA8,
         ColorPrimaries::Bt709, // assume sRGB for SDR
         TransferFunction::Srgb,
     )

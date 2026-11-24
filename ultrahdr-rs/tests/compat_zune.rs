@@ -239,7 +239,7 @@ fn test_roundtrip_with_zune() {
 
     for i in 0..pixel_count.min(zune_pixels.len() / zune_channels) {
         let zune_r = zune_pixels[i * zune_channels] as i16;
-        let our_r = our_sdr.as_slice().as_strided_bytes()[i * 4] as i16;
+        let our_r = our_sdr.as_view().as_strided_bytes()[i * 4] as i16;
 
         let diff = (zune_r - our_r).abs();
         max_diff = max_diff.max(diff);
