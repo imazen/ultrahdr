@@ -13,21 +13,13 @@
 //! This crate has **no JPEG codec dependency**. For full Ultra HDR encode/decode,
 //! use the `ultrahdr` crate which provides codec integration.
 //!
-//! # Production HDR→SDR (audited)
+//! # BT.2446 Method A
 //!
-//! The 2026-06-22 audited shootout established `Bt2446A` as the
-//! production-recommended HDR→SDR tone curve (wins mean ΔE2000 by 2-5× over
-//! every channel-independent curve) and `measure_cll` as the
-//! production-recommended peak measurement (wins 3 of 6 ranking criteria).
-//! Both are exposed through `color::audited` / re-exported at the crate
-//! root behind the `tonemap-bt2446a` Cargo feature:
-//!
-//! ```toml
-//! ultrahdr-core = { version = "0.6", features = ["tonemap-bt2446a"] }
-//! ```
-//!
-//! See `zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md` for the
-//! full empirical citation.
+//! Enable `tonemap-bt2446a` to use `Bt2446A` and the converter's
+//! `measure_cll` through `color::audited` or the crate root.
+//! Measurement uses BT.2020 working RGB, with an explicit diffuse-white
+//! anchor and optional HLG rendering parameters. Applications that
+//! previously measured the peak in source RGB can see different values.
 //!
 //! # no_std Support
 //!
