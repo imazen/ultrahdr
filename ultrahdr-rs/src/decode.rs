@@ -6,8 +6,9 @@ use ultrahdr_core::{
     TransferFunction, Unstoppable, limits, pixel_buffer_from_vec, validate_ultrahdr_dimensions,
 };
 use whereat::at;
+use zencodec::gainmap::{ISO_21496_1_URN, Iso21496Format, parse_iso21496_fmt};
 use zenjpeg::container::marker::find_jpeg_boundaries;
-use zenjpeg::container::xmp::parse_xmp;
+use zenmeta::xmp::gainmap::parse_xmp;
 
 use crate::container::{self, AppSegment};
 
@@ -246,12 +247,8 @@ impl<'a> Decoder<'a> {
     /// (interleaved RGB) for per-channel maps (Adobe exports, iOS 18 —
     /// issue #27).
     ///
-    /// The channel count is driven by the ISO 21496-1 **metadata**
-    /// (`is_single_channel`), not by pixel inspection: a single-channel
-    /// map JPEG-coded as YCbCr picks up ±1 chroma noise from subsampling,
-    /// and treating that noise as per-channel gain would change pixels.
-    /// Only when no metadata is available does a full achromatic scan
-    /// decide. For a different JPEG codec, see [`Decoder::gainmap_jpeg`].
+    /// ISO 21496-1 map storage follows JPEG component count independently
+    /// of metadata record arity. Legacy XMP retains its luma delivery rule.
     pub fn decode_gainmap(&self) -> Result<GainMap> {
         self.decode_gainmap_with_stop(Unstoppable)
     }
@@ -266,7 +263,17 @@ impl<'a> Decoder<'a> {
             .gainmap_jpeg()
             .ok_or_else(|| at!(Error::DecodeError("No gain map found".into())))?;
 
-        let single_channel = self.metadata.as_ref().map(|m| m.is_single_channel());
+        let encoded_channels = zenjpeg::decoder::Decoder::new()
+            .read_info(gainmap_data)
+            .ok()
+            .map(|info| info.num_components);
+        let single_channel = if encoded_channels == Some(1) {
+            Some(true)
+        } else {
+            self.metadata
+                .as_ref()
+                .map(|m| m.iso_channel_count().is_none() && m.is_single_channel())
+        };
 
         if single_channel != Some(false) {
             // Single-channel per metadata (or unknown): the historical Gray
@@ -456,19 +463,10 @@ impl<'a> Decoder<'a> {
             .max(1.0);
         let hdr = self.decode_hdr_with_format(display_boost, HdrOutputFormat::LinearFloat)?;
 
-        // Preserve the native-RGB peak used by the previous CllMeasure scan.
-        // zenpixels-convert 0.5 measure_cll reduces RGB after conversion to BT.2020.
         let hdr_slice = hdr.as_view();
-        let mut native_peak = 0.0f32;
-        for y in 0..hdr_slice.rows() {
-            let row = hdr_slice
-                .row_as::<[f32; 4]>(y)
-                .map_err(|e| at!(Error::from(e)))?;
-            for pixel in row {
-                native_peak = native_peak.max(pixel[0]).max(pixel[1]).max(pixel[2]);
-            }
-        }
-        let cll = (f64::from(native_peak) * f64::from(DiffuseWhite::BT2408.nits()) + 0.5) as u16;
+        let peak = ultrahdr_core::color::audited::measure_peak(&hdr, DiffuseWhite::BT2408, None)
+            .map_err(|err| at!(Error::DecodeError(err.to_string())))?;
+        let cll = (f64::from(peak) + 0.5) as u16;
         let hdr_peak_nits = f32::from(cll).max(100.0);
 
         // Step 3: apply Bt2446A. The curve expects normalized
@@ -637,6 +635,19 @@ impl<'a> Decoder<'a> {
                     }
                 }
             }
+        }
+
+        if let Some((start, end)) = self.gainmap_jpeg
+            && let Some(gainmap) = self.data.get(start..end)
+            && let Some(metadata) = zenjpeg::container::marker::iter(gainmap)
+                .filter(|segment| segment.kind == zenjpeg::container::marker::MarkerKind::App(2))
+                .filter(|segment| segment.payload.starts_with(ISO_21496_1_URN))
+                .find_map(|segment| {
+                    parse_iso21496_fmt(segment.payload, Iso21496Format::JpegApp2BodyWithUrn).ok()
+                })
+        {
+            self.metadata = Some(metadata);
+            self.is_ultrahdr = true;
         }
 
         // Set primary to full data if not found via MPF

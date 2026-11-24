@@ -101,8 +101,7 @@ impl GainMapLut {
     /// Look up gain multipliers for all 3 channels from a single byte (luminance mode).
     #[inline(always)]
     pub fn lookup_luminance(&self, byte_value: u8) -> [f32; 3] {
-        let g = self.table[byte_value as usize]; // Channel 0
-        [g, g, g]
+        self.lookup_rgb(byte_value, byte_value, byte_value)
     }
 
     /// Look up gain multipliers for RGB from 3 bytes.
@@ -188,6 +187,11 @@ pub fn apply_gainmap_slice(
     crate::types::validate_ultrahdr_slice(&sdr)?;
     gainmap.validate()?;
     validate_gainmap_magnitude(metadata)?;
+    if sdr.spec().color.alpha() == zenpixels::AlphaMode::Premultiplied {
+        return Err(at!(Error::InvalidPixelData(
+            "gain-map reconstruction requires straight or opaque alpha".into()
+        )));
+    }
 
     let width = sdr.width();
     let height = sdr.rows();
@@ -197,12 +201,14 @@ pub fn apply_gainmap_slice(
     let weight = calculate_weight(display_boost, metadata);
 
     // Create precomputed LUT for fast gain decoding
-    let lut = GainMapLut::new(metadata, weight);
+    let lut = (weight != 0.0).then(|| GainMapLut::new(metadata, weight));
 
     // Build the Shepard's weight table if image-to-gainmap ratio is integer
     // (the common case — ISO 21496-1 maps are typically 1/2, 1/4, 1/8, 1/16).
     // `None` means we fall back to per-pixel sqrt with row-hoisted constants.
-    let shepards = ShepardsLut::try_new(width, height, gainmap.width, gainmap.height);
+    let shepards = lut
+        .as_ref()
+        .and_then(|_| ShepardsLut::try_new(width, height, gainmap.width, gainmap.height));
 
     // Create output image
     let mut output = match output_format {
@@ -249,7 +255,6 @@ pub fn apply_gainmap_slice(
     ];
 
     let out_stride = output.stride();
-    let out_format = output.spec().layout;
     let mut out_slice = output.as_view_mut();
     let out_data = out_slice.as_strided_bytes_mut();
 
@@ -259,23 +264,34 @@ pub fn apply_gainmap_slice(
         stop.check().map_err(|r| at!(Error::Stopped(r)))?;
 
         read_sdr_row_linear(&sdr, y, &mut sdr_row);
-        sample_gainmap_row_lut(
-            gainmap,
-            &lut,
-            shepards.as_ref(),
+        let rgb = if let Some(lut) = &lut {
+            sample_gainmap_row_lut(
+                gainmap,
+                lut,
+                shepards.as_ref(),
+                y,
+                width,
+                height,
+                &mut gains_row,
+            );
+            super::apply_simd::apply_gain_row_presampled(
+                &sdr_row,
+                &gains_row,
+                base_offset,
+                alternate_offset,
+                &mut hdr_row,
+            );
+            &hdr_row
+        } else {
+            &sdr_row
+        };
+        write_hdr_row(
+            &mut out_data[y as usize * out_stride..],
+            &sdr,
             y,
-            width,
-            height,
-            &mut gains_row,
+            rgb,
+            output_format,
         );
-        super::apply_simd::apply_gain_row_presampled(
-            &sdr_row,
-            &gains_row,
-            base_offset,
-            alternate_offset,
-            &mut hdr_row,
-        );
-        write_hdr_row(out_data, out_stride, out_format, y, &hdr_row, output_format);
     }
 
     drop(out_slice);
@@ -318,8 +334,8 @@ fn read_sdr_row_linear(sdr: &PixelSlice<'_>, y: u32, out: &mut [[f32; 3]]) {
 
 /// Sample a full row of gains from the gain map (Shepard's IDW, LUT-accelerated).
 ///
-/// `out.len()` must equal `img_width as usize`. For single-channel gain maps,
-/// the same gain is broadcast to R/G/B.
+/// `out.len()` must equal `img_width as usize`. Mono storage supplies the same
+/// sample code to each of the three metadata curves.
 ///
 /// `shepards` MUST be `Some(_)` when `img_width % gainmap.width == 0` and
 /// `img_height % gainmap.height == 0`; the caller builds it once via
@@ -342,81 +358,91 @@ pub(crate) fn sample_gainmap_row_lut(
     }
 }
 
-/// Write a row of HDR pixels to the output image in the requested format.
-///
-/// `out_data` must be the strided-byte buffer of the output image; `out_stride`
-/// is its row stride; `out_format` is the format (Rgba8 or RgbaF32).
+/// Write one row in the requested format, converting alpha independently of RGB.
 fn write_hdr_row(
-    out_data: &mut [u8],
-    out_stride: usize,
-    out_format: PixelFormat,
+    dst: &mut [u8],
+    base: &PixelSlice<'_>,
     y: u32,
     hdr_row: &[[f32; 3]],
     format: HdrOutputFormat,
 ) {
-    let row_start = (y as usize) * out_stride;
-    match format {
-        HdrOutputFormat::LinearFloat => {
-            debug_assert_eq!(out_format, PixelFormat::RGBAF32);
-            for (x, &hdr) in hdr_row.iter().enumerate() {
-                let idx = row_start + x * 16;
-                out_data[idx..idx + 4].copy_from_slice(&hdr[0].to_ne_bytes());
-                out_data[idx + 4..idx + 8].copy_from_slice(&hdr[1].to_ne_bytes());
-                out_data[idx + 8..idx + 12].copy_from_slice(&hdr[2].to_ne_bytes());
-                out_data[idx + 12..idx + 16].copy_from_slice(&1.0f32.to_ne_bytes());
+    let src = base.row(y);
+    let copy_alpha = base.spec().color.alpha() == zenpixels::AlphaMode::Straight;
+    for (x, &rgb) in hdr_row.iter().enumerate() {
+        let alpha = if copy_alpha {
+            match base.spec().layout {
+                PixelFormat::RGBA8 => f32::from(src[x * 4 + 3]) / 255.0,
+                PixelFormat::RGBAF32 => {
+                    let start = x * 16 + 12;
+                    f32::from_ne_bytes(src[start..start + 4].try_into().unwrap())
+                }
+                #[cfg(feature = "f16")]
+                PixelFormat::RGBAF16 => {
+                    let start = x * 8 + 6;
+                    half::f16::from_ne_bytes(src[start..start + 2].try_into().unwrap()).to_f32()
+                }
+                _ => 1.0,
             }
-        }
-        #[cfg(feature = "f16")]
-        HdrOutputFormat::LinearF16 => {
-            debug_assert_eq!(out_format, PixelFormat::RGBAF16);
-            // 8 bytes/pixel: 4 channels × f16 (2 bytes). Alpha is 1.0 (constant).
-            const F16_ONE: u16 = 0x3C00; // half::f16::ONE.to_bits()
-            for (x, &hdr) in hdr_row.iter().enumerate() {
-                let idx = row_start + x * 8;
-                let r = half::f16::from_f32(hdr[0]).to_bits().to_ne_bytes();
-                let g = half::f16::from_f32(hdr[1]).to_bits().to_ne_bytes();
-                let b = half::f16::from_f32(hdr[2]).to_bits().to_ne_bytes();
-                let a = F16_ONE.to_ne_bytes();
-                out_data[idx..idx + 2].copy_from_slice(&r);
-                out_data[idx + 2..idx + 4].copy_from_slice(&g);
-                out_data[idx + 4..idx + 6].copy_from_slice(&b);
-                out_data[idx + 6..idx + 8].copy_from_slice(&a);
+        } else {
+            1.0
+        };
+        match format {
+            HdrOutputFormat::LinearFloat => {
+                dst[x * 16..x * 16 + 16]
+                    .copy_from_slice(bytemuck::bytes_of(&[rgb[0], rgb[1], rgb[2], alpha]));
             }
-        }
-        HdrOutputFormat::Srgb8 => {
-            debug_assert_eq!(out_format, PixelFormat::RGBA8);
-            for (x, &hdr) in hdr_row.iter().enumerate() {
-                let r = srgb_oetf(hdr[0].clamp(0.0, 1.0));
-                let g = srgb_oetf(hdr[1].clamp(0.0, 1.0));
-                let b = srgb_oetf(hdr[2].clamp(0.0, 1.0));
-                let idx = row_start + x * 4;
-                out_data[idx] = (r * 255.0).round() as u8;
-                out_data[idx + 1] = (g * 255.0).round() as u8;
-                out_data[idx + 2] = (b * 255.0).round() as u8;
-                out_data[idx + 3] = 255;
+            #[cfg(feature = "f16")]
+            HdrOutputFormat::LinearF16 => {
+                let bits =
+                    [rgb[0], rgb[1], rgb[2], alpha].map(|v| half::f16::from_f32(v).to_bits());
+                dst[x * 8..x * 8 + 8].copy_from_slice(bytemuck::bytes_of(&bits));
+            }
+            HdrOutputFormat::Srgb8 => {
+                let [r, g, b] = rgb.map(|v| (srgb_oetf(v.clamp(0.0, 1.0)) * 255.0).round() as u8);
+                dst[x * 4..x * 4 + 4].copy_from_slice(&[
+                    r,
+                    g,
+                    b,
+                    (alpha.clamp(0.0, 1.0) * 255.0).round() as u8,
+                ]);
             }
         }
     }
 }
 
-/// Calculate the weight factor for gain map application.
+/// Calculate the ISO 21496-1 signed weight from a linear display boost.
 ///
-/// Headroom values are in log2 domain. `display_boost` is linear.
-///
-/// Mirrors `avifGetGainMapWeight` in libavif and the equivalent in
-/// libultrahdr. The output is `clamp((log2(display_boost) - base) /
-/// (alt - base), 0, 1)` where `base` and `alt` are the metadata's
-/// HDR-headroom log2 values.
+/// The alternate rendition is reached at +1 for an SDR base or -1 for an
+/// HDR base. Equal headrooms have no interpolation interval and keep the base.
 pub fn calculate_weight(display_boost: f32, metadata: &GainMapMetadata) -> f32 {
-    let log_display = display_boost.max(1.0).log2() as f64;
-    let log_min = metadata.base_hdr_headroom.max(0.0);
-    let log_max = metadata.alternate_hdr_headroom.max(0.0);
-
-    if log_max <= log_min {
-        return 1.0;
+    let display = f64::from(display_boost.max(1.0).log2());
+    if metadata.iso_channel_count().is_some()
+        && let Ok(exact) = metadata.exact_metadata()
+    {
+        let base = exact.base_hdr_headroom;
+        let alt = exact.alternate_hdr_headroom;
+        let span = i128::from(alt.num) * i128::from(base.den.get())
+            - i128::from(base.num) * i128::from(alt.den.get());
+        // One rounding keeps the sub-integer distance when display * denominator
+        // is far larger than the gap between the two headrooms.
+        let distance = display.mul_add(f64::from(base.den.get()), -f64::from(base.num))
+            * f64::from(alt.den.get());
+        return signed_weight(distance, span as f64);
     }
 
-    ((log_display - log_min) / (log_max - log_min)).clamp(0.0, 1.0) as f32
+    let base = metadata.base_hdr_headroom.max(0.0);
+    let alt = metadata.alternate_hdr_headroom.max(0.0);
+    signed_weight(display - base, alt - base)
+}
+
+fn signed_weight(distance: f64, span: f64) -> f32 {
+    if span == 0.0 {
+        0.0
+    } else if span < 0.0 {
+        (distance / -span).clamp(-1.0, 0.0) as f32
+    } else {
+        (distance / span).clamp(0.0, 1.0) as f32
+    }
 }
 
 /// Get linear RGB from SDR image.
@@ -672,12 +698,11 @@ fn sample_row_lut_int(
                 table[base + 3],
             ];
 
-            let g_tl = lut.lookup(gainmap.data[row0_off + x0 as usize], 0);
-            let g_bl = lut.lookup(gainmap.data[row1_off + x0 as usize], 0);
-            let g_tr = lut.lookup(gainmap.data[row0_off + x1 as usize], 0);
-            let g_br = lut.lookup(gainmap.data[row1_off + x1 as usize], 0);
-            let g = dot4([g_tl, g_bl, g_tr, g_br], w);
-            *gain = [g, g, g];
+            let tl = lut.lookup_luminance(gainmap.data[row0_off + x0 as usize]);
+            let bl = lut.lookup_luminance(gainmap.data[row1_off + x0 as usize]);
+            let tr = lut.lookup_luminance(gainmap.data[row0_off + x1 as usize]);
+            let br = lut.lookup_luminance(gainmap.data[row1_off + x1 as usize]);
+            *gain = core::array::from_fn(|c| dot4([tl[c], bl[c], tr[c], br[c]], w));
         }
     } else {
         for (x_out, gain) in out.iter_mut().enumerate() {
@@ -751,12 +776,11 @@ fn sample_row_lut_float(
             let fx = gm_x - gm_x_floor;
             let w = shepards_weights(fx, fy);
 
-            let g_tl = lut.lookup(gainmap.data[row0_off + x0 as usize], 0);
-            let g_bl = lut.lookup(gainmap.data[row1_off + x0 as usize], 0);
-            let g_tr = lut.lookup(gainmap.data[row0_off + x1 as usize], 0);
-            let g_br = lut.lookup(gainmap.data[row1_off + x1 as usize], 0);
-            let g = dot4([g_tl, g_bl, g_tr, g_br], w);
-            *gain = [g, g, g];
+            let tl = lut.lookup_luminance(gainmap.data[row0_off + x0 as usize]);
+            let bl = lut.lookup_luminance(gainmap.data[row1_off + x0 as usize]);
+            let tr = lut.lookup_luminance(gainmap.data[row0_off + x1 as usize]);
+            let br = lut.lookup_luminance(gainmap.data[row1_off + x1 as usize]);
+            *gain = core::array::from_fn(|c| dot4([tl[c], bl[c], tr[c], br[c]], w));
         }
     } else {
         for (x_out, gain) in out.iter_mut().enumerate() {

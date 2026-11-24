@@ -1,7 +1,7 @@
 //! Core types for Ultra HDR encoding/decoding.
 //!
-//! The pixel container is [`zenpixels::PixelBuffer`] (owning) /
-//! [`zenpixels::PixelSlice`] (borrowed). ultrahdr-core used to ship its own
+//! The pixel container is [`zenpixels::PixelBuf`] (owning) /
+//! [`zenpixels::PixelView`] (borrowed). ultrahdr-core used to ship its own
 //! `RawImage` / `RawImageRef` / `RawImageRefMut` triplet; those were
 //! eliminated so every `zen*` crate speaks the same vocabulary.
 //!
@@ -913,7 +913,8 @@ mod tests {
             false,
         );
 
-        let bytes = zencodec::gainmap::serialize_iso21496_fmt(&original, Iso21496Format::AvifTmap);
+        let bytes =
+            zencodec::gainmap::serialize_iso21496_fmt(&original, Iso21496Format::AvifTmap).unwrap();
         let parsed = zencodec::gainmap::parse_iso21496_fmt(&bytes, Iso21496Format::AvifTmap)
             .expect("ISO parse failed");
 

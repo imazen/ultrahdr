@@ -411,8 +411,8 @@ dependencies = [
  "num-traits",
  "thiserror",
  "whereat",
- "zencodec",
- "zenmeta",
+ "zencodec 0.3.0",
+ "zenmeta 0.2.0",
  "zenpixels",
  "zenpixels-convert",
  "zentone",
@@ -425,7 +425,7 @@ dependencies = [
  "libfuzzer-sys",
  "ultrahdr-core",
  "ultrahdr-rs",
- "zencodec",
+ "zencodec 0.3.0",
  "zenjpeg",
  "zenpixels",
 ]
@@ -442,9 +442,9 @@ dependencies = [
  "thiserror",
  "ultrahdr-core",
  "whereat",
- "zencodec",
+ "zencodec 0.3.0",
  "zenjpeg",
- "zenmeta",
+ "zenmeta 0.2.0",
  "zenpixels",
 ]
 
@@ -482,6 +482,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "zencodec"
+version = "0.3.0"
+source = "git+https://github.com/imazen/zencodec?rev=093211c276fbb1781bec1601d7cb6b0fb92f245a#093211c276fbb1781bec1601d7cb6b0fb92f245a"
+dependencies = [
+ "almost-enough",
+ "bytemuck",
+ "enough",
+ "how-far",
+ "libm",
+ "spin",
+ "whereat",
+ "zenpixels",
+]
+
+[[package]]
 name = "zenjpeg"
 version = "0.9.0"
 source = "git+https://github.com/imazen/zenjpeg?rev=20237e62be7713d405ed471b66a87e715cd5ca41#20237e62be7713d405ed471b66a87e715cd5ca41"
@@ -502,8 +517,8 @@ dependencies = [
  "tinyvec",
  "ultrahdr-core",
  "whereat",
- "zencodec",
- "zenmeta",
+ "zencodec 0.2.0",
+ "zenmeta 0.1.0",
  "zenpixels",
  "zenyuv",
 ]
@@ -514,14 +529,24 @@ version = "0.1.0"
 source = "git+https://github.com/imazen/zencodec?rev=037ef59b57ae003f853a5b6624b173edfee22d6a#037ef59b57ae003f853a5b6624b173edfee22d6a"
 dependencies = [
  "roxmltree",
- "zencodec",
+ "zencodec 0.2.0",
+ "zenpixels",
+]
+
+[[package]]
+name = "zenmeta"
+version = "0.2.0"
+source = "git+https://github.com/imazen/zencodec?rev=093211c276fbb1781bec1601d7cb6b0fb92f245a#093211c276fbb1781bec1601d7cb6b0fb92f245a"
+dependencies = [
+ "roxmltree",
+ "zencodec 0.3.0",
  "zenpixels",
 ]
 
 [[package]]
 name = "zenpixels"
 version = "0.5.0"
-source = "git+https://github.com/imazen/zenpixels?rev=42a0c5c83c5c418950eb528d92d57788f6700bcf#42a0c5c83c5c418950eb528d92d57788f6700bcf"
+source = "git+https://github.com/imazen/zenpixels?rev=e0dba0052a839ecfe17e4c911a3761e793605adf#e0dba0052a839ecfe17e4c911a3761e793605adf"
 dependencies = [
  "bytemuck",
  "imgref",
@@ -532,7 +557,7 @@ dependencies = [
 [[package]]
 name = "zenpixels-convert"
 version = "0.5.0"
-source = "git+https://github.com/imazen/zenpixels?rev=42a0c5c83c5c418950eb528d92d57788f6700bcf#42a0c5c83c5c418950eb528d92d57788f6700bcf"
+source = "git+https://github.com/imazen/zenpixels?rev=e0dba0052a839ecfe17e4c911a3761e793605adf#e0dba0052a839ecfe17e4c911a3761e793605adf"
 dependencies = [
  "archmage",
  "bytemuck",

@@ -13,7 +13,8 @@ use whereat::at;
 use zencodec::Iso21496Format;
 use zencodec::gainmap::{ISO_21496_1_PRIMARY_APP2_BODY, serialize_iso21496_fmt};
 use zenjpeg::container::mpf::create_mpf_header;
-use zenjpeg::container::xmp::{create_xmp_app1_marker, generate_gainmap_xmp, generate_primary_xmp};
+use zenjpeg::container::xmp::create_xmp_app1_marker;
+use zenmeta::xmp::gainmap::{generate_gainmap_xmp, generate_primary_xmp};
 use zenpixels::ColorSpace;
 
 use crate::jpeg::{
@@ -44,13 +45,14 @@ fn wrap_app2(body: &[u8]) -> Vec<u8> {
 fn build_gainmap_metadata_markers(
     metadata: &GainMapMetadata,
     format: GainMapEncodingFormat,
-) -> Vec<Vec<u8>> {
+) -> Result<Vec<Vec<u8>>> {
     let mut markers = Vec::with_capacity(2);
     if matches!(
         format,
         GainMapEncodingFormat::Xmp | GainMapEncodingFormat::Both
     ) {
-        let xmp = generate_gainmap_xmp(metadata);
+        let xmp =
+            generate_gainmap_xmp(metadata).map_err(|err| at!(Error::XmpParse(err.to_string())))?;
         markers.push(create_xmp_app1_marker(&xmp));
     }
     if matches!(
@@ -59,10 +61,11 @@ fn build_gainmap_metadata_markers(
     ) {
         // Preserves prior behavior: `JxlJhgm` and `JpegApp2` serialize the
         // same payload (zencodec::gainmap::serialize_iso21496_fmt_into).
-        let iso_body = serialize_iso21496_fmt(metadata, Iso21496Format::JpegApp2BodyWithUrn);
+        let iso_body = serialize_iso21496_fmt(metadata, Iso21496Format::JpegApp2BodyWithUrn)
+            .map_err(|err| at!(Error::IsoParse(err.to_string())))?;
         markers.push(wrap_app2(&iso_body));
     }
-    markers
+    Ok(markers)
 }
 
 /// Retired helper: version-only ISO 21496-1 APP2 for the primary JPEG.
@@ -106,7 +109,7 @@ pub fn encode_ultrahdr_with_format(
     format: GainMapEncodingFormat,
 ) -> Result<Vec<u8>> {
     // Build metadata markers for the gain map JPEG (XMP and/or ISO 21496-1).
-    let metadata_markers = build_gainmap_metadata_markers(metadata, format);
+    let metadata_markers = build_gainmap_metadata_markers(metadata, format)?;
 
     // Inject metadata markers into the gain map JPEG after SOI.
     let mut gainmap_final = gainmap_jpeg.to_vec();
@@ -222,7 +225,10 @@ pub fn encode_ultrahdr_with_metadata_policy(
     metadata
         .validate()
         .map_err(|e| at!(Error::InvalidPixelData(e.to_string())))?;
-    if metadata.backward_direction || !metadata.use_base_color_space {
+    if metadata.backward_direction
+        || metadata.base_hdr_headroom > metadata.alternate_hdr_headroom
+        || !metadata.use_base_color_space
+    {
         return Err(at!(Error::InvalidPixelData(
             "XMP output cannot preserve this gain-map direction/color-space contract".into()
         )));

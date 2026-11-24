@@ -14,9 +14,9 @@ use ultrahdr_rs::{
 };
 
 // Re-export zenjpeg types for tests
-use zenjpeg::container::xmp::{generate_xmp, parse_xmp};
 use zenjpeg::decoder::{Decoder, PreserveConfig};
 use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout, Unstoppable};
+use zenmeta::xmp::gainmap::{generate_xmp, parse_xmp};
 
 /// Create test HDR PixelBuffer (gradient with bright highlights).
 fn create_test_hdr_image(width: u32, height: u32) -> PixelBuffer {
@@ -236,7 +236,7 @@ fn test_gainmap_compute_with_zenjpeg_encode() {
     assert_eq!(&gainmap_jpeg[..2], &[0xFF, 0xD8]);
 
     // Generate XMP
-    let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
+    let xmp = generate_xmp(&metadata, gainmap_jpeg.len()).unwrap();
     assert!(xmp.contains("hdrgm:"));
     assert!(xmp.contains("Version=\"1.0\""));
 }
@@ -257,7 +257,7 @@ fn test_xmp_roundtrip() {
     let (_gainmap, metadata) =
         compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
-    let xmp = generate_xmp(&metadata, 1000);
+    let xmp = generate_xmp(&metadata, 1000).unwrap();
     let (parsed, gainmap_len) = parse_xmp(&xmp).expect("parse XMP");
 
     assert_eq!(gainmap_len, Some(1000));
@@ -405,7 +405,7 @@ fn test_ultrahdr_encode() {
         compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
-    let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
+    let xmp = generate_xmp(&metadata, gainmap_jpeg.len()).unwrap();
 
     let sdr_rgb = rgba8_to_rgb8(&sdr_image);
     let ultrahdr = encode_ultrahdr(&sdr_rgb, width, height, 90.0, &xmp, gainmap_jpeg.clone());
@@ -446,7 +446,7 @@ fn test_ultrahdr_decode() {
         compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
-    let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
+    let xmp = generate_xmp(&metadata, gainmap_jpeg.len()).unwrap();
 
     let sdr_rgb = rgba8_to_rgb8(&sdr_image);
     let ultrahdr = encode_ultrahdr(&sdr_rgb, width, height, 90.0, &xmp, gainmap_jpeg);
@@ -488,7 +488,7 @@ fn test_ultrahdr_roundtrip() {
         compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
-    let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
+    let xmp = generate_xmp(&metadata, gainmap_jpeg.len()).unwrap();
 
     let sdr_rgb = rgba8_to_rgb8(&sdr_image);
     let ultrahdr = encode_ultrahdr(&sdr_rgb, width, height, 90.0, &xmp, gainmap_jpeg);
@@ -561,7 +561,7 @@ fn test_roundtrip_edit_sdr_keep_gainmap() {
         compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
-    let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
+    let xmp = generate_xmp(&metadata, gainmap_jpeg.len()).unwrap();
 
     let sdr_rgb = rgba8_to_rgb8(&sdr_image);
     let original = encode_ultrahdr(&sdr_rgb, width, height, 90.0, &xmp, gainmap_jpeg);
@@ -646,7 +646,7 @@ fn test_readme_workflow_encode_decode() {
     };
 
     // 3. Generate XMP metadata
-    let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
+    let xmp = generate_xmp(&metadata, gainmap_jpeg.len()).unwrap();
     assert!(xmp.contains("hdrgm:Version"));
     assert!(xmp.contains("hdrgm:GainMapMax"));
 
@@ -779,7 +779,7 @@ fn test_readme_workflow_lossless_roundtrip() {
         compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let gainmap_jpeg = encode_grayscale(&gainmap.data, gainmap.width, gainmap.height, 75.0);
-    let xmp = generate_xmp(&metadata, gainmap_jpeg.len());
+    let xmp = generate_xmp(&metadata, gainmap_jpeg.len()).unwrap();
     let original = encode_ultrahdr(&sdr_rgb, width, height, 90.0, &xmp, gainmap_jpeg);
 
     // === LOSSLESS ROUND-TRIP (as documented in README) ===
@@ -985,7 +985,7 @@ fn test_set_existing_gainmap_jpeg_sdr_only() {
     }
     metadata.base_hdr_headroom = 0.0;
     metadata.alternate_hdr_headroom = 2.0;
-    metadata.use_base_color_space = false;
+    metadata.use_base_color_space = true;
 
     // Encode compressed SDR JPEG
     let sdr_jpeg = {

@@ -60,7 +60,7 @@ linear-srgb = { workspace = true }
 # Zen ecosystem types (mandatory — canonical gain map metadata types)
 zenpixels = { workspace = true }
 zencodec = { workspace = true }
-zenmeta = { version = "0.1.0", default-features = false, features = ["apple"] }
+zenmeta = { version = "0.2.0", default-features = false, features = ["apple"] }
 
 # Advanced tone mapping curves + the luma gain map splitter. Optional:
 # the splitter API (LumaGainMapSplitter + curves) lives here, and ultrahdr-core

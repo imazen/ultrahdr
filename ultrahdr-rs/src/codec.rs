@@ -191,11 +191,8 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
             {
                 let gw = gainmap_jpeg_info.dimensions.width;
                 let gh = gainmap_jpeg_info.dimensions.height;
-                // ISO 21496-1 metadata's `is_single_channel` is the
-                // authoritative channel count (the same predicate that
-                // drives `Decoder::decode_gainmap` between gray and RGB).
-                let channels: u8 = if metadata.is_single_channel() { 1 } else { 3 };
-                let gm_info = GainMapInfo::new(metadata, gw, gh, channels);
+                let gm_info = GainMapInfo::new(metadata, gw, gh, gainmap_jpeg_info.num_components)
+                    .with_bit_depth(gainmap_jpeg_info.precision);
                 info = info.with_gain_map(GainMapPresence::Available(Box::new(gm_info)));
             }
         } else {

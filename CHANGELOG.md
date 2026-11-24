@@ -12,11 +12,22 @@
 
 ### Fixed
 
+- Gain-map reconstruction preserves straight alpha, bypasses gains and offsets at
+  the base endpoint, uses a negative weight for HDR bases, and applies each RGB
+  parameter record to mono-map samples independently. Row and streaming decoders
+  also accept explicit linear RGBA rows.
+- Ultra HDR JPEG uses valid secondary ISO metadata when available and retains its
+  exact wire records. ISO map storage follows JPEG components. Metadata writers
+  propagate ISO and XMP encoding failures.
+
 - Fix Rust 1.100.0 Clippy `needless_range_loop` lints in `ultrahdr-core` and `ultrahdr-rs` tests.
 - Add `CROSS_CONTAINER_OPTS: --security-opt seccomp=unconfined` to the `metadata-policy-i686` CI job.
 - Keep the existing infallible pixel clone helper compatible with fallible full-image copying in the next pixel cohort.
 
 ### Changed
+
+- Use the zenpixels 0.5 Phase 3 revision with zencodec 0.3 and zenmeta 0.2.
+  Native MaxRGB and BT.2020 luminance are separate CLL reductions.
 
 - Pin the zenpixels 0.5-compatible zenjpeg revision `20237e62` in the workspace and standalone fuzz graph.
 

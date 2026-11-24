@@ -17,9 +17,9 @@
 //!
 //! Enable `tonemap-bt2446a` to use `Bt2446A` and the converter's
 //! `measure_cll` through `color::audited` or the crate root.
-//! Measurement uses BT.2020 working RGB, with an explicit diffuse-white
-//! anchor and optional HLG rendering parameters. Applications that
-//! previously measured the peak in source RGB can see different values.
+//! Measurement uses native primaries for MaxRGB and BT.2020 working RGB
+//! for luminance. Callers supply a diffuse-white anchor and optional HLG
+//! rendering parameters.
 //!
 //! # no_std Support
 //!

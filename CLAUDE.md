@@ -12,10 +12,12 @@
 
 ## Shared Pixel Cohort
 
-- zenjpeg `20237e62` uses the same zenpixels 0.5 and zencodec integration
-  revisions as the Ultra HDR library and standalone fuzz targets. Keep both
-  zenjpeg pins in step. The optional core `resize` feature still has a
-  separate zenpixels 0.3 dependency through zenresize.
+- The 0.5 integration uses zenpixels `e0dba005` and zencodec 0.3 /
+  zenmeta 0.2 from `093211c2`. zenjpeg `20237e62` still requires zencodec
+  0.2 and zenmeta 0.1, so the temporary aliases permit core resolution
+  while the old JPEG graph fails compilation. Remove both aliases from the
+  root and fuzz manifests when moving to a Phase 3 zenjpeg revision.
+  The optional core `resize` feature uses zenpixels 0.3 through zenresize.
 
 ## Known Bugs
 

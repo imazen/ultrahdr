@@ -111,7 +111,7 @@ pub struct RowDecoder {
     gainmap: GainMap,
     width: u32,
     height: u32,
-    lut: super::apply::GainMapLut,
+    lut: Option<super::apply::GainMapLut>,
     shepards: Option<super::apply::ShepardsLut>,
     base_offset: [f32; 3],
     alternate_offset: [f32; 3],
@@ -145,7 +145,7 @@ impl RowDecoder {
         gainmap.validate()?;
         crate::types::validate_gainmap_magnitude(&metadata)?;
         let weight = super::apply::calculate_weight(display_boost, &metadata);
-        let lut = super::apply::GainMapLut::new(&metadata, weight);
+        let lut = (weight != 0.0).then(|| super::apply::GainMapLut::new(&metadata, weight));
         let shepards =
             super::apply::ShepardsLut::try_new(width, height, gainmap.width, gainmap.height);
         let base_offset = [
@@ -190,6 +190,20 @@ impl RowDecoder {
     /// # Returns
     /// Linear f32 RGBA data, 4 floats per pixel.
     pub fn process_rows(&mut self, sdr_linear: &[f32], num_rows: u32) -> Result<Vec<f32>> {
+        self.process_rows_with_channels(sdr_linear, num_rows, 3)
+    }
+
+    /// Process relative-linear straight RGBA rows, preserving their alpha.
+    pub fn process_rgba_rows(&mut self, rgba: &[f32], num_rows: u32) -> Result<Vec<f32>> {
+        self.process_rows_with_channels(rgba, num_rows, 4)
+    }
+
+    fn process_rows_with_channels(
+        &mut self,
+        sdr_linear: &[f32],
+        num_rows: u32,
+        channels: usize,
+    ) -> Result<Vec<f32>> {
         let remaining = self.height - self.current_row;
         let actual_rows = num_rows.min(remaining);
 
@@ -199,7 +213,7 @@ impl RowDecoder {
             )));
         }
 
-        let input_stride = self.width as usize * 3; // RGB
+        let input_stride = self.width as usize * channels;
         let expected_len = input_stride * actual_rows as usize;
         if sdr_linear.len() < expected_len {
             return Err(at!(Error::InvalidPixelData(format!(
@@ -220,7 +234,7 @@ impl RowDecoder {
 
             // Copy linear SDR rgb into [[f32; 3]; width] scratch buffer.
             for (x, dst) in self.sdr_row.iter_mut().enumerate() {
-                let in_idx = input_start + x * 3;
+                let in_idx = input_start + x * channels;
                 *dst = [
                     sdr_linear[in_idx],
                     sdr_linear[in_idx + 1],
@@ -228,33 +242,47 @@ impl RowDecoder {
                 ];
             }
 
-            // Sample per-channel gains for this row (Shepard's IDW + LUT).
-            super::apply::sample_gainmap_row_lut(
-                &self.gainmap,
-                &self.lut,
-                self.shepards.as_ref(),
-                y,
-                self.width,
-                self.height,
-                &mut self.gains_row,
-            );
+            let rendered = if let Some(lut) = &self.lut {
+                // Sample per-channel gains for this row (Shepard's IDW + LUT).
+                super::apply::sample_gainmap_row_lut(
+                    &self.gainmap,
+                    lut,
+                    self.shepards.as_ref(),
+                    y,
+                    self.width,
+                    self.height,
+                    &mut self.gains_row,
+                );
 
-            // Apply ISO 21496-1 gain formula.
-            super::apply_simd::apply_gain_row_presampled(
-                &self.sdr_row,
-                &self.gains_row,
-                self.base_offset,
-                self.alternate_offset,
-                &mut self.hdr_row,
-            );
+                // Apply ISO 21496-1 gain formula.
+                super::apply_simd::apply_gain_row_presampled(
+                    &self.sdr_row,
+                    &self.gains_row,
+                    self.base_offset,
+                    self.alternate_offset,
+                    &mut self.hdr_row,
+                );
 
-            // Scatter into packed RGBA output.
-            for (hdr, out) in self.hdr_row[..row_pixels].iter().zip(
-                output[output_start..output_start + output_stride]
-                    .as_chunks_mut::<4>()
-                    .0,
-            ) {
-                *out = [hdr[0], hdr[1], hdr[2], 1.0];
+                &self.hdr_row
+            } else {
+                &self.sdr_row
+            };
+
+            for (x, (rgb, out)) in rendered[..row_pixels]
+                .iter()
+                .zip(
+                    output[output_start..output_start + output_stride]
+                        .as_chunks_mut::<4>()
+                        .0,
+                )
+                .enumerate()
+            {
+                let alpha = if channels == 4 {
+                    sdr_linear[input_start + x * channels + 3]
+                } else {
+                    1.0
+                };
+                *out = [rgb[0], rgb[1], rgb[2], alpha];
             }
         }
 
@@ -320,7 +348,7 @@ pub struct StreamDecoder {
     gm_width: u32,
     gm_height: u32,
     gm_channels: u8,
-    lut: super::apply::GainMapLut,
+    lut: Option<super::apply::GainMapLut>,
     base_offset: [f32; 3],
     alternate_offset: [f32; 3],
     current_sdr_row: u32,
@@ -409,7 +437,7 @@ impl StreamDecoder {
             ))));
         }
         let weight = super::apply::calculate_weight(display_boost, &metadata);
-        let lut = super::apply::GainMapLut::new(&metadata, weight);
+        let lut = (weight != 0.0).then(|| super::apply::GainMapLut::new(&metadata, weight));
         let base_offset = [
             metadata.channels[0].base_offset as f32,
             metadata.channels[1].base_offset as f32,
@@ -486,7 +514,7 @@ impl StreamDecoder {
         if self.current_sdr_row >= self.sdr_height {
             return false;
         }
-        if num_sdr_rows == 0 {
+        if num_sdr_rows == 0 || self.lut.is_none() {
             return true;
         }
         debug_assert!(self.sdr_height > 0 && self.gm_height > 0);
@@ -504,6 +532,20 @@ impl StreamDecoder {
 
     /// Process SDR rows (linear f32 RGB) and return HDR output (linear f32 RGBA).
     pub fn process_sdr_rows(&mut self, sdr_linear: &[f32], num_rows: u32) -> Result<Vec<f32>> {
+        self.process_sdr_rows_with_channels(sdr_linear, num_rows, 3)
+    }
+
+    /// Process relative-linear straight RGBA rows, preserving their alpha.
+    pub fn process_sdr_rgba_rows(&mut self, rgba: &[f32], num_rows: u32) -> Result<Vec<f32>> {
+        self.process_sdr_rows_with_channels(rgba, num_rows, 4)
+    }
+
+    fn process_sdr_rows_with_channels(
+        &mut self,
+        sdr_linear: &[f32],
+        num_rows: u32,
+        channels: usize,
+    ) -> Result<Vec<f32>> {
         let remaining = self.sdr_height - self.current_sdr_row;
         let actual_rows = num_rows.min(remaining);
 
@@ -519,7 +561,7 @@ impl StreamDecoder {
             )));
         }
 
-        let input_stride = self.sdr_width as usize * 3;
+        let input_stride = self.sdr_width as usize * channels;
         let expected_len = input_stride * actual_rows as usize;
         if sdr_linear.len() < expected_len {
             return Err(at!(Error::InvalidPixelData(format!(
@@ -540,7 +582,7 @@ impl StreamDecoder {
 
             // Copy linear SDR rgb into [[f32; 3]; width] scratch.
             for (x, dst) in self.sdr_row.iter_mut().enumerate() {
-                let in_idx = input_start + x * 3;
+                let in_idx = input_start + x * channels;
                 *dst = [
                     sdr_linear[in_idx],
                     sdr_linear[in_idx + 1],
@@ -548,35 +590,49 @@ impl StreamDecoder {
                 ];
             }
 
-            // Sample per-channel gains for this row via ring-buffer bilinear + LUT.
-            sample_gainmap_row_ring(
-                &self.gm_buffer,
-                &self.lut,
-                self.gm_channels,
-                y,
-                self.sdr_width,
-                self.sdr_height,
-                self.gm_width,
-                self.gm_height,
-                &mut self.gains_row,
-            );
+            let rendered = if let Some(lut) = &self.lut {
+                // Sample per-channel gains for this row via ring-buffer bilinear + LUT.
+                sample_gainmap_row_ring(
+                    &self.gm_buffer,
+                    lut,
+                    self.gm_channels,
+                    y,
+                    self.sdr_width,
+                    self.sdr_height,
+                    self.gm_width,
+                    self.gm_height,
+                    &mut self.gains_row,
+                );
 
-            // Apply ISO 21496-1 gain formula using the shared row kernel.
-            super::apply_simd::apply_gain_row_presampled(
-                &self.sdr_row,
-                &self.gains_row,
-                self.base_offset,
-                self.alternate_offset,
-                &mut self.hdr_row,
-            );
+                // Apply ISO 21496-1 gain formula using the shared row kernel.
+                super::apply_simd::apply_gain_row_presampled(
+                    &self.sdr_row,
+                    &self.gains_row,
+                    self.base_offset,
+                    self.alternate_offset,
+                    &mut self.hdr_row,
+                );
 
-            // Scatter into packed RGBA output.
-            for (hdr, out) in self.hdr_row[..row_pixels].iter().zip(
-                output[output_start..output_start + output_stride]
-                    .as_chunks_mut::<4>()
-                    .0,
-            ) {
-                *out = [hdr[0], hdr[1], hdr[2], 1.0];
+                &self.hdr_row
+            } else {
+                &self.sdr_row
+            };
+
+            for (x, (rgb, out)) in rendered[..row_pixels]
+                .iter()
+                .zip(
+                    output[output_start..output_start + output_stride]
+                        .as_chunks_mut::<4>()
+                        .0,
+                )
+                .enumerate()
+            {
+                let alpha = if channels == 4 {
+                    sdr_linear[input_start + x * channels + 3]
+                } else {
+                    1.0
+                };
+                *out = [rgb[0], rgb[1], rgb[2], alpha];
             }
         }
 
@@ -1310,8 +1366,7 @@ fn sample_gainmap_row_ring(
             let v11 = StreamDecoder::sample_row_gray(row1, x1);
             let v = bilinear(v00, v10, v01, v11, fx, fy);
             let byte = (v * 255.0).round().clamp(0.0, 255.0) as u8;
-            let g = lut.lookup(byte, 0);
-            *gain_out = [g, g, g];
+            *gain_out = lut.lookup_luminance(byte);
         } else {
             for (c, dst) in gain_out.iter_mut().enumerate() {
                 let v00 = StreamDecoder::sample_row_rgb(row0, x0, c);

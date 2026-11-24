@@ -55,7 +55,7 @@ linear-srgb = { version = "0.6.13", default-features = false, features = ["trans
 
 # Zen ecosystem interop
 zenpixels = { version = "0.5.0", default-features = false }
-zencodec = { version = ">=0.2.0, <0.3.0" }
+zencodec = { version = ">=0.3.0, <0.5.0" }
 zenresize = { version = ">=0.3.1, <0.4.0", default-features = false }
 
 # Testing
@@ -65,13 +65,16 @@ criterion = "0.8.2"
 
 [patch.crates-io]
 zenresize = { git = "https://github.com/imazen/zenresize", rev = "e3975fb9d6d6b7baa96038a0eb8e27febb37c012" }
-zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "42a0c5c83c5c418950eb528d92d57788f6700bcf" }
-zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "42a0c5c83c5c418950eb528d92d57788f6700bcf" }
+zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "e0dba0052a839ecfe17e4c911a3761e793605adf" }
+zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "e0dba0052a839ecfe17e4c911a3761e793605adf" }
 garb = { git = "https://github.com/imazen/garb", rev = "457ff8b9153e9d675a39dc098052b2ffeb6206fa" }
 linear-srgb = { git = "https://github.com/imazen/linear-srgb", rev = "ae83f19426737635fee3dd16f228681019f52585" }
 # The optional resize dependency still requests the 0.3 pixel family.
 zenpixels-03 = { package = "zenpixels", git = "https://github.com/imazen/zenpixels", rev = "fa836abf72afe9826e866dc25712b7c800323962" }
 ultrahdr-core = { path = "ultrahdr-core" }
-zencodec = { git = "https://github.com/imazen/zencodec", rev = "037ef59b57ae003f853a5b6624b173edfee22d6a" }
-zencodec-testkit = { git = "https://github.com/imazen/zencodec", rev = "037ef59b57ae003f853a5b6624b173edfee22d6a" }
-zenmeta = { git = "https://github.com/imazen/zencodec", rev = "037ef59b57ae003f853a5b6624b173edfee22d6a" }
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "093211c276fbb1781bec1601d7cb6b0fb92f245a" }
+# Legacy requirements of the current JPEG pin, for core-only resolution.
+zencodec-02 = { package = "zencodec", git = "https://github.com/imazen/zencodec", rev = "037ef59b57ae003f853a5b6624b173edfee22d6a" }
+zencodec-testkit = { git = "https://github.com/imazen/zencodec", rev = "093211c276fbb1781bec1601d7cb6b0fb92f245a" }
+zenmeta = { git = "https://github.com/imazen/zencodec", rev = "093211c276fbb1781bec1601d7cb6b0fb92f245a" }
+zenmeta-01 = { package = "zenmeta", git = "https://github.com/imazen/zencodec", rev = "037ef59b57ae003f853a5b6624b173edfee22d6a" }
