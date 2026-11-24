@@ -21,7 +21,7 @@ path = "../ultrahdr-rs"
 
 [dependencies.zenjpeg]
 git = "https://github.com/imazen/zenjpeg"
-rev = "20237e62be7713d405ed471b66a87e715cd5ca41"
+rev = "0714703dfe94cb20f2bbd84b10a9aab5949782a6"
 
 [dependencies.zencodec]
 version = ">=0.3.0, <0.5.0"
@@ -38,10 +38,7 @@ garb = { git = "https://github.com/imazen/garb", rev = "457ff8b9153e9d675a39dc09
 linear-srgb = { git = "https://github.com/imazen/linear-srgb", rev = "ae83f19426737635fee3dd16f228681019f52585" }
 ultrahdr-core = { path = "../ultrahdr-core" }
 zencodec = { git = "https://github.com/imazen/zencodec", rev = "093211c276fbb1781bec1601d7cb6b0fb92f245a" }
-# Legacy requirements of the current JPEG pin, for core-only resolution.
-zencodec-02 = { package = "zencodec", git = "https://github.com/imazen/zencodec", rev = "037ef59b57ae003f853a5b6624b173edfee22d6a" }
 zenmeta = { git = "https://github.com/imazen/zencodec", rev = "093211c276fbb1781bec1601d7cb6b0fb92f245a" }
-zenmeta-01 = { package = "zenmeta", git = "https://github.com/imazen/zencodec", rev = "037ef59b57ae003f853a5b6624b173edfee22d6a" }
 
 [profile.release]
 debug = true

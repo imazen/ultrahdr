@@ -29,7 +29,7 @@
 - Use the zenpixels 0.5 Phase 3 revision with zencodec 0.3 and zenmeta 0.2.
   Native MaxRGB and BT.2020 luminance are separate CLL reductions.
 
-- Pin the zenpixels 0.5-compatible zenjpeg revision `20237e62` in the workspace and standalone fuzz graph.
+- Pin zenjpeg `0714703d` in the workspace and standalone fuzz graph so both use the Phase 3 zencodec and zenmeta family.
 
 - Upgrade `archmage` and `magetypes` to `0.9.33` (including `fuzz/Cargo.lock`).
 - Bump `enough` (`0.4.5`), `thiserror` (`2.0.21`), and `zenutils-apidoc` (`0.1.1`), refresh `fuzz/` and `apidoc/` lockfiles, and regenerate `docs/public-api/` snapshots.
