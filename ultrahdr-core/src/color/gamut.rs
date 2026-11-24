@@ -8,10 +8,9 @@
 //! coordinates with Bradford chromatic adaptation.
 //!
 //! What stays here:
-//! - **Luma coefficients** (BT.709, DisplayP3, BT.2020/2100). `zenpixels`'
-//!   [`LumaCoefficients`](zenpixels::LumaCoefficients) enum covers only
-//!   BT.601 / BT.709 today and exposes no `[f32; 3]` accessor. Until that's
-//!   upstreamed we keep the triples needed by the gain map splitter.
+//! - **Luma coefficients** (BT.709, Display P3, BT.2020/2100). Keep the
+//!   coefficients used by the Ultra HDR luminance gain-map kernel, including
+//!   its rounded Display P3 values.
 //! - **`convert_gamut`** — thin wrapper over
 //!   `ColorPrimaries::gamut_matrix_to` so the existing call sites in
 //!   `color/tonemap.rs` don't churn.
