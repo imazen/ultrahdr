@@ -2,8 +2,7 @@
 //!
 //! Fixtures come from the `imazen/codec-corpus` repo via the `codec-corpus`
 //! crate — downloaded lazily on first run, cached under
-//! `~/.cache/codec-corpus/`. Tests skip cleanly (not fail) if the fixtures
-//! can't be fetched, so offline CI jobs stay green.
+//! `~/.cache/codec-corpus/`. The selected corpus tests require their fixtures.
 //!
 //! # What this test file covers (mapped to the correctness-gap audit)
 //!
@@ -29,40 +28,25 @@ use ultrahdr_rs::Decoder;
 // Fixture bootstrapping
 // ---------------------------------------------------------------------------
 
-/// Try to locate a subdirectory of `ultrahdr-conformance/` in the corpus.
-///
-/// Returns `None` if the download fails (offline, no network, rate-limited
-/// etc.) — every test is expected to no-op skip in that case, so the
-/// harness never blocks CI runs that can't reach GitHub.
-fn corpus_dir(subpath: &str) -> Option<PathBuf> {
-    let corpus = match Corpus::new() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("SKIP: codec-corpus init failed: {e:?}");
-            return None;
-        }
-    };
-    match corpus.get(&format!("ultrahdr-conformance/{subpath}")) {
-        Ok(p) if p.is_dir() => Some(p),
-        Ok(p) if p.exists() => Some(p.parent().unwrap().to_path_buf()),
-        Ok(p) => {
-            eprintln!("SKIP: fixture path does not exist: {}", p.display());
-            None
-        }
-        Err(e) => {
-            eprintln!("SKIP: could not fetch codec-corpus ultrahdr-conformance: {e:?}");
-            None
-        }
-    }
+/// Locate a required fixture directory.
+fn corpus_dir(subpath: &str) -> PathBuf {
+    let corpus = Corpus::new().expect("open codec-corpus for Ultra HDR fixtures");
+    let path = corpus
+        .get(&format!("ultrahdr-conformance/{subpath}"))
+        .unwrap_or_else(|err| panic!("load Ultra HDR fixtures {subpath}: {err:?}"));
+    assert!(
+        path.is_dir(),
+        "fixture directory missing: {}",
+        path.display()
+    );
+    path
 }
 
 /// Iterate `.jpg` files in a directory.
 fn jpegs_in(dir: &PathBuf) -> impl Iterator<Item = PathBuf> {
     std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
+        .expect("read Ultra HDR fixture directory")
+        .map(|e| e.expect("read Ultra HDR fixture entry").path())
         .filter(|p| {
             p.extension()
                 .and_then(|s| s.to_str())
@@ -76,9 +60,7 @@ fn jpegs_in(dir: &PathBuf) -> impl Iterator<Item = PathBuf> {
 
 #[test]
 fn decode_pixel_samples() {
-    let Some(dir) = corpus_dir("valid/jpeg/pixel-ultrahdr") else {
-        return;
-    };
+    let dir = corpus_dir("valid/jpeg/pixel-ultrahdr");
     let mut decoded = 0;
     for path in jpegs_in(&dir) {
         let data = std::fs::read(&path).expect("read pixel sample");
@@ -154,9 +136,7 @@ fn decode_pixel_samples() {
 
 #[test]
 fn awesome_gain_maps_variety() {
-    let Some(dir) = corpus_dir("valid/jpeg/awesome-gain-maps") else {
-        return;
-    };
+    let dir = corpus_dir("valid/jpeg/awesome-gain-maps");
     let mut ok = 0usize;
     let mut failures: Vec<(PathBuf, String)> = Vec::new();
     for path in jpegs_in(&dir) {
@@ -207,9 +187,7 @@ fn awesome_gain_maps_variety() {
 
 #[test]
 fn icc_profile_preserved_in_libultrahdr_testdata() {
-    let Some(dir) = corpus_dir("valid/jpeg/libultrahdr-testdata") else {
-        return;
-    };
+    let dir = corpus_dir("valid/jpeg/libultrahdr-testdata");
     let path = dir.join("minnie-320x240-yuv-icc.jpg");
     let data = std::fs::read(&path).expect("read minnie-yuv-icc");
     let dec = Decoder::new(&data).expect("parse non-UltraHDR JPEG");
@@ -242,14 +220,8 @@ fn icc_profile_preserved_in_libultrahdr_testdata() {
 
 #[test]
 fn edge_case_xmp_only_is_parseable() {
-    let Some(dir) = corpus_dir("edge-cases") else {
-        return;
-    };
+    let dir = corpus_dir("edge-cases");
     let path = dir.join("xmp_only_no_gainmap_image.jpg");
-    if !path.exists() {
-        eprintln!("SKIP: {} not present", path.display());
-        return;
-    }
     let data = std::fs::read(&path).expect("read xmp-only file");
     // Decoder::new must not panic; whatever its is_ultrahdr() says should
     // be internally consistent with its metadata()/gainmap_jpeg() returns.
@@ -280,9 +252,7 @@ fn edge_case_xmp_only_is_parseable() {
 
 #[test]
 fn rejection_zero_length() {
-    let Some(dir) = corpus_dir("invalid") else {
-        return;
-    };
+    let dir = corpus_dir("invalid");
     let data = std::fs::read(dir.join("zero_length.jpg")).expect("read");
     let r = Decoder::new(&data);
     assert!(r.is_err(), "zero-length input must be rejected");
@@ -290,9 +260,7 @@ fn rejection_zero_length() {
 
 #[test]
 fn rejection_wrong_format() {
-    let Some(dir) = corpus_dir("invalid") else {
-        return;
-    };
+    let dir = corpus_dir("invalid");
     let data = std::fs::read(dir.join("wrong_format.jpg")).expect("read");
     let r = Decoder::new(&data);
     assert!(
@@ -303,9 +271,7 @@ fn rejection_wrong_format() {
 
 #[test]
 fn rejection_truncated_ultrahdr() {
-    let Some(dir) = corpus_dir("invalid") else {
-        return;
-    };
+    let dir = corpus_dir("invalid");
     let data = std::fs::read(dir.join("truncated_ultrahdr.jpg")).expect("read");
     // Truncated file: the header parse may succeed (we have the first 1 KB)
     // but decode_hdr / decode_gainmap must fail, not produce garbage.
@@ -323,9 +289,7 @@ fn rejection_truncated_ultrahdr() {
 
 #[test]
 fn rejection_no_gainmap_is_not_ultrahdr() {
-    let Some(dir) = corpus_dir("invalid") else {
-        return;
-    };
+    let dir = corpus_dir("invalid");
     let data = std::fs::read(dir.join("no_gainmap.jpg")).expect("read");
     // A valid JPEG with no gain map: Decoder::new succeeds; is_ultrahdr is false.
     let dec = Decoder::new(&data).expect("valid JPEG without gain map must parse");
@@ -337,9 +301,7 @@ fn rejection_no_gainmap_is_not_ultrahdr() {
 
 #[test]
 fn rejection_bitflip_gainmap() {
-    let Some(dir) = corpus_dir("invalid") else {
-        return;
-    };
+    let dir = corpus_dir("invalid");
     let data = std::fs::read(dir.join("bitflip_gainmap.jpg")).expect("read");
     // Gain-map region bit-flipped: header parse may still work, but the
     // gain-map decode must either error or produce a visibly corrupt but

@@ -87,64 +87,26 @@ fn corpus() -> Corpus {
     )
 }
 
-/// Pick a deterministic fixture from the pixel-ultrahdr corpus.
-///
-/// CI runs used to see different fixtures between runs because `read_dir`
-/// is filesystem-order dependent. We pin to `_05.jpg` here for single-fixture
-/// probe/MPF/SDR tests — it's a stable, conformant sample.
-///
-/// The HDR parity test (`hdr_decode_matches_libultrahdr`) sweeps all three
-/// corpus fixtures rather than relying on this pinned pick.
+/// Fixture 05 drives the single-file probe, MPF and SDR checks.
 fn first_pixel_sample(corpus: &Corpus) -> PathBuf {
-    let dir = corpus
-        .get("ultrahdr-conformance/valid/jpeg/pixel-ultrahdr")
-        .expect("ultrahdr-conformance/valid/jpeg/pixel-ultrahdr must exist in codec-corpus");
-    const PINNED: &str = "Ultra_HDR_Samples_Originals_05.jpg";
-    let pinned = dir.join(PINNED);
-    if pinned.is_file() {
-        return pinned;
-    }
-    // Fallback: sorted first jpg (so at least it's deterministic).
-    let mut jpgs: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .expect("read pixel-ultrahdr dir")
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| {
-            p.extension()
-                .and_then(|s| s.to_str())
-                .is_some_and(|s| s.eq_ignore_ascii_case("jpg"))
-        })
-        .collect();
-    jpgs.sort();
-    jpgs.into_iter()
-        .next()
-        .expect("at least one .jpg in pixel-ultrahdr")
+    let [_, _, sample] = all_pixel_samples(corpus);
+    sample
 }
 
-/// Every `.jpg` in `ultrahdr-conformance/valid/jpeg/pixel-ultrahdr`, sorted.
-///
-/// Used by [`hdr_decode_matches_libultrahdr`] — every fixture must come under
-/// the MAE threshold against libultrahdr, not just one representative sample.
-fn all_pixel_samples(corpus: &Corpus) -> Vec<PathBuf> {
+/// The three authored HDR parity witnesses. A missing sample fails the oracle job.
+fn all_pixel_samples(corpus: &Corpus) -> [PathBuf; 3] {
     let dir = corpus
         .get("ultrahdr-conformance/valid/jpeg/pixel-ultrahdr")
         .expect("ultrahdr-conformance/valid/jpeg/pixel-ultrahdr must exist in codec-corpus");
-    let mut jpgs: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .expect("read pixel-ultrahdr dir")
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| {
-            p.extension()
-                .and_then(|s| s.to_str())
-                .is_some_and(|s| s.eq_ignore_ascii_case("jpg"))
-        })
-        .collect();
-    jpgs.sort();
-    assert!(
-        !jpgs.is_empty(),
-        "no .jpg fixtures in pixel-ultrahdr corpus"
-    );
-    jpgs
+    ["01", "02", "05"].map(|id| {
+        let path = dir.join(format!("Ultra_HDR_Samples_Originals_{id}.jpg"));
+        assert!(
+            path.is_file(),
+            "required fixture missing: {}",
+            path.display()
+        );
+        path
+    })
 }
 
 // ---------------------------------------------------------------------------

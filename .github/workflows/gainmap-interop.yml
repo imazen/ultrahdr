@@ -35,13 +35,15 @@ jobs:
 
       - name: Build libultrahdr (JPEG reference)
         run: |
-          git clone --depth 1 https://github.com/google/libultrahdr.git /tmp/libultrahdr
-          cd /tmp/libultrahdr && mkdir build && cd build
-          cmake -G Ninja \
+          oracle_dir="$RUNNER_TEMP/libultrahdr"
+          mkdir -p "$oracle_dir"
+          curl -fsSL https://codeload.github.com/google/libultrahdr/tar.gz/c6fd15cdb2d05d3aaed84b817e4c4a274a4ce600 \
+            | tar xz --strip-components=1 -C "$oracle_dir"
+          cmake -S "$oracle_dir" -B "$oracle_dir/build" -G Ninja \
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_BUILD_TYPE=Release -DUHDR_BUILD_TESTS=OFF ..
-          ninja ultrahdr_app
-          sudo cp ultrahdr_app /usr/local/bin/
+            -DCMAKE_BUILD_TYPE=Release -DUHDR_BUILD_TESTS=OFF
+          cmake --build "$oracle_dir/build" --target ultrahdr_app
+          sudo cp "$oracle_dir/build/ultrahdr_app" /usr/local/bin/
 
       - name: Build libavif 1.2 (AVIF reference)
         run: |
