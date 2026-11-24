@@ -9,10 +9,6 @@
   `Primaries`, and `Transfer`. Buffer access uses views and image specs,
   HLG carries a mode, and content-light measurement is exposed as
   `measure_cll` with an explicit diffuse-white anchor and optional HLG rendering.
-- The draft integration requires one matching 0.5 pixel cohort. The zencodec
-  integration still advertises 0.2.0, so the pinned JPEG revision selects
-  a codec dependency with a different pixel type identity. JPEG-backed
-  builds require a matching zenjpeg revision.
 
 ### Fixed
 
@@ -21,6 +17,8 @@
 - Keep the existing infallible pixel clone helper compatible with fallible full-image copying in the next pixel cohort.
 
 ### Changed
+
+- Pin the zenpixels 0.5-compatible zenjpeg revision `20237e62` in the workspace and standalone fuzz graph.
 
 - Upgrade `archmage` and `magetypes` to `0.9.33` (including `fuzz/Cargo.lock`).
 - Bump `enough` (`0.4.5`), `thiserror` (`2.0.21`), and `zenutils-apidoc` (`0.1.1`), refresh `fuzz/` and `apidoc/` lockfiles, and regenerate `docs/public-api/` snapshots.

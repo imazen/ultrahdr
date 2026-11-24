@@ -52,10 +52,15 @@ fuzz_target!(|data: &[u8]| {
             if remaining.len() < 20 {
                 return;
             }
-            let source_peak = f32::from_le_bytes([remaining[0], remaining[1], remaining[2], remaining[3]]);
-            let target_peak = f32::from_le_bytes([remaining[4], remaining[5], remaining[6], remaining[7]]);
-            if !source_peak.is_finite() || !target_peak.is_finite()
-                || source_peak <= 0.0 || target_peak <= 0.0 {
+            let source_peak =
+                f32::from_le_bytes([remaining[0], remaining[1], remaining[2], remaining[3]]);
+            let target_peak =
+                f32::from_le_bytes([remaining[4], remaining[5], remaining[6], remaining[7]]);
+            if !source_peak.is_finite()
+                || !target_peak.is_finite()
+                || source_peak <= 0.0
+                || target_peak <= 0.0
+            {
                 return;
             }
             let tm = ultrahdr_core::color::tonemap::Bt2408Tonemapper::new(
@@ -63,8 +68,10 @@ fuzz_target!(|data: &[u8]| {
                 target_peak.min(10000.0),
             );
             let r = f32::from_le_bytes([remaining[8], remaining[9], remaining[10], remaining[11]]);
-            let g = f32::from_le_bytes([remaining[12], remaining[13], remaining[14], remaining[15]]);
-            let b = f32::from_le_bytes([remaining[16], remaining[17], remaining[18], remaining[19]]);
+            let g =
+                f32::from_le_bytes([remaining[12], remaining[13], remaining[14], remaining[15]]);
+            let b =
+                f32::from_le_bytes([remaining[16], remaining[17], remaining[18], remaining[19]]);
             if r.is_finite() && g.is_finite() && b.is_finite() {
                 // Clamp to reasonable range to avoid upstream linear-srgb panic
                 let r = r.clamp(0.0, 100.0);
@@ -127,7 +134,7 @@ fuzz_target!(|data: &[u8]| {
                 0 => ultrahdr_core::TransferFunction::Srgb,
                 1 => ultrahdr_core::TransferFunction::Linear,
                 2 => ultrahdr_core::TransferFunction::Pq,
-                _ => ultrahdr_core::TransferFunction::Hlg,
+                _ => ultrahdr_core::TransferFunction::Hlg(zenpixels::HlgMode::Scene),
             };
 
             let pixel_start = 5;
@@ -142,7 +149,11 @@ fuzz_target!(|data: &[u8]| {
             if format == ultrahdr_core::PixelFormat::RGBAF32 {
                 for chunk in pixel_data.as_chunks_mut::<4>().0 {
                     let val = f32::from_le_bytes(*chunk);
-                    let clamped = if val.is_finite() { val.clamp(0.0, 10.0) } else { 0.5 };
+                    let clamped = if val.is_finite() {
+                        val.clamp(0.0, 10.0)
+                    } else {
+                        0.5
+                    };
                     *chunk = clamped.to_le_bytes();
                 }
             }

@@ -413,7 +413,7 @@ dependencies = [
  "whereat",
  "zencodec",
  "zenmeta",
- "zenpixels 0.5.0",
+ "zenpixels",
  "zenpixels-convert",
  "zentone",
 ]
@@ -427,6 +427,7 @@ dependencies = [
  "ultrahdr-rs",
  "zencodec",
  "zenjpeg",
+ "zenpixels",
 ]
 
 [[package]]
@@ -444,7 +445,7 @@ dependencies = [
  "zencodec",
  "zenjpeg",
  "zenmeta",
- "zenpixels 0.5.0",
+ "zenpixels",
 ]
 
 [[package]]
@@ -477,13 +478,13 @@ dependencies = [
  "libm",
  "spin",
  "whereat",
- "zenpixels 0.5.0",
+ "zenpixels",
 ]
 
 [[package]]
 name = "zenjpeg"
 version = "0.9.0"
-source = "git+https://github.com/imazen/zenjpeg?rev=f39ab8359305c086916d36ed942dd27c41ae8e3c#f39ab8359305c086916d36ed942dd27c41ae8e3c"
+source = "git+https://github.com/imazen/zenjpeg?rev=20237e62be7713d405ed471b66a87e715cd5ca41#20237e62be7713d405ed471b66a87e715cd5ca41"
 dependencies = [
  "aligned-vec",
  "archmage",
@@ -503,7 +504,7 @@ dependencies = [
  "whereat",
  "zencodec",
  "zenmeta",
- "zenpixels 0.3.1",
+ "zenpixels",
  "zenyuv",
 ]
 
@@ -514,18 +515,7 @@ source = "git+https://github.com/imazen/zencodec?rev=037ef59b57ae003f853a5b6624b
 dependencies = [
  "roxmltree",
  "zencodec",
- "zenpixels 0.5.0",
-]
-
-[[package]]
-name = "zenpixels"
-version = "0.3.1"
-source = "git+https://github.com/imazen/zenpixels?rev=fa836abf72afe9826e866dc25712b7c800323962#fa836abf72afe9826e866dc25712b7c800323962"
-dependencies = [
- "bytemuck",
- "imgref",
- "rgb",
- "whereat",
+ "zenpixels",
 ]
 
 [[package]]
@@ -534,6 +524,8 @@ version = "0.5.0"
 source = "git+https://github.com/imazen/zenpixels?rev=42a0c5c83c5c418950eb528d92d57788f6700bcf#42a0c5c83c5c418950eb528d92d57788f6700bcf"
 dependencies = [
  "bytemuck",
+ "imgref",
+ "rgb",
  "whereat",
 ]
 
@@ -553,7 +545,7 @@ dependencies = [
  "once_cell",
  "pastey",
  "whereat",
- "zenpixels 0.5.0",
+ "zenpixels",
 ]
 
 [[package]]
@@ -571,7 +563,7 @@ dependencies = [
 [[package]]
 name = "zenyuv"
 version = "0.1.3"
-source = "git+https://github.com/imazen/zenjpeg?rev=f39ab8359305c086916d36ed942dd27c41ae8e3c#f39ab8359305c086916d36ed942dd27c41ae8e3c"
+source = "git+https://github.com/imazen/zenjpeg?rev=20237e62be7713d405ed471b66a87e715cd5ca41#20237e62be7713d405ed471b66a87e715cd5ca41"
 dependencies = [
  "archmage",
  "imgref",
@@ -600,8 +592,3 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
-
-[[patch.unused]]
-name = "zenresize"
-version = "0.3.1"
-source = "git+https://github.com/imazen/zenresize?rev=e3975fb9d6d6b7baa96038a0eb8e27febb37c012#e3975fb9d6d6b7baa96038a0eb8e27febb37c012"

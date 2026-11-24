@@ -41,7 +41,7 @@ bytemuck = { version = "1.25.2", features = ["derive"] }
 thiserror = "2.0.21"
 
 # Pin the codec while the metadata stack is integrated across repositories.
-zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "f39ab8359305c086916d36ed942dd27c41ae8e3c", version = "0.9.0" }
+zenjpeg = { git = "https://github.com/imazen/zenjpeg", rev = "20237e62be7713d405ed471b66a87e715cd5ca41", version = "0.9.0" }
 
 # Color management
 moxcms = ">=0.8.1, <0.10"
@@ -69,7 +69,7 @@ zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "42a0c5c83c5c41
 zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "42a0c5c83c5c418950eb528d92d57788f6700bcf" }
 garb = { git = "https://github.com/imazen/garb", rev = "457ff8b9153e9d675a39dc098052b2ffeb6206fa" }
 linear-srgb = { git = "https://github.com/imazen/linear-srgb", rev = "ae83f19426737635fee3dd16f228681019f52585" }
-# The pinned JPEG and resize crates still request the 0.3 pixel family.
+# The optional resize dependency still requests the 0.3 pixel family.
 zenpixels-03 = { package = "zenpixels", git = "https://github.com/imazen/zenpixels", rev = "fa836abf72afe9826e866dc25712b7c800323962" }
 ultrahdr-core = { path = "ultrahdr-core" }
 zencodec = { git = "https://github.com/imazen/zencodec", rev = "037ef59b57ae003f853a5b6624b173edfee22d6a" }

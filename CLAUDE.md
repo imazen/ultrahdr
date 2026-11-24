@@ -10,13 +10,14 @@
 
 - 2026-08-26: `target_quality.rs` added to ultrahdr-rs (per-codec copy of zenjpeg's loop, injected scorer, 9/9 tests; commit b8c58d63). Same session: repaired local git-object corruption — 25 corrupt loose objects (all in pushed history, so plain `git fetch` would NOT resend them; `git fetch --refetch` is the fix), quarantined to ~/tmp/ultrahdr-rescue with the damaged .jj state; jj re-initialized colocated on the refetched store. If old op-log history is ever needed it lives in the rescue dir, not in .jj.
 
-## Known Bugs
+## Shared Pixel Cohort
 
-- The zenpixels 0.5 draft uses a zencodec integration revision that still
-  declares 0.2.0. The pinned JPEG crate takes that revision via the root
-  patch while its own pixel edge stays on 0.3. The EXIF orientation type and
-  legacy ICC feature then fail inside zenjpeg. Qualify core independently
-  and converge the JPEG and codec family before promoting the branch.
+- zenjpeg `20237e62` uses the same zenpixels 0.5 and zencodec integration
+  revisions as the Ultra HDR library and standalone fuzz targets. Keep both
+  zenjpeg pins in step. The optional core `resize` feature still has a
+  separate zenpixels 0.3 dependency through zenresize.
+
+## Known Bugs
 
 - The zencodec adapter retains `SharedPulse` and polls cancellation through the
   existing decode checkpoints, but does not report progress or plan phases.
