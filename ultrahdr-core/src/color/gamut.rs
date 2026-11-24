@@ -60,7 +60,7 @@ pub fn rgb_to_luminance(rgb: [f32; 3], gamut: ColorPrimaries) -> f32 {
 
 /// Convert linear RGB from one gamut to another.
 ///
-/// Thin wrapper over [`zenpixels::ColorPrimaries::gamut_matrix_to`] for the
+/// Thin wrapper over [`zenpixels::Primaries::gamut_matrix_to`] for the
 /// callers in ultrahdr-core's tone mapper. Returns the input unchanged when
 /// `from == to` or when the primaries are not mutually convertible (e.g., one
 /// is `Unknown`).

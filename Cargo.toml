@@ -51,10 +51,10 @@ imgref = "1.12.3"
 rgb = { version = "0.8.53", features = ["as-bytes"] }
 
 # Transfer functions
-linear-srgb = { version = "0.6.12", default-features = false, features = ["transfer"] }
+linear-srgb = { version = "0.6.13", default-features = false, features = ["transfer"] }
 
 # Zen ecosystem interop
-zenpixels = { version = ">=0.3.1, <0.4.0", default-features = false }
+zenpixels = { version = "0.5.0", default-features = false }
 zencodec = { version = ">=0.2.0, <0.3.0" }
 zenresize = { version = ">=0.3.1, <0.4.0", default-features = false }
 
@@ -65,19 +65,13 @@ criterion = "0.8.2"
 
 [patch.crates-io]
 zenresize = { git = "https://github.com/imazen/zenresize", rev = "e3975fb9d6d6b7baa96038a0eb8e27febb37c012" }
-# Shared ICC recognition used by the pinned JPEG HDR decoder.
-zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "fa836abf72afe9826e866dc25712b7c800323962" }
-zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "fa836abf72afe9826e866dc25712b7c800323962" }
+zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "42a0c5c83c5c418950eb528d92d57788f6700bcf" }
+zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "42a0c5c83c5c418950eb528d92d57788f6700bcf" }
+garb = { git = "https://github.com/imazen/garb", rev = "457ff8b9153e9d675a39dc098052b2ffeb6206fa" }
+linear-srgb = { git = "https://github.com/imazen/linear-srgb", rev = "ae83f19426737635fee3dd16f228681019f52585" }
+# The pinned JPEG and resize crates still request the 0.3 pixel family.
+zenpixels-03 = { package = "zenpixels", git = "https://github.com/imazen/zenpixels", rev = "fa836abf72afe9826e866dc25712b7c800323962" }
 ultrahdr-core = { path = "ultrahdr-core" }
-zencodec = { git = "https://github.com/imazen/zencodec", rev = "1816b4d082234c04c3805411b437b8396040f522" }
-zencodec-testkit = { git = "https://github.com/imazen/zencodec", rev = "1816b4d082234c04c3805411b437b8396040f522" }
-zenmeta = { git = "https://github.com/imazen/zencodec", rev = "1816b4d082234c04c3805411b437b8396040f522" }
-# zenjpeg (a path sibling) depends on `zenanalyze = "0.2.0"` from the registry
-# and supplies it through its OWN `[patch.crates-io]`. A dependency's patch
-# table is ignored when that dependency is consumed as a path dep — only the
-# root workspace's applies — so without this entry every build here fails with
-# `failed to select a version for the requirement zenanalyze = "^0.2.0"`
-# (crates.io latest is 0.1.0; the 0.2.x line lives on git until it publishes).
-# Git rather than path: CI clones some siblings but not zenanalyze. Remove this
-# once zenanalyze 0.2.0 is published. Same fix as zenjxl 1ae0da79.
-zenanalyze = { git = "https://github.com/imazen/zenanalyze", rev = "9c8d6c55f44505fcad213bed2f0d1d5b403ae72a" }
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "037ef59b57ae003f853a5b6624b173edfee22d6a" }
+zencodec-testkit = { git = "https://github.com/imazen/zencodec", rev = "037ef59b57ae003f853a5b6624b173edfee22d6a" }
+zenmeta = { git = "https://github.com/imazen/zencodec", rev = "037ef59b57ae003f853a5b6624b173edfee22d6a" }

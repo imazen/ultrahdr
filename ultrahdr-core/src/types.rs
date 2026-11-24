@@ -119,44 +119,65 @@ impl<E: core::fmt::Display> From<zenpixels::At<E>> for Error {
     }
 }
 
-/// Color primaries. Re-exported from [`zenpixels::ColorPrimaries`].
-pub use zenpixels::ColorPrimaries;
+/// Color primaries for raw images.
+pub use zenpixels::Primaries as ColorPrimaries;
+/// Electro-optical transfer function.
+pub use zenpixels::Transfer as TransferFunction;
 
-/// Electro-optical transfer function. Re-exported from
-/// [`zenpixels::TransferFunction`].
-pub use zenpixels::TransferFunction;
+/// Physical sample layout. The gain-map kernels accept a subset of these layouts.
+pub use zenpixels::SampleLayout as PixelFormat;
 
-/// Pixel format for raw images. Re-exported from [`zenpixels::PixelFormat`].
-///
-/// ultrahdr-core's kernels accept a subset (`Rgba8`, `Rgb8`, `RgbaF32`,
-/// `Gray8`, plus `RgbaF16`/`RgbF16` when the `f16` feature is enabled).
-/// Other formats are rejected by [`require_supported_format`].
-pub use zenpixels::PixelFormat;
+/// Owning pixel container.
+pub use zenpixels::PixelBuf as PixelBuffer;
+/// Borrowed pixel view.
+pub use zenpixels::PixelView as PixelSlice;
+/// Mutably borrowed pixel view.
+pub use zenpixels::PixelViewMut as PixelSliceMut;
 
-/// Owning pixel container. Re-exported from [`zenpixels::PixelBuffer`].
-///
-/// Replaces the former `ultrahdr_core::RawImage` type. Construct with
-/// `PixelBuffer::try_new` / `PixelBuffer::from_vec`; attach color metadata
-/// via the `with_transfer`/`with_primaries` builders.
-pub use zenpixels::PixelBuffer;
+use zenpixels::{AlphaMode, ChannelOrder, ColorSpace, ImageSpec, SignalRange};
 
-/// Borrowed pixel view. Re-exported from [`zenpixels::PixelSlice`].
-pub use zenpixels::PixelSlice;
-
-/// Mutably borrowed pixel view. Re-exported from [`zenpixels::PixelSliceMut`].
-pub use zenpixels::PixelSliceMut;
-
-/// Build a [`zenpixels::PixelDescriptor`] with the given format, primaries,
-/// and transfer function. Convenience for the common pattern used by
-/// ultrahdr-core's tests and examples.
+/// Build a pixel specification for the given layout, primaries and transfer.
 pub fn descriptor_for(
     format: PixelFormat,
     primaries: ColorPrimaries,
     transfer: TransferFunction,
-) -> zenpixels::PixelDescriptor {
-    zenpixels::PixelDescriptor::from_pixel_format(format)
-        .with_primaries(primaries)
-        .with_transfer(transfer)
+) -> ImageSpec {
+    let alpha = if format.order.has_alpha_slot() {
+        AlphaMode::Straight
+    } else {
+        AlphaMode::None
+    };
+    let color = if format.order == ChannelOrder::Gray {
+        ColorSpace::Gray {
+            transfer,
+            range: SignalRange::Full,
+            alpha,
+            white: None,
+        }
+    } else {
+        ColorSpace::Rgb {
+            primaries,
+            transfer,
+            range: SignalRange::Full,
+            alpha,
+            white: None,
+        }
+    };
+    ImageSpec::new(format, color)
+}
+
+pub(crate) fn pixel_primaries(spec: &ImageSpec) -> ColorPrimaries {
+    match spec.color {
+        ColorSpace::Rgb { primaries, .. } => primaries,
+        _ => ColorPrimaries::Bt709,
+    }
+}
+
+pub(crate) fn pixel_transfer(spec: &ImageSpec) -> TransferFunction {
+    match spec.color {
+        ColorSpace::Rgb { transfer, .. } | ColorSpace::Gray { transfer, .. } => transfer,
+        _ => TransferFunction::Unknown,
+    }
 }
 
 /// Controls which metadata format(s) to embed in Ultra HDR output.
@@ -190,7 +211,7 @@ pub use zencodec::Iso21496Format;
 
 /// Validate image dimensions against ultrahdr-core's stricter caps.
 ///
-/// `PixelBuffer::try_new` only checks for arithmetic overflow. ultrahdr-core
+/// `PixelBuffer::new` only checks for arithmetic overflow. ultrahdr-core
 /// additionally rejects dimensions above [`limits::MAX_IMAGE_DIMENSION`] and
 /// total pixel counts above [`limits::MAX_TOTAL_PIXELS`] to bound the work
 /// the gain map / tone mapping kernels are willing to do.
@@ -228,11 +249,11 @@ pub fn validate_ultrahdr_dimensions(width: u32, height: u32) -> Result<()> {
 /// always rejected.
 pub fn require_supported_format(format: PixelFormat) -> Result<()> {
     match format {
-        PixelFormat::Rgba8 | PixelFormat::Rgb8 | PixelFormat::RgbaF32 | PixelFormat::Gray8 => {
+        PixelFormat::RGBA8 | PixelFormat::RGB8 | PixelFormat::RGBAF32 | PixelFormat::GRAY8 => {
             Ok(())
         }
         #[cfg(feature = "f16")]
-        PixelFormat::RgbaF16 | PixelFormat::RgbF16 => Ok(()),
+        PixelFormat::RGBAF16 | PixelFormat::RGBF16 => Ok(()),
         _ => Err(at!(Error::UnsupportedFormat(format))),
     }
 }
@@ -241,21 +262,34 @@ pub fn require_supported_format(format: PixelFormat) -> Result<()> {
 /// the kernels' format subset. Used at public entry points.
 pub fn validate_ultrahdr_image(buffer: &PixelBuffer) -> Result<()> {
     validate_ultrahdr_dimensions(buffer.width(), buffer.height())?;
-    require_supported_format(buffer.descriptor().pixel_format())?;
-    Ok(())
+    require_supported_spec(buffer.spec())
 }
 
 /// Validate a [`PixelSlice`] against ultrahdr-core's dimension caps and
 /// the kernels' format subset.
 pub fn validate_ultrahdr_slice(slice: &PixelSlice<'_>) -> Result<()> {
     validate_ultrahdr_dimensions(slice.width(), slice.rows())?;
-    require_supported_format(slice.descriptor().pixel_format())?;
-    Ok(())
+    require_supported_spec(slice.spec())
+}
+
+fn require_supported_spec(spec: &ImageSpec) -> Result<()> {
+    require_supported_format(spec.layout)?;
+    match spec.color {
+        ColorSpace::Rgb {
+            range: SignalRange::Full,
+            ..
+        }
+        | ColorSpace::Gray {
+            range: SignalRange::Full,
+            ..
+        } => Ok(()),
+        _ => Err(at!(Error::UnsupportedFormat(spec.layout))),
+    }
 }
 
 /// Allocate a [`PixelBuffer`] for ultrahdr-core's kernels.
 ///
-/// Convenience over [`PixelBuffer::try_new`] that also enforces the stricter
+/// Convenience over [`PixelBuffer::new`] that also enforces the stricter
 /// ultrahdr-core dimension caps. The descriptor is built from `format`,
 /// `primaries`, and `transfer`.
 pub fn new_pixel_buffer(
@@ -268,33 +302,22 @@ pub fn new_pixel_buffer(
     validate_ultrahdr_dimensions(width, height)?;
     require_supported_format(format)?;
     let desc = descriptor_for(format, primaries, transfer);
-    let buf = PixelBuffer::try_new(width, height, desc)
+    let buf = PixelBuffer::new(width, height, desc)
         .map_err(|e| at!(Error::AllocationFailed(error_size_hint(&e))))?;
     Ok(buf)
 }
 
-/// Deep-copy a [`PixelBuffer`]. [`zenpixels::PixelBuffer`] intentionally does
-/// not implement [`Clone`] to discourage silent large-pixel copies; this helper
-/// gives ultrahdr-core callers a single owned duplicate (tightly packed, same
-/// descriptor) when they genuinely need one.
+/// Deep-copy a [`PixelBuffer`] into tightly packed storage with the same image
+/// specification and provenance.
+///
+/// # Panics
+///
+/// Panics if the pixel copy cannot be allocated.
 pub fn clone_pixel_buffer(src: &PixelBuffer) -> PixelBuffer {
-    CloneOutcome::into_pixel(src.crop_copy(0, 0, src.width(), src.height()))
-}
-
-// Accept both pixel cohorts while preserving this existing infallible helper.
-// The fallible pixel API exposes allocation failure; this helper cannot return it.
-trait CloneOutcome {
-    fn into_pixel(self) -> PixelBuffer;
-}
-impl CloneOutcome for PixelBuffer {
-    fn into_pixel(self) -> PixelBuffer {
-        self
-    }
-}
-impl<E: core::fmt::Debug> CloneOutcome for core::result::Result<PixelBuffer, E> {
-    fn into_pixel(self) -> PixelBuffer {
-        self.expect("full-image pixel clone allocation")
-    }
+    src.as_view()
+        .try_to_tight_buf()
+        .expect("full-image pixel clone allocation")
+        .with_origin(src.origin().clone())
 }
 
 /// Wrap an existing `Vec<u8>` as a [`PixelBuffer`], validating ultrahdr-core's
@@ -310,7 +333,7 @@ pub fn pixel_buffer_from_vec(
     validate_ultrahdr_dimensions(width, height)?;
     require_supported_format(format)?;
     let desc = descriptor_for(format, primaries, transfer);
-    PixelBuffer::from_vec(data, width, height, desc).map_err(|e| at!(Error::from(e)))
+    PixelBuffer::from_bytes(data, width, height, desc).map_err(|e| at!(Error::from(e)))
 }
 
 fn error_size_hint<E>(_: &E) -> usize {
@@ -634,6 +657,7 @@ pub mod luminance {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::ToString;
 
     /// Helper to construct GainMapMetadata from per-channel arrays.
     #[allow(clippy::too_many_arguments)]
@@ -680,22 +704,22 @@ mod tests {
         let buf = new_pixel_buffer(
             16,
             16,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
         .unwrap();
         assert_eq!(buf.width(), 16);
         assert_eq!(buf.height(), 16);
-        assert_eq!(buf.descriptor().pixel_format(), PixelFormat::Rgba8);
-        assert_eq!(buf.descriptor().primaries, ColorPrimaries::Bt709);
+        assert_eq!(buf.spec().layout, PixelFormat::RGBA8);
+        assert_eq!(pixel_primaries(buf.spec()), ColorPrimaries::Bt709);
 
         // Reject zero dimensions.
         assert!(
             new_pixel_buffer(
                 0,
                 16,
-                PixelFormat::Rgba8,
+                PixelFormat::RGBA8,
                 ColorPrimaries::Bt709,
                 TransferFunction::Srgb
             )
@@ -706,7 +730,7 @@ mod tests {
         let err = new_pixel_buffer(
             16,
             16,
-            PixelFormat::Cmyk8,
+            PixelFormat::CMYK8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
@@ -721,20 +745,20 @@ mod tests {
     #[cfg(not(feature = "f16"))]
     #[test]
     fn test_f16_formats_rejected_without_feature() {
-        let err = require_supported_format(PixelFormat::RgbaF16).unwrap_err();
+        let err = require_supported_format(PixelFormat::RGBAF16).unwrap_err();
         assert!(matches!(err.error(), Error::UnsupportedFormat(_)));
-        let err = require_supported_format(PixelFormat::RgbF16).unwrap_err();
+        let err = require_supported_format(PixelFormat::RGBF16).unwrap_err();
         assert!(matches!(err.error(), Error::UnsupportedFormat(_)));
         // Control: always-supported formats still pass.
-        assert!(require_supported_format(PixelFormat::Rgba8).is_ok());
+        assert!(require_supported_format(PixelFormat::RGBA8).is_ok());
     }
 
     /// With the `f16` feature, f16 input formats are accepted by the kernels.
     #[cfg(feature = "f16")]
     #[test]
     fn test_f16_formats_accepted_with_feature() {
-        assert!(require_supported_format(PixelFormat::RgbaF16).is_ok());
-        assert!(require_supported_format(PixelFormat::RgbF16).is_ok());
+        assert!(require_supported_format(PixelFormat::RGBAF16).is_ok());
+        assert!(require_supported_format(PixelFormat::RGBF16).is_ok());
     }
 
     #[test]

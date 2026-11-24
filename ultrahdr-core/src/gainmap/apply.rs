@@ -1,5 +1,12 @@
 //! Gain map application for HDR reconstruction.
 
+#[cfg(not(feature = "std"))]
+#[allow(
+    unused_imports,
+    reason = "float methods may be supplied by std in hosted builds"
+)]
+use num_traits::Float;
+
 use alloc::boxed::Box;
 use alloc::vec;
 
@@ -154,7 +161,7 @@ pub fn apply_gainmap(
     output_format: HdrOutputFormat,
     stop: impl Stop,
 ) -> Result<PixelBuffer> {
-    let sdr_slice = sdr.as_slice();
+    let sdr_slice = sdr.as_view();
     apply_gainmap_slice(
         sdr_slice,
         gainmap,
@@ -184,7 +191,7 @@ pub fn apply_gainmap_slice(
 
     let width = sdr.width();
     let height = sdr.rows();
-    let sdr_primaries = sdr.descriptor().primaries;
+    let sdr_primaries = crate::types::pixel_primaries(sdr.spec());
 
     // Calculate weight factor based on display capability
     let weight = calculate_weight(display_boost, metadata);
@@ -202,7 +209,7 @@ pub fn apply_gainmap_slice(
         HdrOutputFormat::LinearFloat => new_pixel_buffer(
             width,
             height,
-            PixelFormat::RgbaF32,
+            PixelFormat::RGBAF32,
             sdr_primaries,
             TransferFunction::Linear,
         )?,
@@ -210,14 +217,14 @@ pub fn apply_gainmap_slice(
         HdrOutputFormat::LinearF16 => new_pixel_buffer(
             width,
             height,
-            PixelFormat::RgbaF16,
+            PixelFormat::RGBAF16,
             sdr_primaries,
             TransferFunction::Linear,
         )?,
         HdrOutputFormat::Srgb8 => new_pixel_buffer(
             width,
             height,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             sdr_primaries,
             TransferFunction::Srgb,
         )?,
@@ -242,8 +249,8 @@ pub fn apply_gainmap_slice(
     ];
 
     let out_stride = output.stride();
-    let out_format = output.descriptor().pixel_format();
-    let mut out_slice = output.as_slice_mut();
+    let out_format = output.spec().layout;
+    let mut out_slice = output.as_view_mut();
     let out_data = out_slice.as_strided_bytes_mut();
 
     // Process each row, checking for cancellation periodically
@@ -276,7 +283,7 @@ pub fn apply_gainmap_slice(
     // Tag the reconstruction's absolute-luminance anchor. Gain-map HDR is
     // reconstructed relative to SDR diffuse white = BT.2408 (203 cd/m²), so a
     // relative-linear `1.0` maps to 203 nits. Carrying it on the buffer's
-    // `ColorContext` lets a downstream PQ/HLG encode read the real anchor
+    // `ImageSpec` lets a downstream PQ/HLG encode read the real anchor
     // instead of assuming the default — every codec that reconstructs through
     // `apply_gainmap` (heic/zenjpeg/zenavif/zenjxl) inherits this. Linear
     // outputs only: the `Srgb8` path is gamma-encoded SDR, not relative-linear.
@@ -286,15 +293,15 @@ pub fn apply_gainmap_slice(
         HdrOutputFormat::LinearF16 => true,
         HdrOutputFormat::Srgb8 => false,
     };
-    let output = if is_linear {
-        output.with_color_context(alloc::sync::Arc::new(
-            zenpixels::ColorContext::default()
-                .with_diffuse_white(zenpixels::hdr::DiffuseWhite::BT2408),
-        ))
+    if is_linear {
+        let spec = output
+            .spec()
+            .clone()
+            .with_white(zenpixels::DiffuseWhite::BT2408);
+        output.with_spec(spec).map_err(|e| at!(Error::from(e)))
     } else {
-        output
-    };
-    Ok(output)
+        Ok(output)
+    }
 }
 
 /// Read a row of the SDR image into linear f32 RGB.
@@ -350,26 +357,26 @@ fn write_hdr_row(
     let row_start = (y as usize) * out_stride;
     match format {
         HdrOutputFormat::LinearFloat => {
-            debug_assert_eq!(out_format, PixelFormat::RgbaF32);
+            debug_assert_eq!(out_format, PixelFormat::RGBAF32);
             for (x, &hdr) in hdr_row.iter().enumerate() {
                 let idx = row_start + x * 16;
-                out_data[idx..idx + 4].copy_from_slice(&hdr[0].to_le_bytes());
-                out_data[idx + 4..idx + 8].copy_from_slice(&hdr[1].to_le_bytes());
-                out_data[idx + 8..idx + 12].copy_from_slice(&hdr[2].to_le_bytes());
-                out_data[idx + 12..idx + 16].copy_from_slice(&1.0f32.to_le_bytes());
+                out_data[idx..idx + 4].copy_from_slice(&hdr[0].to_ne_bytes());
+                out_data[idx + 4..idx + 8].copy_from_slice(&hdr[1].to_ne_bytes());
+                out_data[idx + 8..idx + 12].copy_from_slice(&hdr[2].to_ne_bytes());
+                out_data[idx + 12..idx + 16].copy_from_slice(&1.0f32.to_ne_bytes());
             }
         }
         #[cfg(feature = "f16")]
         HdrOutputFormat::LinearF16 => {
-            debug_assert_eq!(out_format, PixelFormat::RgbaF16);
+            debug_assert_eq!(out_format, PixelFormat::RGBAF16);
             // 8 bytes/pixel: 4 channels × f16 (2 bytes). Alpha is 1.0 (constant).
             const F16_ONE: u16 = 0x3C00; // half::f16::ONE.to_bits()
             for (x, &hdr) in hdr_row.iter().enumerate() {
                 let idx = row_start + x * 8;
-                let r = half::f16::from_f32(hdr[0]).to_bits().to_le_bytes();
-                let g = half::f16::from_f32(hdr[1]).to_bits().to_le_bytes();
-                let b = half::f16::from_f32(hdr[2]).to_bits().to_le_bytes();
-                let a = F16_ONE.to_le_bytes();
+                let r = half::f16::from_f32(hdr[0]).to_bits().to_ne_bytes();
+                let g = half::f16::from_f32(hdr[1]).to_bits().to_ne_bytes();
+                let b = half::f16::from_f32(hdr[2]).to_bits().to_ne_bytes();
+                let a = F16_ONE.to_ne_bytes();
                 out_data[idx..idx + 2].copy_from_slice(&r);
                 out_data[idx + 2..idx + 4].copy_from_slice(&g);
                 out_data[idx + 4..idx + 6].copy_from_slice(&b);
@@ -377,7 +384,7 @@ fn write_hdr_row(
             }
         }
         HdrOutputFormat::Srgb8 => {
-            debug_assert_eq!(out_format, PixelFormat::Rgba8);
+            debug_assert_eq!(out_format, PixelFormat::RGBA8);
             for (x, &hdr) in hdr_row.iter().enumerate() {
                 let r = srgb_oetf(hdr[0].clamp(0.0, 1.0));
                 let g = srgb_oetf(hdr[1].clamp(0.0, 1.0));
@@ -414,37 +421,37 @@ pub fn calculate_weight(display_boost: f32, metadata: &GainMapMetadata) -> f32 {
 
 /// Get linear RGB from SDR image.
 fn get_sdr_linear(sdr: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
-    let format = sdr.descriptor().pixel_format();
+    let format = sdr.spec().layout;
     let stride = sdr.stride();
     let data = sdr.as_strided_bytes();
     match format {
-        PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
-            let bpp = if format == PixelFormat::Rgba8 { 4 } else { 3 };
+        PixelFormat::RGBA8 | PixelFormat::RGB8 => {
+            let bpp = if format == PixelFormat::RGBA8 { 4 } else { 3 };
             let idx = (y as usize) * stride + (x as usize) * bpp;
             let r = data[idx] as f32 / 255.0;
             let g = data[idx + 1] as f32 / 255.0;
             let b = data[idx + 2] as f32 / 255.0;
             [srgb_eotf(r), srgb_eotf(g), srgb_eotf(b)]
         }
-        PixelFormat::RgbaF32 => {
+        PixelFormat::RGBAF32 => {
             let idx = (y as usize) * stride + (x as usize) * 16;
-            let r = f32::from_le_bytes([data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]);
+            let r = f32::from_ne_bytes([data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]);
             let g =
-                f32::from_le_bytes([data[idx + 4], data[idx + 5], data[idx + 6], data[idx + 7]]);
+                f32::from_ne_bytes([data[idx + 4], data[idx + 5], data[idx + 6], data[idx + 7]]);
             let b =
-                f32::from_le_bytes([data[idx + 8], data[idx + 9], data[idx + 10], data[idx + 11]]);
+                f32::from_ne_bytes([data[idx + 8], data[idx + 9], data[idx + 10], data[idx + 11]]);
             [r, g, b]
         }
         #[cfg(feature = "f16")]
-        PixelFormat::RgbaF16 | PixelFormat::RgbF16 => {
-            let bpp = if format == PixelFormat::RgbaF16 { 8 } else { 6 };
+        PixelFormat::RGBAF16 | PixelFormat::RGBF16 => {
+            let bpp = if format == PixelFormat::RGBAF16 { 8 } else { 6 };
             let idx = (y as usize) * stride + (x as usize) * bpp;
-            let r = half::f16::from_le_bytes([data[idx], data[idx + 1]]).to_f32();
-            let g = half::f16::from_le_bytes([data[idx + 2], data[idx + 3]]).to_f32();
-            let b = half::f16::from_le_bytes([data[idx + 4], data[idx + 5]]).to_f32();
+            let r = half::f16::from_ne_bytes([data[idx], data[idx + 1]]).to_f32();
+            let g = half::f16::from_ne_bytes([data[idx + 2], data[idx + 3]]).to_f32();
+            let b = half::f16::from_ne_bytes([data[idx + 4], data[idx + 5]]).to_f32();
             [r, g, b]
         }
-        PixelFormat::Gray8 => {
+        PixelFormat::GRAY8 => {
             let idx = (y as usize) * stride + (x as usize);
             let v = data[idx] as f32 / 255.0;
             [v, v, v]
@@ -854,13 +861,13 @@ mod tests {
         let mut sdr = crate::types::new_pixel_buffer(
             4,
             4,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
         .unwrap();
         {
-            let mut slice = sdr.as_slice_mut();
+            let mut slice = sdr.as_view_mut();
             let bytes = slice.as_strided_bytes_mut();
             for i in 0..bytes.len() / 4 {
                 bytes[i * 4] = 128;
@@ -898,18 +905,18 @@ mod tests {
 
         assert_eq!(result.width(), 4);
         assert_eq!(result.height(), 4);
-        assert_eq!(result.descriptor().pixel_format(), PixelFormat::Rgba8);
+        assert_eq!(result.spec().layout, PixelFormat::RGBA8);
     }
 
     /// Linear (HDR) reconstruction carries the SDR diffuse-white anchor
-    /// (BT.2408 = 203 cd/m²) on its `ColorContext` so a downstream PQ/HLG
+    /// (BT.2408 = 203 cd/m²) on its `ImageSpec` so a downstream PQ/HLG
     /// encode reads the real anchor; the Srgb8 (SDR) path does not.
     #[test]
     fn apply_gainmap_tags_diffuse_white_on_linear_output() {
         let sdr = crate::types::new_pixel_buffer(
             2,
             2,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
@@ -937,7 +944,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            linear.color_context().and_then(|c| c.diffuse_white),
+            linear.spec().color.white(),
             Some(zenpixels::hdr::DiffuseWhite::BT2408),
             "linear reconstruction must carry the 203-nit anchor"
         );
@@ -952,7 +959,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            srgb.color_context().and_then(|c| c.diffuse_white),
+            srgb.spec().color.white(),
             None,
             "the gamma-encoded SDR path is not relative-linear; no anchor"
         );
@@ -1143,7 +1150,7 @@ mod tests {
             data,
             4,
             4,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
@@ -1189,11 +1196,11 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.descriptor().pixel_format(), PixelFormat::RgbaF32);
+        assert_eq!(result.spec().layout, PixelFormat::RGBAF32);
         assert_eq!(result.width(), 4);
         assert_eq!(result.height(), 4);
         // RgbaF32: 16 bytes per pixel (4 f32 channels)
-        assert_eq!(result.as_slice().as_strided_bytes().len(), 4 * 4 * 16);
+        assert_eq!(result.as_view().as_strided_bytes().len(), 4 * 4 * 16);
     }
 
     #[cfg(feature = "f16")]
@@ -1222,27 +1229,27 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(f16_out.descriptor().pixel_format(), PixelFormat::RgbaF16);
+        assert_eq!(f16_out.spec().layout, PixelFormat::RGBAF16);
         assert_eq!(f16_out.width(), 4);
         assert_eq!(f16_out.height(), 4);
         // RgbaF16: 8 bytes per pixel (4 f16 channels).
-        assert_eq!(f16_out.as_slice().as_strided_bytes().len(), 4 * 4 * 8);
+        assert_eq!(f16_out.as_view().as_strided_bytes().len(), 4 * 4 * 8);
 
         // f32 vs f16 must agree within f16 rounding (~1e-3 for values near 1).
-        let f32_bytes = f32_out.as_slice();
+        let f32_bytes = f32_out.as_view();
         let f32_data = f32_bytes.as_strided_bytes();
-        let f16_bytes = f16_out.as_slice();
+        let f16_bytes = f16_out.as_view();
         let f16_data = f16_bytes.as_strided_bytes();
         for px in 0..16 {
             let f32_idx = px * 16;
             let f16_idx = px * 8;
             for ch in 0..3 {
-                let want = f32::from_le_bytes(
+                let want = f32::from_ne_bytes(
                     f32_data[f32_idx + ch * 4..f32_idx + ch * 4 + 4]
                         .try_into()
                         .unwrap(),
                 );
-                let got = half::f16::from_le_bytes(
+                let got = half::f16::from_ne_bytes(
                     f16_data[f16_idx + ch * 2..f16_idx + ch * 2 + 2]
                         .try_into()
                         .unwrap(),
@@ -1276,7 +1283,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.descriptor().pixel_format(), PixelFormat::Rgba8);
+        assert_eq!(result.spec().layout, PixelFormat::RGBA8);
         assert_eq!(result.width(), 4);
         assert_eq!(result.height(), 4);
     }
@@ -1301,7 +1308,7 @@ mod tests {
         // With boost=1.0, weight=0.0, gain=exp(0)=1.0 for all LUT entries.
         // HDR = (sdr_linear + offset) * 1.0 - offset = sdr_linear
         // So output should be very close to the input SDR values.
-        let result_bytes = result.as_slice().as_strided_bytes();
+        let result_bytes = result.as_view().as_strided_bytes();
         for i in 0..16 {
             let r = result_bytes[i * 4];
             let g = result_bytes[i * 4 + 1];
@@ -1353,10 +1360,10 @@ mod tests {
         .unwrap();
 
         // Read first pixel from each
-        let max_bytes = result_max.as_slice().as_strided_bytes();
-        let sdr_bytes = result_sdr.as_slice().as_strided_bytes();
-        let hdr_r = f32::from_le_bytes([max_bytes[0], max_bytes[1], max_bytes[2], max_bytes[3]]);
-        let sdr_r = f32::from_le_bytes([sdr_bytes[0], sdr_bytes[1], sdr_bytes[2], sdr_bytes[3]]);
+        let max_bytes = result_max.as_view().as_strided_bytes();
+        let sdr_bytes = result_sdr.as_view().as_strided_bytes();
+        let hdr_r = f32::from_ne_bytes([max_bytes[0], max_bytes[1], max_bytes[2], max_bytes[3]]);
+        let sdr_r = f32::from_ne_bytes([sdr_bytes[0], sdr_bytes[1], sdr_bytes[2], sdr_bytes[3]]);
 
         // Full boost should produce significantly brighter output than no boost
         assert!(
@@ -1444,8 +1451,8 @@ mod tests {
 
         assert_eq!(result.width(), 4);
         assert_eq!(result.height(), 4);
-        assert_eq!(result.descriptor().pixel_format(), PixelFormat::RgbaF32);
-        assert_eq!(result.as_slice().as_strided_bytes().len(), 4 * 4 * 16);
+        assert_eq!(result.spec().layout, PixelFormat::RGBAF32);
+        assert_eq!(result.as_view().as_strided_bytes().len(), 4 * 4 * 16);
     }
 
     #[test]
@@ -1478,8 +1485,8 @@ mod tests {
 
         // Both should produce identical output since 0.5 is clamped to 1.0
         assert_eq!(
-            result_low.as_slice().as_strided_bytes(),
-            result_one.as_slice().as_strided_bytes()
+            result_low.as_view().as_strided_bytes(),
+            result_one.as_view().as_strided_bytes()
         );
     }
 
@@ -1489,7 +1496,7 @@ mod tests {
         struct ImmediateCancel;
 
         impl enough::Stop for ImmediateCancel {
-            fn check(&self) -> std::result::Result<(), enough::StopReason> {
+            fn check(&self) -> core::result::Result<(), enough::StopReason> {
                 Err(enough::StopReason::Cancelled)
             }
         }
@@ -1498,7 +1505,7 @@ mod tests {
         let sdr = crate::types::new_pixel_buffer(
             4,
             4,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
@@ -1667,13 +1674,11 @@ mod tests {
     // C2). `apply_gainmap_slice` must reject it before any arithmetic.
     #[test]
     fn apply_gainmap_slice_rejects_zero_dim_gainmap() {
-        use crate::types::{ColorPrimaries, PixelBuffer, TransferFunction};
+        use crate::types::PixelBuffer;
         use enough::Unstoppable;
 
-        let desc = zenpixels::PixelDescriptor::from_pixel_format(PixelFormat::Rgba8)
-            .with_primaries(ColorPrimaries::Bt709)
-            .with_transfer(TransferFunction::Srgb);
-        let sdr = PixelBuffer::try_new(8, 8, desc).unwrap();
+        let desc = zenpixels::ImageSpec::rgba8_srgb();
+        let sdr = PixelBuffer::new(8, 8, desc).unwrap();
         let metadata = GainMapMetadata::default();
         let gm = GainMap {
             width: 0,

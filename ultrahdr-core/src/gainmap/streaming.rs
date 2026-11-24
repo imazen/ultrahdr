@@ -57,6 +57,13 @@
 //! # Ok::<(), ultrahdr_core::Error>(())
 //! ```
 
+#[cfg(not(feature = "std"))]
+#[allow(
+    unused_imports,
+    reason = "float methods may be supplied by std in hosted builds"
+)]
+use num_traits::Float;
+
 use alloc::format;
 use alloc::string::ToString;
 use alloc::vec;

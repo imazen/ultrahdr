@@ -1,5 +1,12 @@
 //! Gain map computation from HDR and SDR images.
 
+#[cfg(not(feature = "std"))]
+#[allow(
+    unused_imports,
+    reason = "float methods may be supplied by std in hosted builds"
+)]
+use num_traits::Float;
+
 use alloc::vec;
 
 use crate::color::gamut::rgb_to_luminance;
@@ -84,7 +91,7 @@ pub fn compute_gainmap(
     config: &GainMapConfig,
     stop: impl Stop,
 ) -> Result<(GainMap, GainMapMetadata)> {
-    compute_gainmap_slice(hdr.as_slice(), sdr.as_slice(), config, stop)
+    compute_gainmap_slice(hdr.as_view(), sdr.as_view(), config, stop)
 }
 
 /// [`compute_gainmap`] variant that takes borrowed [`PixelSlice`]s.
@@ -309,8 +316,8 @@ fn compute_luminance_gainmap(
     let mut gainmap = GainMap::new(gm_width, gm_height)?;
     let hdr_w = hdr.width();
     let hdr_h = hdr.rows();
-    let hdr_gamut = hdr.descriptor().primaries;
-    let sdr_gamut = sdr.descriptor().primaries;
+    let hdr_gamut = crate::types::pixel_primaries(hdr.spec());
+    let sdr_gamut = crate::types::pixel_primaries(sdr.spec());
 
     // Materialize one gain-map row's worth of subsampled HDR + SDR linear RGB,
     // then delegate quantization to `compute_gain_row`. Three channels —
@@ -516,7 +523,7 @@ fn apply_transfer_to_linear(rgb: [f32; 3], transfer: TransferFunction) -> [f32; 
         TransferFunction::Linear => rgb,
         TransferFunction::Srgb => [srgb_eotf(rgb[0]), srgb_eotf(rgb[1]), srgb_eotf(rgb[2])],
         TransferFunction::Pq => [pq_eotf(rgb[0]), pq_eotf(rgb[1]), pq_eotf(rgb[2])],
-        TransferFunction::Hlg => [
+        TransferFunction::Hlg(_) => [
             // hlg_eotf returns nits at 1000-nit peak; normalize to SDR-relative.
             hlg_eotf(rgb[0], 1000.0) / 1000.0,
             hlg_eotf(rgb[1], 1000.0) / 1000.0,
@@ -531,14 +538,14 @@ fn apply_transfer_to_linear(rgb: [f32; 3], transfer: TransferFunction) -> [f32; 
 /// Applies the appropriate EOTF conversion (sRGB, PQ, HLG) based on the
 /// image's declared transfer function.
 fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
-    let desc = img.descriptor();
-    let format = desc.pixel_format();
-    let transfer = desc.transfer();
+    let spec = img.spec();
+    let format = spec.layout;
+    let transfer = crate::types::pixel_transfer(spec);
     let stride = img.stride();
     let data = img.as_strided_bytes();
     match format {
-        PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
-            let bpp = if format == PixelFormat::Rgba8 { 4 } else { 3 };
+        PixelFormat::RGBA8 | PixelFormat::RGB8 => {
+            let bpp = if format == PixelFormat::RGBA8 { 4 } else { 3 };
             let idx = y as usize * stride + x as usize * bpp;
             let r = data[idx] as f32 / 255.0;
             let g = data[idx + 1] as f32 / 255.0;
@@ -552,25 +559,25 @@ fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
             }
         }
 
-        PixelFormat::RgbaF32 => {
+        PixelFormat::RGBAF32 => {
             let idx = y as usize * stride + x as usize * 16;
-            let r = f32::from_le_bytes(data[idx..idx + 4].try_into().unwrap());
-            let g = f32::from_le_bytes(data[idx + 4..idx + 8].try_into().unwrap());
-            let b = f32::from_le_bytes(data[idx + 8..idx + 12].try_into().unwrap());
+            let r = f32::from_ne_bytes(data[idx..idx + 4].try_into().unwrap());
+            let g = f32::from_ne_bytes(data[idx + 4..idx + 8].try_into().unwrap());
+            let b = f32::from_ne_bytes(data[idx + 8..idx + 12].try_into().unwrap());
             apply_transfer_to_linear([r, g, b], transfer)
         }
 
         #[cfg(feature = "f16")]
-        PixelFormat::RgbaF16 | PixelFormat::RgbF16 => {
-            let bpp = if format == PixelFormat::RgbaF16 { 8 } else { 6 };
+        PixelFormat::RGBAF16 | PixelFormat::RGBF16 => {
+            let bpp = if format == PixelFormat::RGBAF16 { 8 } else { 6 };
             let idx = y as usize * stride + x as usize * bpp;
-            let r = half::f16::from_le_bytes([data[idx], data[idx + 1]]).to_f32();
-            let g = half::f16::from_le_bytes([data[idx + 2], data[idx + 3]]).to_f32();
-            let b = half::f16::from_le_bytes([data[idx + 4], data[idx + 5]]).to_f32();
+            let r = half::f16::from_ne_bytes([data[idx], data[idx + 1]]).to_f32();
+            let g = half::f16::from_ne_bytes([data[idx + 2], data[idx + 3]]).to_f32();
+            let b = half::f16::from_ne_bytes([data[idx + 4], data[idx + 5]]).to_f32();
             apply_transfer_to_linear([r, g, b], transfer)
         }
 
-        PixelFormat::Gray8 => {
+        PixelFormat::GRAY8 => {
             let idx = y as usize * stride + x as usize;
             let v = data[idx] as f32 / 255.0;
             let linear = srgb_eotf(v);
@@ -600,13 +607,13 @@ mod tests {
         let mut hdr = new_pixel_buffer(
             8,
             8,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
         .unwrap();
         {
-            let mut slice = hdr.as_slice_mut();
+            let mut slice = hdr.as_view_mut();
             let bytes = slice.as_strided_bytes_mut();
             for i in 0..bytes.len() / 4 {
                 bytes[i * 4] = 180;
@@ -619,13 +626,13 @@ mod tests {
         let mut sdr = new_pixel_buffer(
             8,
             8,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
         .unwrap();
         {
-            let mut slice = sdr.as_slice_mut();
+            let mut slice = sdr.as_view_mut();
             let bytes = slice.as_strided_bytes_mut();
             for i in 0..bytes.len() / 4 {
                 bytes[i * 4] = 128;
@@ -734,9 +741,14 @@ mod tests {
             }
 
             // Log the encoding for verification
-            eprintln!(
+            std::eprintln!(
                 "  {}: sdr={:.3}, hdr={:.3}, gain={:.4}, clamped={:.4}, encoded={}",
-                desc, sdr, hdr, gain, gain_clamped, expected
+                desc,
+                sdr,
+                hdr,
+                gain,
+                gain_clamped,
+                expected
             );
         }
     }
@@ -746,18 +758,18 @@ mod tests {
         let w = 8u32;
         let h = 8u32;
         let pixel_count = (w * h) as usize;
-        let mut data = Vec::with_capacity(pixel_count * 16);
+        let mut data = alloc::vec::Vec::with_capacity(pixel_count * 16);
         for _ in 0..pixel_count {
-            data.extend_from_slice(&r.to_le_bytes());
-            data.extend_from_slice(&g.to_le_bytes());
-            data.extend_from_slice(&b.to_le_bytes());
-            data.extend_from_slice(&1.0f32.to_le_bytes());
+            data.extend_from_slice(&r.to_ne_bytes());
+            data.extend_from_slice(&g.to_ne_bytes());
+            data.extend_from_slice(&b.to_ne_bytes());
+            data.extend_from_slice(&1.0f32.to_ne_bytes());
         }
         crate::types::pixel_buffer_from_vec(
             data,
             w,
             h,
-            PixelFormat::RgbaF32,
+            PixelFormat::RGBAF32,
             ColorPrimaries::Bt709,
             TransferFunction::Linear,
         )
@@ -780,7 +792,7 @@ mod tests {
             data,
             w,
             h,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
@@ -905,7 +917,7 @@ mod tests {
             vec![128u8; 4 * 4 * 4],
             4,
             4,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
@@ -938,8 +950,8 @@ mod tests {
 
         // Build the same linear RGB rows that compute_luminance_gainmap feeds
         // into compute_gain_row, and verify byte-for-byte parity.
-        let hdr_slice = hdr.as_slice();
-        let sdr_slice = sdr.as_slice();
+        let hdr_slice = hdr.as_view();
+        let sdr_slice = sdr.as_view();
         let w = hdr_slice.width() as usize;
         let h = hdr_slice.rows() as usize;
         let mut min_max = (f32::MAX, f32::MIN);
@@ -957,8 +969,8 @@ mod tests {
                 &hdr_row_rgb,
                 &sdr_row_rgb,
                 3,
-                hdr_slice.descriptor().primaries,
-                sdr_slice.descriptor().primaries,
+                crate::types::pixel_primaries(hdr_slice.spec()),
+                crate::types::pixel_primaries(sdr_slice.spec()),
                 &mut row_bytes,
                 &config,
                 &mut min_max,
@@ -1035,13 +1047,9 @@ mod tests {
             alternate_hdr_headroom: 10000.0 / 203.0,
             ..Default::default()
         };
-        let (gainmap, metadata) = compute_gainmap_content_fit(
-            hdr.as_slice(),
-            sdr.as_slice(),
-            &config,
-            enough::Unstoppable,
-        )
-        .unwrap();
+        let (gainmap, metadata) =
+            compute_gainmap_content_fit(hdr.as_view(), sdr.as_view(), &config, enough::Unstoppable)
+                .unwrap();
 
         let sdr_lum = srgb_eotf(186.0 / 255.0);
         let true_gain = ((2.0 + config.alternate_offset) / (sdr_lum + config.base_offset)) as f64;
@@ -1093,13 +1101,9 @@ mod tests {
         let true_gain = (1.7 + config.alternate_offset) / (sdr_lum + config.base_offset);
 
         let (gm_cfg, meta_cfg) = compute_gainmap(&hdr, &sdr, &config, enough::Unstoppable).unwrap();
-        let (gm_fit, meta_fit) = compute_gainmap_content_fit(
-            hdr.as_slice(),
-            sdr.as_slice(),
-            &config,
-            enough::Unstoppable,
-        )
-        .unwrap();
+        let (gm_fit, meta_fit) =
+            compute_gainmap_content_fit(hdr.as_view(), sdr.as_view(), &config, enough::Unstoppable)
+                .unwrap();
         let err = |gm: &GainMap, meta: &GainMapMetadata| -> f32 {
             let lut = crate::gainmap::apply::GainMapLut::new(meta, 1.0);
             (lut.lookup_luminance(gm.data[0])[0].ln() - true_gain.ln()).abs()
@@ -1129,13 +1133,9 @@ mod tests {
             scale_factor: 1,
             ..Default::default()
         };
-        let (gainmap, metadata) = compute_gainmap_content_fit(
-            hdr.as_slice(),
-            sdr.as_slice(),
-            &config,
-            enough::Unstoppable,
-        )
-        .unwrap();
+        let (gainmap, metadata) =
+            compute_gainmap_content_fit(hdr.as_view(), sdr.as_view(), &config, enough::Unstoppable)
+                .unwrap();
         for ch in &metadata.channels {
             assert!(
                 (ch.max - ch.min) as f32 >= CONTENT_FIT_MIN_SPAN_STOPS * 0.99,
@@ -1162,7 +1162,7 @@ mod tests {
         struct ImmediateCancel;
 
         impl enough::Stop for ImmediateCancel {
-            fn check(&self) -> std::result::Result<(), enough::StopReason> {
+            fn check(&self) -> core::result::Result<(), enough::StopReason> {
                 Err(enough::StopReason::Cancelled)
             }
         }
@@ -1171,7 +1171,7 @@ mod tests {
         let hdr = new_pixel_buffer(
             8,
             8,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
@@ -1179,7 +1179,7 @@ mod tests {
         let sdr = new_pixel_buffer(
             8,
             8,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )

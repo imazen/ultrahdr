@@ -17,7 +17,7 @@
 //!
 //! The 2026-06-22 audited shootout established `Bt2446A` as the
 //! production-recommended HDR→SDR tone curve (wins mean ΔE2000 by 2-5× over
-//! every channel-independent curve) and `CllMeasure::measure_max` as the
+//! every channel-independent curve) and `measure_cll` as the
 //! production-recommended peak measurement (wins 3 of 6 ranking criteria).
 //! Both are exposed through `color::audited` / re-exported at the crate
 //! root behind the `tonemap-bt2446a` Cargo feature:
@@ -52,10 +52,10 @@
 //! // Minimal 8x8 matching HDR + SDR surfaces. In practice these come from
 //! // your image decoder — this example just shows the call shape.
 //! let hdr = new_pixel_buffer(
-//!     8, 8, PixelFormat::Rgba8, ColorPrimaries::Bt709, TransferFunction::Srgb,
+//!     8, 8, PixelFormat::RGBA8, ColorPrimaries::Bt709, TransferFunction::Srgb,
 //! )?;
 //! let sdr = new_pixel_buffer(
-//!     8, 8, PixelFormat::Rgba8, ColorPrimaries::Bt709, TransferFunction::Srgb,
+//!     8, 8, PixelFormat::RGBA8, ColorPrimaries::Bt709, TransferFunction::Srgb,
 //! )?;
 //!
 //! // Derive gain map + metadata.
@@ -79,6 +79,8 @@
 #![warn(clippy::all)]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
 
 // Crate-info getter required by `whereat::at!()` for server-side error stack
 // traces (the `At<Error>` pattern). Generates `crate::at_crate_info()`, which
@@ -134,7 +136,7 @@ pub use zentone::{
 // full citation. Gated behind `tonemap-bt2446a` (default-off — pulls
 // archmage/magetypes/garb/libm via zenpixels-convert).
 #[cfg(feature = "tonemap-bt2446a")]
-pub use color::audited::{Bt2446A, CllMeasure, ContentLightLevel, DiffuseWhite, LightLevelMethod};
+pub use color::audited::{Bt2446A, ContentLightLevel, DiffuseWhite, LightLevelMethod, measure_cll};
 
 /// Safety limits for parsing and allocation.
 pub mod limits {
