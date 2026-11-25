@@ -111,8 +111,8 @@ impl DecoderConfig for UltraHdrDecoderConfig {
     }
 
     fn supported_descriptors() -> &'static [ImageSpec] {
-        static SUPPORTED: &[ImageSpec] = &[ImageSpec::rgb8_srgb(), ImageSpec::rgba8_srgb()];
-        SUPPORTED
+        static SUPPORTED: [ImageSpec; 2] = [ImageSpec::RGB8_SRGB, ImageSpec::RGBA8_SRGB];
+        &SUPPORTED
     }
 
     fn capabilities() -> &'static DecodeCapabilities {
@@ -212,7 +212,7 @@ impl<'a> DecodeJob<'a> for UltraHdrDecodeJob {
         } else {
             (0, 0)
         };
-        Ok(OutputInfo::full_decode(w, h, ImageSpec::rgb8_srgb()))
+        Ok(OutputInfo::full_decode(w, h, ImageSpec::RGB8_SRGB))
     }
 
     fn decoder(
@@ -334,9 +334,9 @@ impl<'a> Decode for UltraHdrDecoder<'a> {
             .ok_or_else(|| ZenDecodeError::Jpeg("no pixel data".into()))?;
 
         let descriptor = if self.want_rgba {
-            ImageSpec::rgba8_srgb()
+            ImageSpec::RGBA8_SRGB
         } else {
-            ImageSpec::rgb8_srgb()
+            ImageSpec::RGB8_SRGB
         };
 
         let pixel_buf = PixelBuf::from_bytes(pixels_u8.to_vec(), width, height, descriptor)

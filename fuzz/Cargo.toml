@@ -32,13 +32,13 @@ members = ["."]
 
 # Standalone workspace: keep the integration pins in sync with the root.
 [patch.crates-io]
-zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "e0dba0052a839ecfe17e4c911a3761e793605adf" }
-zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "e0dba0052a839ecfe17e4c911a3761e793605adf" }
+zenpixels = { git = "https://github.com/imazen/zenpixels", rev = "9686936bfa49df370a1e71666b252b9f48f744b4" }
+zenpixels-convert = { git = "https://github.com/imazen/zenpixels", rev = "9686936bfa49df370a1e71666b252b9f48f744b4" }
 garb = { git = "https://github.com/imazen/garb", rev = "457ff8b9153e9d675a39dc098052b2ffeb6206fa" }
 linear-srgb = { git = "https://github.com/imazen/linear-srgb", rev = "ae83f19426737635fee3dd16f228681019f52585" }
 ultrahdr-core = { path = "../ultrahdr-core" }
-zencodec = { git = "https://github.com/imazen/zencodec", rev = "093211c276fbb1781bec1601d7cb6b0fb92f245a" }
-zenmeta = { git = "https://github.com/imazen/zencodec", rev = "093211c276fbb1781bec1601d7cb6b0fb92f245a" }
+zencodec = { git = "https://github.com/imazen/zencodec", rev = "3a10011b6b05d2269e29db5e40db71888d0fcfce" }
+zenmeta = { git = "https://github.com/imazen/zencodec", rev = "3a10011b6b05d2269e29db5e40db71888d0fcfce" }
 
 [profile.release]
 debug = true

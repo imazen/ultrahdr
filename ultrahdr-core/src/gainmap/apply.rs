@@ -314,7 +314,7 @@ pub fn apply_gainmap_slice(
             .spec()
             .clone()
             .with_white(zenpixels::DiffuseWhite::BT2408);
-        output.with_spec(spec).map_err(|e| at!(Error::from(e)))
+        output.relabel_spec(spec).map_err(|e| at!(Error::from(e)))
     } else {
         Ok(output)
     }
@@ -1701,7 +1701,7 @@ mod tests {
         use crate::types::PixelBuffer;
         use enough::Unstoppable;
 
-        let desc = zenpixels::ImageSpec::rgba8_srgb();
+        let desc = zenpixels::ImageSpec::RGBA8_SRGB;
         let sdr = PixelBuffer::new(8, 8, desc).unwrap();
         let metadata = GainMapMetadata::default();
         let gm = GainMap {

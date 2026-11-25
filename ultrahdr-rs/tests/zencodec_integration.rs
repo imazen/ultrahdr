@@ -52,7 +52,7 @@ fn output_info_native_format_is_rgb8() {
     let info = config.job().output_info(TEST_ULTRAHDR).unwrap();
     assert_eq!(
         info.native_format,
-        ImageSpec::rgb8_srgb(),
+        ImageSpec::RGB8_SRGB,
         "default native format should be RGB8"
     );
 }
@@ -257,7 +257,7 @@ fn decode_rgba8_has_alpha() {
     let config = UltraHdrDecoderConfig;
     let output = config
         .job()
-        .decoder(Cow::Borrowed(TEST_ULTRAHDR), &[ImageSpec::rgba8_srgb()])
+        .decoder(Cow::Borrowed(TEST_ULTRAHDR), &[ImageSpec::RGBA8_SRGB])
         .unwrap()
         .decode()
         .unwrap();

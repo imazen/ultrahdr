@@ -205,7 +205,7 @@ fn odd_center_uses_shepard_lattice_and_ignores_stride_padding() {
         row[..3].copy_from_slice(&active[..3]);
     }
     let spec = descriptor_for(PixelFormat::RGBAF32, PRIMARIES, TransferFunction::Linear);
-    let strided = PixelSlice::new(bytemuck::cast_slice(&padded), 3, 3, 64, spec).unwrap();
+    let strided = PixelSlice::new(bytemuck::cast_slice(&padded), 3, 3, 64, &spec).unwrap();
     let gm = GainMap {
         width: 2,
         height: 2,

@@ -315,7 +315,7 @@ pub fn new_pixel_buffer(
 /// Panics if the pixel copy cannot be allocated.
 pub fn clone_pixel_buffer(src: &PixelBuffer) -> PixelBuffer {
     src.as_view()
-        .try_to_tight_buf()
+        .to_tight_buf()
         .expect("full-image pixel clone allocation")
         .with_origin(src.origin().clone())
 }
