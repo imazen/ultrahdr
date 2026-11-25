@@ -3,7 +3,7 @@
 //! Implements the zencodec decode traits so Ultra HDR images can be decoded
 //! through the generic zencodec pipeline. The primary JPEG is decoded to
 //! pixels via zenjpeg, and the gain map JPEG + metadata are provided as
-//! type-erased extras on the [`DecodeOutput`].
+//! type-erased extras on the [`zencodec::decode::DecodeOutput`].
 //!
 //! # Extras
 //!

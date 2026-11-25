@@ -21,7 +21,7 @@ path = "../ultrahdr-rs"
 
 [dependencies.zenjpeg]
 git = "https://github.com/imazen/zenjpeg"
-rev = "0714703dfe94cb20f2bbd84b10a9aab5949782a6"
+rev = "8d9d2e96b003f911ef385fc9acafd0f68b7afdd9"
 
 [dependencies.zencodec]
 version = ">=0.3.0, <0.5.0"

@@ -6,7 +6,7 @@
 # impls omitted; re-export duplicates annotated `[also: path]`.
 # DO NOT EDIT BY HAND — commit regenerated changes with the code.
 #
-# files: ultrahdr-core.txt 306 lines (supported surface) | ultrahdr-core.features.txt 20 added (features: archmage,f16,magetypes,resize,simd,std,tonemap,tonemap-bt2446a) | ultrahdr-core.internal.txt 110 lines (129 hidden + 0 excluded-feature)
+# files: ultrahdr-core.txt 306 lines (supported surface) | ultrahdr-core.features.txt 22 added (features: archmage,f16,magetypes,resize,simd,std,tonemap,tonemap-bt2446a) | ultrahdr-core.internal.txt 112 lines (131 hidden + 0 excluded-feature)
 
 ## summary
 #
@@ -62,10 +62,10 @@ pub color::tonemap::FitMode::PerChannel
 pub color::tonemap::TonemapMode::GainMapInverse(color::GainMapInverter)
 pub color::tonemap::TonemapMode::Luminance(color::LuminanceCurve)
 pub color::tonemap::TonemapMode::PerChannel(color::PerChannelLut)
-pub fn color::AdaptiveTonemapper::apply(&self, &zenpixels::buffer::PixelBuffer) -> Result<zenpixels::buffer::PixelBuffer>
-pub fn color::AdaptiveTonemapper::apply_with_gainmap(&self, &zenpixels::buffer::PixelBuffer, &GainMap, &GainMapMetadata) -> Result<zenpixels::buffer::PixelBuffer>
-pub fn color::AdaptiveTonemapper::fit(&zenpixels::buffer::PixelBuffer, &zenpixels::buffer::PixelBuffer) -> Result<Self>
-pub fn color::AdaptiveTonemapper::fit_with_config(&zenpixels::buffer::PixelBuffer, &zenpixels::buffer::PixelBuffer, &color::FitConfig) -> Result<Self>
+pub fn color::AdaptiveTonemapper::apply(&self, &zenpixels::buffer::PixelBuf) -> Result<zenpixels::buffer::PixelBuf>
+pub fn color::AdaptiveTonemapper::apply_with_gainmap(&self, &zenpixels::buffer::PixelBuf, &GainMap, &GainMapMetadata) -> Result<zenpixels::buffer::PixelBuf>
+pub fn color::AdaptiveTonemapper::fit(&zenpixels::buffer::PixelBuf, &zenpixels::buffer::PixelBuf) -> Result<Self>
+pub fn color::AdaptiveTonemapper::fit_with_config(&zenpixels::buffer::PixelBuf, &zenpixels::buffer::PixelBuf, &color::FitConfig) -> Result<Self>
 pub fn color::AdaptiveTonemapper::from_gainmap(&GainMapMetadata) -> Self
 pub fn color::AdaptiveTonemapper::max_hdr_observed(&self) -> f32
 pub fn color::AdaptiveTonemapper::stats(&self) -> &color::FitStats
@@ -86,8 +86,8 @@ pub fn color::ProfileToneCurve::from_lut(alloc::vec::Vec<f32>) -> core::option::
 pub fn color::ProfileToneCurve::from_xy_pairs(&[f32]) -> core::option::Option<Self>
 pub fn color::ProfileToneCurve::identity() -> Self
 pub color::tonemap::ToneMapConfig::hdr_peak_nits: f32
-pub color::tonemap::ToneMapConfig::source_gamut: zenpixels::descriptor::ColorPrimaries
-pub color::tonemap::ToneMapConfig::target_gamut: zenpixels::descriptor::ColorPrimaries
+pub color::tonemap::ToneMapConfig::source_gamut: zenpixels::color::Primaries
+pub color::tonemap::ToneMapConfig::target_gamut: zenpixels::color::Primaries
 pub color::tonemap::ToneMapConfig::target_peak_nits: f32
 pub mod color::transfer
 pub enum color::FitMode [also: color::tonemap]
@@ -98,10 +98,10 @@ pub color::TonemapMode::GainMapInverse(color::GainMapInverter)
 pub color::TonemapMode::Luminance(color::LuminanceCurve)
 pub color::TonemapMode::PerChannel(color::PerChannelLut)
 pub struct color::AdaptiveTonemapper [also: color::tonemap]
-pub fn color::AdaptiveTonemapper::apply(&self, &zenpixels::buffer::PixelBuffer) -> Result<zenpixels::buffer::PixelBuffer>
-pub fn color::AdaptiveTonemapper::apply_with_gainmap(&self, &zenpixels::buffer::PixelBuffer, &GainMap, &GainMapMetadata) -> Result<zenpixels::buffer::PixelBuffer>
-pub fn color::AdaptiveTonemapper::fit(&zenpixels::buffer::PixelBuffer, &zenpixels::buffer::PixelBuffer) -> Result<Self>
-pub fn color::AdaptiveTonemapper::fit_with_config(&zenpixels::buffer::PixelBuffer, &zenpixels::buffer::PixelBuffer, &color::FitConfig) -> Result<Self>
+pub fn color::AdaptiveTonemapper::apply(&self, &zenpixels::buffer::PixelBuf) -> Result<zenpixels::buffer::PixelBuf>
+pub fn color::AdaptiveTonemapper::apply_with_gainmap(&self, &zenpixels::buffer::PixelBuf, &GainMap, &GainMapMetadata) -> Result<zenpixels::buffer::PixelBuf>
+pub fn color::AdaptiveTonemapper::fit(&zenpixels::buffer::PixelBuf, &zenpixels::buffer::PixelBuf) -> Result<Self>
+pub fn color::AdaptiveTonemapper::fit_with_config(&zenpixels::buffer::PixelBuf, &zenpixels::buffer::PixelBuf, &color::FitConfig) -> Result<Self>
 pub fn color::AdaptiveTonemapper::from_gainmap(&GainMapMetadata) -> Self
 pub fn color::AdaptiveTonemapper::max_hdr_observed(&self) -> f32
 pub fn color::AdaptiveTonemapper::stats(&self) -> &color::FitStats
@@ -129,32 +129,32 @@ pub fn color::ProfileToneCurve::from_xy_pairs(&[f32]) -> core::option::Option<Se
 pub fn color::ProfileToneCurve::identity() -> Self
 pub struct color::ToneMapConfig [also: color::tonemap]
 pub color::ToneMapConfig::hdr_peak_nits: f32
-pub color::ToneMapConfig::source_gamut: zenpixels::descriptor::ColorPrimaries
-pub color::ToneMapConfig::target_gamut: zenpixels::descriptor::ColorPrimaries
+pub color::ToneMapConfig::source_gamut: zenpixels::color::Primaries
+pub color::ToneMapConfig::target_gamut: zenpixels::color::Primaries
 pub color::ToneMapConfig::target_peak_nits: f32
 pub const color::BT2100_LUMA: [f32; 3] [also: color::gamut]
 pub const color::BT709_LUMA: [f32; 3] [also: color::gamut]
 pub const color::P3_LUMA: [f32; 3] [also: color::gamut]
-pub fn color::convert_gamut([f32; 3], zenpixels::descriptor::ColorPrimaries, zenpixels::descriptor::ColorPrimaries) -> [f32; 3] [also: color::gamut]
+pub fn color::convert_gamut([f32; 3], zenpixels::color::Primaries, zenpixels::color::Primaries) -> [f32; 3] [also: color::gamut]
 pub fn color::crop_gainmap(&GainMap, u32, u32, (u32, u32, u32, u32)) -> Result<GainMap> [also: color::tonemap]
 pub fn color::hlg_eotf(f32, f32) -> f32 [also: color::transfer]
 pub fn color::hlg_oetf_inv(f32) -> f32 [also: color::transfer]
 pub fn color::hlg_ootf(f32, f32) -> f32 [also: color::transfer]
 pub fn color::hlg_ootf_inv(f32, f32) -> f32 [also: color::transfer]
-pub fn color::luma_coefficients(zenpixels::descriptor::ColorPrimaries) -> [f32; 3] [also: color::gamut]
+pub fn color::luma_coefficients(zenpixels::color::Primaries) -> [f32; 3] [also: color::gamut]
 pub fn color::pq_eotf(f32) -> f32 [also: color::transfer]
 pub fn color::pq_oetf(f32) -> f32 [also: color::transfer]
-pub fn color::rgb_to_luminance([f32; 3], zenpixels::descriptor::ColorPrimaries) -> f32 [also: color::gamut]
+pub fn color::rgb_to_luminance([f32; 3], zenpixels::color::Primaries) -> f32 [also: color::gamut]
 pub fn color::scale_gainmap(&GainMap, u32, u32) -> Result<GainMap> [also: color::tonemap]
 pub fn color::soft_clip_gamut([f32; 3]) -> [f32; 3] [also: color::gamut]
 pub fn color::srgb_eotf(f32) -> f32 [also: color::transfer]
 pub fn color::srgb_oetf(f32) -> f32 [also: color::transfer]
 pub fn color::tonemap_hlg_to_sdr([f32; 3], &color::ToneMapConfig) -> [f32; 3] [also: color::tonemap]
-pub fn color::tonemap_image_to_srgb8(&zenpixels::buffer::PixelBuffer, zenpixels::descriptor::ColorPrimaries) -> Result<alloc::vec::Vec<u8>> [also: color::tonemap]
-pub fn color::tonemap_image_to_srgb8_with_stop(&zenpixels::buffer::PixelBuffer, zenpixels::descriptor::ColorPrimaries, &impl enough::Stop) -> Result<alloc::vec::Vec<u8>> [also: color::tonemap]
+pub fn color::tonemap_image_to_srgb8(&zenpixels::buffer::PixelBuf, zenpixels::color::Primaries) -> Result<alloc::vec::Vec<u8>> [also: color::tonemap]
+pub fn color::tonemap_image_to_srgb8_with_stop(&zenpixels::buffer::PixelBuf, zenpixels::color::Primaries, &impl enough::Stop) -> Result<alloc::vec::Vec<u8>> [also: color::tonemap]
 pub fn color::tonemap_pq_to_sdr([f32; 3], &color::ToneMapConfig) -> [f32; 3] [also: color::tonemap]
-pub fn color::tonemap_to_sdr([f32; 3], zenpixels::descriptor::TransferFunction, &color::ToneMapConfig) -> [f32; 3] [also: color::tonemap]
-pub fn color::tonemap_to_srgb8([f32; 3], zenpixels::descriptor::TransferFunction, &color::ToneMapConfig) -> [u8; 3] [also: color::tonemap]
+pub fn color::tonemap_to_sdr([f32; 3], zenpixels::color::Transfer, &color::ToneMapConfig) -> [f32; 3] [also: color::tonemap]
+pub fn color::tonemap_to_srgb8([f32; 3], zenpixels::color::Transfer, &color::ToneMapConfig) -> [u8; 3] [also: color::tonemap]
 pub mod gainmap
 pub mod gainmap::apply
 pub gainmap::apply::HdrOutputFormat::LinearFloat
@@ -198,12 +198,12 @@ pub fn gainmap::ShepardsLut::try_new(u32, u32, u32, u32) -> core::option::Option
 pub const gainmap::CONTENT_FIT_MIN_SPAN_STOPS: f32 [also: gainmap::compute]
 pub fn gainmap::apply_gain_row_presampled(&[[f32; 3]], &[[f32; 3]], [f32; 3], [f32; 3], &mut [[f32; 3]]) [also: gainmap::apply_simd]
 pub fn gainmap::apply_gain_row_scalar(&[[f32; 3]], &[u8], &[f32; 256], &mut [[f32; 3]]) [also: gainmap::apply_simd]
-pub fn gainmap::apply_gainmap(&zenpixels::buffer::PixelBuffer, &GainMap, &GainMapMetadata, f32, gainmap::HdrOutputFormat, impl enough::Stop) -> Result<zenpixels::buffer::PixelBuffer> [also: gainmap::apply]
-pub fn gainmap::apply_gainmap_slice(zenpixels::buffer::PixelSlice<'_>, &GainMap, &GainMapMetadata, f32, gainmap::HdrOutputFormat, impl enough::Stop) -> Result<zenpixels::buffer::PixelBuffer> [also: gainmap::apply]
+pub fn gainmap::apply_gainmap(&zenpixels::buffer::PixelBuf, &GainMap, &GainMapMetadata, f32, gainmap::HdrOutputFormat, impl enough::Stop) -> Result<zenpixels::buffer::PixelBuf> [also: gainmap::apply]
+pub fn gainmap::apply_gainmap_slice(zenpixels::buffer::PixelView<'_>, &GainMap, &GainMapMetadata, f32, gainmap::HdrOutputFormat, impl enough::Stop) -> Result<zenpixels::buffer::PixelBuf> [also: gainmap::apply]
 pub fn gainmap::calculate_weight(f32, &GainMapMetadata) -> f32 [also: gainmap::apply]
-pub fn gainmap::compute_gainmap(&zenpixels::buffer::PixelBuffer, &zenpixels::buffer::PixelBuffer, &gainmap::GainMapConfig, impl enough::Stop) -> Result<(GainMap, GainMapMetadata)> [also: gainmap::compute]
-pub fn gainmap::compute_gainmap_content_fit(zenpixels::buffer::PixelSlice<'_>, zenpixels::buffer::PixelSlice<'_>, &gainmap::GainMapConfig, impl enough::Stop) -> Result<(GainMap, GainMapMetadata)> [also: gainmap::compute]
-pub fn gainmap::compute_gainmap_slice(zenpixels::buffer::PixelSlice<'_>, zenpixels::buffer::PixelSlice<'_>, &gainmap::GainMapConfig, impl enough::Stop) -> Result<(GainMap, GainMapMetadata)> [also: gainmap::compute]
+pub fn gainmap::compute_gainmap(&zenpixels::buffer::PixelBuf, &zenpixels::buffer::PixelBuf, &gainmap::GainMapConfig, impl enough::Stop) -> Result<(GainMap, GainMapMetadata)> [also: gainmap::compute]
+pub fn gainmap::compute_gainmap_content_fit(zenpixels::buffer::PixelView<'_>, zenpixels::buffer::PixelView<'_>, &gainmap::GainMapConfig, impl enough::Stop) -> Result<(GainMap, GainMapMetadata)> [also: gainmap::compute]
+pub fn gainmap::compute_gainmap_slice(zenpixels::buffer::PixelView<'_>, zenpixels::buffer::PixelView<'_>, &gainmap::GainMapConfig, impl enough::Stop) -> Result<(GainMap, GainMapMetadata)> [also: gainmap::compute]
 pub mod limits
 pub const limits::MAX_GAMMA: f64
 pub const limits::MAX_HEADROOM_MAGNITUDE: f64
@@ -264,7 +264,7 @@ pub Error::MissingInput(&'static str)
 pub Error::MpfParse(alloc::string::String)
 pub Error::NotUltraHdr
 pub Error::Stopped(enough::reason::StopReason)
-pub Error::UnsupportedFormat(zenpixels::descriptor::PixelFormat)
+pub Error::UnsupportedFormat(zenpixels::layout::SampleLayout)
 pub Error::XmpParse(alloc::string::String)
 #[non_exhaustive] pub enum GainMapEncodingFormat
 pub GainMapEncodingFormat::Both
@@ -298,21 +298,21 @@ pub GainMapConfig::max_boost: f32
 pub GainMapConfig::min_boost: f32
 pub GainMapConfig::multi_channel: bool
 pub GainMapConfig::scale_factor: u8
-pub fn clone_pixel_buffer(&zenpixels::buffer::PixelBuffer) -> zenpixels::buffer::PixelBuffer
-pub fn compute_gain_row(&[f32], &[f32], u8, zenpixels::descriptor::ColorPrimaries, zenpixels::descriptor::ColorPrimaries, &mut [u8], &gainmap::GainMapConfig, &mut (f32, f32)) [also: gainmap, gainmap::compute]
-pub fn descriptor_for(zenpixels::descriptor::PixelFormat, zenpixels::descriptor::ColorPrimaries, zenpixels::descriptor::TransferFunction) -> zenpixels::descriptor::PixelDescriptor
+pub fn clone_pixel_buffer(&zenpixels::buffer::PixelBuf) -> zenpixels::buffer::PixelBuf
+pub fn compute_gain_row(&[f32], &[f32], u8, zenpixels::color::Primaries, zenpixels::color::Primaries, &mut [u8], &gainmap::GainMapConfig, &mut (f32, f32)) [also: gainmap, gainmap::compute]
+pub fn descriptor_for(zenpixels::layout::SampleLayout, zenpixels::color::Primaries, zenpixels::color::Transfer) -> zenpixels::color::ImageSpec
 pub fn from_apple_headroom(&metadata::apple::AppleHdrInfo) -> core::option::Option<GainMapMetadata> [also: metadata::apple]
 pub fn full_reconstruction_boost(&GainMapMetadata) -> f32
-pub fn new_pixel_buffer(u32, u32, zenpixels::descriptor::PixelFormat, zenpixels::descriptor::ColorPrimaries, zenpixels::descriptor::TransferFunction) -> Result<zenpixels::buffer::PixelBuffer>
+pub fn new_pixel_buffer(u32, u32, zenpixels::layout::SampleLayout, zenpixels::color::Primaries, zenpixels::color::Transfer) -> Result<zenpixels::buffer::PixelBuf>
 pub fn parse_apple_makernote(&[u8]) -> core::option::Option<metadata::apple::AppleHdrInfo> [also: metadata::apple]
 pub fn parse_exif_for_apple_hdr(&[u8]) -> core::option::Option<metadata::apple::AppleHdrInfo> [also: metadata::apple]
-pub fn pixel_buffer_from_vec(alloc::vec::Vec<u8>, u32, u32, zenpixels::descriptor::PixelFormat, zenpixels::descriptor::ColorPrimaries, zenpixels::descriptor::TransferFunction) -> Result<zenpixels::buffer::PixelBuffer>
-pub fn require_supported_format(zenpixels::descriptor::PixelFormat) -> Result<()>
+pub fn pixel_buffer_from_vec(alloc::vec::Vec<u8>, u32, u32, zenpixels::layout::SampleLayout, zenpixels::color::Primaries, zenpixels::color::Transfer) -> Result<zenpixels::buffer::PixelBuf>
+pub fn require_supported_format(zenpixels::layout::SampleLayout) -> Result<()>
 pub fn validate_gainmap_magnitude(&GainMapMetadata) -> Result<()>
 pub fn validate_gainmap_metadata(&GainMapMetadata) -> Result<()>
 pub fn validate_ultrahdr_dimensions(u32, u32) -> Result<()>
-pub fn validate_ultrahdr_image(&zenpixels::buffer::PixelBuffer) -> Result<()>
-pub fn validate_ultrahdr_slice(&zenpixels::buffer::PixelSlice<'_>) -> Result<()>
+pub fn validate_ultrahdr_image(&zenpixels::buffer::PixelBuf) -> Result<()>
+pub fn validate_ultrahdr_slice(&zenpixels::buffer::PixelView<'_>) -> Result<()>
 pub type Fraction = zencodec::gainmap::Fraction
 pub type GainMapMetadata = zencodec::gainmap::GainMapParams
 pub type Result<T> = core::result::Result<T, whereat::at::At<Error>>

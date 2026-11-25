@@ -469,7 +469,7 @@ checksum = "d107c80dd656e1a2c254dfb1d57ece73b7f515b8a8684c270c23cab68f4a440d"
 [[package]]
 name = "zencodec"
 version = "0.3.0"
-source = "git+https://github.com/imazen/zencodec?rev=093211c276fbb1781bec1601d7cb6b0fb92f245a#093211c276fbb1781bec1601d7cb6b0fb92f245a"
+source = "git+https://github.com/imazen/zencodec?rev=3a10011b6b05d2269e29db5e40db71888d0fcfce#3a10011b6b05d2269e29db5e40db71888d0fcfce"
 dependencies = [
  "almost-enough",
  "bytemuck",
@@ -484,7 +484,7 @@ dependencies = [
 [[package]]
 name = "zenjpeg"
 version = "0.9.0"
-source = "git+https://github.com/imazen/zenjpeg?rev=0714703dfe94cb20f2bbd84b10a9aab5949782a6#0714703dfe94cb20f2bbd84b10a9aab5949782a6"
+source = "git+https://github.com/imazen/zenjpeg?rev=8d9d2e96b003f911ef385fc9acafd0f68b7afdd9#8d9d2e96b003f911ef385fc9acafd0f68b7afdd9"
 dependencies = [
  "aligned-vec",
  "archmage",
@@ -511,7 +511,7 @@ dependencies = [
 [[package]]
 name = "zenmeta"
 version = "0.2.0"
-source = "git+https://github.com/imazen/zencodec?rev=093211c276fbb1781bec1601d7cb6b0fb92f245a#093211c276fbb1781bec1601d7cb6b0fb92f245a"
+source = "git+https://github.com/imazen/zencodec?rev=3a10011b6b05d2269e29db5e40db71888d0fcfce#3a10011b6b05d2269e29db5e40db71888d0fcfce"
 dependencies = [
  "roxmltree",
  "zencodec",
@@ -521,7 +521,7 @@ dependencies = [
 [[package]]
 name = "zenpixels"
 version = "0.5.0"
-source = "git+https://github.com/imazen/zenpixels?rev=e0dba0052a839ecfe17e4c911a3761e793605adf#e0dba0052a839ecfe17e4c911a3761e793605adf"
+source = "git+https://github.com/imazen/zenpixels?rev=9686936bfa49df370a1e71666b252b9f48f744b4#9686936bfa49df370a1e71666b252b9f48f744b4"
 dependencies = [
  "bytemuck",
  "imgref",
@@ -532,7 +532,7 @@ dependencies = [
 [[package]]
 name = "zenpixels-convert"
 version = "0.5.0"
-source = "git+https://github.com/imazen/zenpixels?rev=e0dba0052a839ecfe17e4c911a3761e793605adf#e0dba0052a839ecfe17e4c911a3761e793605adf"
+source = "git+https://github.com/imazen/zenpixels?rev=9686936bfa49df370a1e71666b252b9f48f744b4#9686936bfa49df370a1e71666b252b9f48f744b4"
 dependencies = [
  "archmage",
  "bytemuck",
@@ -563,7 +563,7 @@ dependencies = [
 [[package]]
 name = "zenyuv"
 version = "0.1.3"
-source = "git+https://github.com/imazen/zenjpeg?rev=0714703dfe94cb20f2bbd84b10a9aab5949782a6#0714703dfe94cb20f2bbd84b10a9aab5949782a6"
+source = "git+https://github.com/imazen/zenjpeg?rev=8d9d2e96b003f911ef385fc9acafd0f68b7afdd9#8d9d2e96b003f911ef385fc9acafd0f68b7afdd9"
 dependencies = [
  "archmage",
  "imgref",

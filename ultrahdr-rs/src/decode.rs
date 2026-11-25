@@ -478,7 +478,10 @@ impl<'a> Decoder<'a> {
         // in the sRGB-display convention. We renormalize so 100 nits → 1.0
         // (SDR-display 100% white) before sRGB encoding.
         let sdr_peak_nits: f32 = 100.0;
-        let curve = Bt2446A::new(hdr_peak_nits, sdr_peak_nits);
+        let curve = Bt2446A::with_peaks(
+            zenpixels::Nits::new(hdr_peak_nits),
+            zenpixels::Nits::new(sdr_peak_nits),
+        );
         let to_curve = DiffuseWhite::BT2408.nits() / hdr_peak_nits;
         let width = hdr.width();
         let height = hdr.height();

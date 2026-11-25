@@ -38,7 +38,7 @@ pub struct codec::UltraHdrDecoderConfig
 pub struct codec::UltraHdrExtras
 pub codec::UltraHdrExtras::gainmap_jpeg: alloc::vec::Vec<u8>
 pub codec::UltraHdrExtras::metadata: ultrahdr_core::types::GainMapMetadata
-pub fn Decoder<'a>::decode_full_sdr(&self, zenpixels::descriptor::ColorPrimaries) -> ultrahdr_core::types::Result<zenpixels::buffer::PixelBuffer>
+pub fn Decoder<'a>::decode_full_sdr(&self, zenpixels::color::Primaries) -> ultrahdr_core::types::Result<zenpixels::buffer::PixelBuf>
 
 ## trait impls (4 types)
 
