@@ -316,8 +316,8 @@ fn compute_luminance_gainmap(
     let mut gainmap = GainMap::new(gm_width, gm_height)?;
     let hdr_w = hdr.width();
     let hdr_h = hdr.rows();
-    let hdr_gamut = crate::types::pixel_primaries(hdr.spec());
-    let sdr_gamut = crate::types::pixel_primaries(sdr.spec());
+    let hdr_gamut = crate::types::pixel_primaries(hdr.format());
+    let sdr_gamut = crate::types::pixel_primaries(sdr.format());
 
     // Materialize one gain-map row's worth of subsampled HDR + SDR linear RGB,
     // then delegate quantization to `compute_gain_row`. Three channels —
@@ -538,7 +538,7 @@ fn apply_transfer_to_linear(rgb: [f32; 3], transfer: TransferFunction) -> [f32; 
 /// Applies the appropriate EOTF conversion (sRGB, PQ, HLG) based on the
 /// image's declared transfer function.
 fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
-    let spec = img.spec();
+    let spec = img.format();
     let format = spec.layout;
     let transfer = crate::types::pixel_transfer(spec);
     let stride = img.stride();
@@ -969,8 +969,8 @@ mod tests {
                 &hdr_row_rgb,
                 &sdr_row_rgb,
                 3,
-                crate::types::pixel_primaries(hdr_slice.spec()),
-                crate::types::pixel_primaries(sdr_slice.spec()),
+                crate::types::pixel_primaries(hdr_slice.format()),
+                crate::types::pixel_primaries(sdr_slice.format()),
                 &mut row_bytes,
                 &config,
                 &mut min_max,

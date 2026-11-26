@@ -134,14 +134,14 @@ pub use zenpixels::PixelView as PixelSlice;
 /// Mutably borrowed pixel view.
 pub use zenpixels::PixelViewMut as PixelSliceMut;
 
-use zenpixels::{AlphaMode, ChannelOrder, ColorSpace, ImageSpec, SignalRange};
+use zenpixels::{AlphaMode, ChannelOrder, ColorSpace, SignalRange};
 
 /// Build a pixel specification for the given layout, primaries and transfer.
 pub fn descriptor_for(
     format: PixelFormat,
     primaries: ColorPrimaries,
     transfer: TransferFunction,
-) -> ImageSpec {
+) -> zenpixels::PixelFormat {
     let alpha = if format.order.has_alpha_slot() {
         AlphaMode::Straight
     } else {
@@ -163,17 +163,17 @@ pub fn descriptor_for(
             white: None,
         }
     };
-    ImageSpec::new(format, color)
+    zenpixels::PixelFormat::new(format, color)
 }
 
-pub(crate) fn pixel_primaries(spec: &ImageSpec) -> ColorPrimaries {
+pub(crate) fn pixel_primaries(spec: &zenpixels::PixelFormat) -> ColorPrimaries {
     match spec.color {
         ColorSpace::Rgb { primaries, .. } => primaries,
         _ => ColorPrimaries::Bt709,
     }
 }
 
-pub(crate) fn pixel_transfer(spec: &ImageSpec) -> TransferFunction {
+pub(crate) fn pixel_transfer(spec: &zenpixels::PixelFormat) -> TransferFunction {
     match spec.color {
         ColorSpace::Rgb { transfer, .. } | ColorSpace::Gray { transfer, .. } => transfer,
         _ => TransferFunction::Unknown,
@@ -262,17 +262,17 @@ pub fn require_supported_format(format: PixelFormat) -> Result<()> {
 /// the kernels' format subset. Used at public entry points.
 pub fn validate_ultrahdr_image(buffer: &PixelBuffer) -> Result<()> {
     validate_ultrahdr_dimensions(buffer.width(), buffer.height())?;
-    require_supported_spec(buffer.spec())
+    require_supported_spec(buffer.format())
 }
 
 /// Validate a [`PixelSlice`] against ultrahdr-core's dimension caps and
 /// the kernels' format subset.
 pub fn validate_ultrahdr_slice(slice: &PixelSlice<'_>) -> Result<()> {
     validate_ultrahdr_dimensions(slice.width(), slice.rows())?;
-    require_supported_spec(slice.spec())
+    require_supported_spec(slice.format())
 }
 
-fn require_supported_spec(spec: &ImageSpec) -> Result<()> {
+fn require_supported_spec(spec: &zenpixels::PixelFormat) -> Result<()> {
     require_supported_format(spec.layout)?;
     match spec.color {
         ColorSpace::Rgb {
@@ -711,8 +711,8 @@ mod tests {
         .unwrap();
         assert_eq!(buf.width(), 16);
         assert_eq!(buf.height(), 16);
-        assert_eq!(buf.spec().layout, PixelFormat::RGBA8);
-        assert_eq!(pixel_primaries(buf.spec()), ColorPrimaries::Bt709);
+        assert_eq!(buf.format().layout, PixelFormat::RGBA8);
+        assert_eq!(pixel_primaries(buf.format()), ColorPrimaries::Bt709);
 
         // Reject zero dimensions.
         assert!(

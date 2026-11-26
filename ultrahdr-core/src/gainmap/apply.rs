@@ -187,7 +187,7 @@ pub fn apply_gainmap_slice(
     crate::types::validate_ultrahdr_slice(&sdr)?;
     gainmap.validate()?;
     validate_gainmap_magnitude(metadata)?;
-    if sdr.spec().color.alpha() == zenpixels::AlphaMode::Premultiplied {
+    if sdr.format().color.alpha() == zenpixels::AlphaMode::Premultiplied {
         return Err(at!(Error::InvalidPixelData(
             "gain-map reconstruction requires straight or opaque alpha".into()
         )));
@@ -195,7 +195,7 @@ pub fn apply_gainmap_slice(
 
     let width = sdr.width();
     let height = sdr.rows();
-    let sdr_primaries = crate::types::pixel_primaries(sdr.spec());
+    let sdr_primaries = crate::types::pixel_primaries(sdr.format());
 
     // Calculate weight factor based on display capability
     let weight = calculate_weight(display_boost, metadata);
@@ -299,7 +299,7 @@ pub fn apply_gainmap_slice(
     // Tag the reconstruction's absolute-luminance anchor. Gain-map HDR is
     // reconstructed relative to SDR diffuse white = BT.2408 (203 cd/m²), so a
     // relative-linear `1.0` maps to 203 nits. Carrying it on the buffer's
-    // `ImageSpec` lets a downstream PQ/HLG encode read the real anchor
+    // `PixelFormat` lets a downstream PQ/HLG encode read the real anchor
     // instead of assuming the default — every codec that reconstructs through
     // `apply_gainmap` (heic/zenjpeg/zenavif/zenjxl) inherits this. Linear
     // outputs only: the `Srgb8` path is gamma-encoded SDR, not relative-linear.
@@ -310,11 +310,13 @@ pub fn apply_gainmap_slice(
         HdrOutputFormat::Srgb8 => false,
     };
     if is_linear {
-        let spec = output
-            .spec()
+        let format = output
+            .format()
             .clone()
             .with_white(zenpixels::DiffuseWhite::BT2408);
-        output.relabel_spec(spec).map_err(|e| at!(Error::from(e)))
+        output
+            .relabel_format(format)
+            .map_err(|e| at!(Error::from(e)))
     } else {
         Ok(output)
     }
@@ -367,10 +369,10 @@ fn write_hdr_row(
     format: HdrOutputFormat,
 ) {
     let src = base.row(y);
-    let copy_alpha = base.spec().color.alpha() == zenpixels::AlphaMode::Straight;
+    let copy_alpha = base.format().color.alpha() == zenpixels::AlphaMode::Straight;
     for (x, &rgb) in hdr_row.iter().enumerate() {
         let alpha = if copy_alpha {
-            match base.spec().layout {
+            match base.format().layout {
                 PixelFormat::RGBA8 => f32::from(src[x * 4 + 3]) / 255.0,
                 PixelFormat::RGBAF32 => {
                     let start = x * 16 + 12;
@@ -421,12 +423,14 @@ pub fn calculate_weight(display_boost: f32, metadata: &GainMapMetadata) -> f32 {
     {
         let base = exact.base_hdr_headroom;
         let alt = exact.alternate_hdr_headroom;
-        let span = i128::from(alt.num) * i128::from(base.den.get())
-            - i128::from(base.num) * i128::from(alt.den.get());
+        let span = i128::from(alt.numerator) * i128::from(base.denominator.get())
+            - i128::from(base.numerator) * i128::from(alt.denominator.get());
         // One rounding keeps the sub-integer distance when display * denominator
         // is far larger than the gap between the two headrooms.
-        let distance = display.mul_add(f64::from(base.den.get()), -f64::from(base.num))
-            * f64::from(alt.den.get());
+        let distance = display.mul_add(
+            f64::from(base.denominator.get()),
+            -f64::from(base.numerator),
+        ) * f64::from(alt.denominator.get());
         return signed_weight(distance, span as f64);
     }
 
@@ -447,7 +451,7 @@ fn signed_weight(distance: f64, span: f64) -> f32 {
 
 /// Get linear RGB from SDR image.
 fn get_sdr_linear(sdr: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
-    let format = sdr.spec().layout;
+    let format = sdr.format().layout;
     let stride = sdr.stride();
     let data = sdr.as_strided_bytes();
     match format {
@@ -929,11 +933,11 @@ mod tests {
 
         assert_eq!(result.width(), 4);
         assert_eq!(result.height(), 4);
-        assert_eq!(result.spec().layout, PixelFormat::RGBA8);
+        assert_eq!(result.format().layout, PixelFormat::RGBA8);
     }
 
     /// Linear (HDR) reconstruction carries the SDR diffuse-white anchor
-    /// (BT.2408 = 203 cd/m²) on its `ImageSpec` so a downstream PQ/HLG
+    /// (BT.2408 = 203 cd/m²) on its `PixelFormat` so a downstream PQ/HLG
     /// encode reads the real anchor; the Srgb8 (SDR) path does not.
     #[test]
     fn apply_gainmap_tags_diffuse_white_on_linear_output() {
@@ -968,7 +972,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            linear.spec().color.white(),
+            linear.format().color.white(),
             Some(zenpixels::hdr::DiffuseWhite::BT2408),
             "linear reconstruction must carry the 203-nit anchor"
         );
@@ -983,7 +987,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            srgb.spec().color.white(),
+            srgb.format().color.white(),
             None,
             "the gamma-encoded SDR path is not relative-linear; no anchor"
         );
@@ -1220,7 +1224,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.spec().layout, PixelFormat::RGBAF32);
+        assert_eq!(result.format().layout, PixelFormat::RGBAF32);
         assert_eq!(result.width(), 4);
         assert_eq!(result.height(), 4);
         // RgbaF32: 16 bytes per pixel (4 f32 channels)
@@ -1253,7 +1257,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(f16_out.spec().layout, PixelFormat::RGBAF16);
+        assert_eq!(f16_out.format().layout, PixelFormat::RGBAF16);
         assert_eq!(f16_out.width(), 4);
         assert_eq!(f16_out.height(), 4);
         // RgbaF16: 8 bytes per pixel (4 f16 channels).
@@ -1307,7 +1311,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.spec().layout, PixelFormat::RGBA8);
+        assert_eq!(result.format().layout, PixelFormat::RGBA8);
         assert_eq!(result.width(), 4);
         assert_eq!(result.height(), 4);
     }
@@ -1475,7 +1479,7 @@ mod tests {
 
         assert_eq!(result.width(), 4);
         assert_eq!(result.height(), 4);
-        assert_eq!(result.spec().layout, PixelFormat::RGBAF32);
+        assert_eq!(result.format().layout, PixelFormat::RGBAF32);
         assert_eq!(result.as_view().as_strided_bytes().len(), 4 * 4 * 16);
     }
 
@@ -1701,7 +1705,7 @@ mod tests {
         use crate::types::PixelBuffer;
         use enough::Unstoppable;
 
-        let desc = zenpixels::ImageSpec::RGBA8_SRGB;
+        let desc = zenpixels::PixelFormat::RGBA8_SRGB;
         let sdr = PixelBuffer::new(8, 8, desc).unwrap();
         let metadata = GainMapMetadata::default();
         let gm = GainMap {

@@ -44,7 +44,11 @@ fn test_decode_sdr() {
 
     assert!(sdr.width() > 0, "Width should be positive");
     assert!(sdr.height() > 0, "Height should be positive");
-    assert_eq!(sdr.spec().layout, PixelFormat::RGBA8, "SDR should be RGBA8");
+    assert_eq!(
+        sdr.format().layout,
+        PixelFormat::RGBA8,
+        "SDR should be RGBA8"
+    );
     assert_eq!(
         sdr.as_view().as_strided_bytes().len(),
         (sdr.width() * sdr.height() * 4) as usize,
@@ -112,10 +116,10 @@ fn test_decode_hdr_4x_boost() {
     assert!(hdr.width() > 0);
     assert!(hdr.height() > 0);
     assert_eq!(
-        hdr.spec().layout,
+        hdr.format().layout,
         PixelFormat::RGBAF32,
         "HDR output should be linear float RGBA, got {:?}",
-        hdr.spec().layout
+        hdr.format().layout
     );
 }
 

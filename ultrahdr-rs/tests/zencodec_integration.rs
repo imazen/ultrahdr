@@ -12,7 +12,7 @@ use std::borrow::Cow;
 
 use zencodec::Cicp;
 use zencodec::decode::{Decode, DecodeJob, DecoderConfig};
-use zenpixels::ImageSpec;
+use zenpixels::PixelFormat;
 
 use ultrahdr_rs::codec::UltraHdrDecoderConfig;
 
@@ -52,7 +52,7 @@ fn output_info_native_format_is_rgb8() {
     let info = config.job().output_info(TEST_ULTRAHDR).unwrap();
     assert_eq!(
         info.native_format,
-        ImageSpec::RGB8_SRGB,
+        PixelFormat::RGB8_SRGB,
         "default native format should be RGB8"
     );
 }
@@ -257,7 +257,7 @@ fn decode_rgba8_has_alpha() {
     let config = UltraHdrDecoderConfig;
     let output = config
         .job()
-        .decoder(Cow::Borrowed(TEST_ULTRAHDR), &[ImageSpec::RGBA8_SRGB])
+        .decoder(Cow::Borrowed(TEST_ULTRAHDR), &[PixelFormat::RGBA8_SRGB])
         .unwrap()
         .decode()
         .unwrap();

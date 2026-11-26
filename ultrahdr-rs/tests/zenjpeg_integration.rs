@@ -723,7 +723,7 @@ fn test_readme_workflow_encode_decode() {
     // Verify HDR reconstruction
     assert_eq!(hdr_reconstructed.width(), width);
     assert_eq!(hdr_reconstructed.height(), height);
-    assert_eq!(hdr_reconstructed.spec().layout, PixelFormat::RGBAF32);
+    assert_eq!(hdr_reconstructed.format().layout, PixelFormat::RGBAF32);
 
     // Verify HDR values exceed SDR range (> 1.0)
     let hdr_data = &hdr_reconstructed.as_view().as_strided_bytes();

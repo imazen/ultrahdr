@@ -1122,8 +1122,8 @@ pub fn tonemap_image_to_srgb8_with_stop(
     let slice = img.as_view();
     crate::types::validate_ultrahdr_slice(&slice)?;
 
-    let img_gamut = crate::types::pixel_primaries(slice.spec());
-    let img_transfer = crate::types::pixel_transfer(slice.spec());
+    let img_gamut = crate::types::pixel_primaries(slice.format());
+    let img_transfer = crate::types::pixel_transfer(slice.format());
     let config = ToneMapConfig::default();
     let width = slice.width() as usize;
     let height = slice.rows() as usize;
@@ -1167,7 +1167,7 @@ pub fn tonemap_image_to_srgb8_with_stop(
 fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
     use crate::PixelFormat;
 
-    let spec = img.spec();
+    let spec = img.format();
     let format = spec.layout;
     let transfer = crate::types::pixel_transfer(spec);
     let stride = img.stride();
@@ -1202,7 +1202,7 @@ fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
 fn get_sdr_linear(sdr: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
     use crate::PixelFormat;
 
-    let format = sdr.spec().layout;
+    let format = sdr.format().layout;
     let stride = sdr.stride();
     let data = sdr.as_strided_bytes();
     match format {

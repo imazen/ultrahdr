@@ -597,7 +597,7 @@ impl Encoder {
             .encode_from_bytes(sdr.width(), sdr.height(), PixelLayout::Rgb8Srgb)
             .map_err(map_jpeg_encode_error)?;
         let pixels = sdr.as_view();
-        match pixels.spec().layout {
+        match pixels.format().layout {
             PixelFormat::RGB8 => {
                 enc.push(
                     pixels.as_strided_bytes(),
@@ -669,7 +669,7 @@ impl Encoder {
 }
 
 fn base_primaries(buffer: &PixelBuffer) -> ColorPrimaries {
-    match buffer.spec().color {
+    match buffer.format().color {
         ColorSpace::Rgb { primaries, .. } => primaries,
         _ => ColorPrimaries::Bt709,
     }

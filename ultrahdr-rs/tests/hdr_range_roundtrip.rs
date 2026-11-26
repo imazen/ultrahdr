@@ -29,7 +29,7 @@ const SDR_WHITE_NITS: f32 = 203.0;
 /// `PixelFormat::RGBAF32` buffer.
 fn sample_rgba_f32(buf: &PixelBuffer, x: u32, y: u32) -> [f32; 4] {
     let slice = buf.as_view();
-    assert_eq!(slice.spec().layout, PixelFormat::RGBAF32);
+    assert_eq!(slice.format().layout, PixelFormat::RGBAF32);
     let stride = slice.stride();
     let bytes = slice.as_strided_bytes();
     let idx = y as usize * stride + x as usize * 16;
