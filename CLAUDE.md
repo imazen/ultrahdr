@@ -12,9 +12,9 @@
 
 ## Shared Pixel Cohort
 
-- The 0.5 integration pins zenjpeg `8d9d2e96` and zenpixels `9686936b`.
+- The 0.5 integration pins zenjpeg `e58c3d57` and zenpixels `0dd7af2a`.
   The JPEG and Ultra HDR paths share zencodec 0.3 and zenmeta 0.2 from
-  `3a10011b`. Keep the root and standalone fuzz JPEG pins in step. The
+  `06298db3`. Keep the root and standalone fuzz JPEG pins in step. The
   optional core `resize` feature uses zenpixels 0.3 through zenresize.
 
 ## Known Bugs
