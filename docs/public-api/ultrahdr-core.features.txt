@@ -25,19 +25,19 @@ pub use Bt2446A
 pub use ContentLightLevel
 pub use DiffuseWhite
 pub use LightLevelMethod
-pub use measure_cll
+pub use measure_content_light_level
 pub use color::Bt2446A
 pub use color::ContentLightLevel
 pub use color::DiffuseWhite
 pub use color::LightLevelMethod
-pub use color::measure_cll
+pub use color::measure_content_light_level
 pub use color::measure_peak
 pub mod color::audited
 pub use color::audited::Bt2446A
 pub use color::audited::ContentLightLevel
 pub use color::audited::DiffuseWhite
 pub use color::audited::LightLevelMethod
-pub use color::audited::measure_cll
+pub use color::audited::measure_content_light_level
 pub use color::audited::measure_peak
 pub gainmap::apply::HdrOutputFormat::LinearF16
 pub gainmap::HdrOutputFormat::LinearF16
