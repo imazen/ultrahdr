@@ -11,10 +11,10 @@ fuzz_target!(|data: &[u8]| {
     }
 
     // Extract structured parameters from first bytes
-    let width = u16::from_le_bytes([data[0], data[1]]).max(1).min(64) as u32;
-    let height = u16::from_le_bytes([data[2], data[3]]).max(1).min(64) as u32;
-    let gm_width = u16::from_le_bytes([data[4], data[5]]).max(1).min(64) as u32;
-    let gm_height = u16::from_le_bytes([data[6], data[7]]).max(1).min(64) as u32;
+    let width = u16::from_le_bytes([data[0], data[1]]).clamp(1, 64) as u32;
+    let height = u16::from_le_bytes([data[2], data[3]]).clamp(1, 64) as u32;
+    let gm_width = u16::from_le_bytes([data[4], data[5]]).clamp(1, 64) as u32;
+    let gm_height = u16::from_le_bytes([data[6], data[7]]).clamp(1, 64) as u32;
 
     let display_boost = f32::from_bits(u32::from_le_bytes([data[8], data[9], data[10], data[11]]));
     if !display_boost.is_finite() || display_boost < 0.0 {
@@ -51,9 +51,9 @@ fuzz_target!(|data: &[u8]| {
     };
 
     let sdr_format = if sdr_format_idx == 0 {
-        ultrahdr_core::PixelFormat::Rgba8
+        ultrahdr_core::PixelFormat::RGBA8
     } else {
-        ultrahdr_core::PixelFormat::Rgb8
+        ultrahdr_core::PixelFormat::RGB8
     };
 
     let pixel_data_start = 24;

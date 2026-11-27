@@ -87,64 +87,26 @@ fn corpus() -> Corpus {
     )
 }
 
-/// Pick a deterministic fixture from the pixel-ultrahdr corpus.
-///
-/// CI runs used to see different fixtures between runs because `read_dir`
-/// is filesystem-order dependent. We pin to `_05.jpg` here for single-fixture
-/// probe/MPF/SDR tests — it's a stable, conformant sample.
-///
-/// The HDR parity test (`hdr_decode_matches_libultrahdr`) sweeps all three
-/// corpus fixtures rather than relying on this pinned pick.
+/// Fixture 05 drives the single-file probe, MPF and SDR checks.
 fn first_pixel_sample(corpus: &Corpus) -> PathBuf {
-    let dir = corpus
-        .get("ultrahdr-conformance/valid/jpeg/pixel-ultrahdr")
-        .expect("ultrahdr-conformance/valid/jpeg/pixel-ultrahdr must exist in codec-corpus");
-    const PINNED: &str = "Ultra_HDR_Samples_Originals_05.jpg";
-    let pinned = dir.join(PINNED);
-    if pinned.is_file() {
-        return pinned;
-    }
-    // Fallback: sorted first jpg (so at least it's deterministic).
-    let mut jpgs: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .expect("read pixel-ultrahdr dir")
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| {
-            p.extension()
-                .and_then(|s| s.to_str())
-                .is_some_and(|s| s.eq_ignore_ascii_case("jpg"))
-        })
-        .collect();
-    jpgs.sort();
-    jpgs.into_iter()
-        .next()
-        .expect("at least one .jpg in pixel-ultrahdr")
+    let [_, _, sample] = all_pixel_samples(corpus);
+    sample
 }
 
-/// Every `.jpg` in `ultrahdr-conformance/valid/jpeg/pixel-ultrahdr`, sorted.
-///
-/// Used by [`hdr_decode_matches_libultrahdr`] — every fixture must come under
-/// the MAE threshold against libultrahdr, not just one representative sample.
-fn all_pixel_samples(corpus: &Corpus) -> Vec<PathBuf> {
+/// The three authored HDR parity witnesses. A missing sample fails the oracle job.
+fn all_pixel_samples(corpus: &Corpus) -> [PathBuf; 3] {
     let dir = corpus
         .get("ultrahdr-conformance/valid/jpeg/pixel-ultrahdr")
         .expect("ultrahdr-conformance/valid/jpeg/pixel-ultrahdr must exist in codec-corpus");
-    let mut jpgs: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .expect("read pixel-ultrahdr dir")
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| {
-            p.extension()
-                .and_then(|s| s.to_str())
-                .is_some_and(|s| s.eq_ignore_ascii_case("jpg"))
-        })
-        .collect();
-    jpgs.sort();
-    assert!(
-        !jpgs.is_empty(),
-        "no .jpg fixtures in pixel-ultrahdr corpus"
-    );
-    jpgs
+    ["01", "02", "05"].map(|id| {
+        let path = dir.join(format!("Ultra_HDR_Samples_Originals_{id}.jpg"));
+        assert!(
+            path.is_file(),
+            "required fixture missing: {}",
+            path.display()
+        );
+        path
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -326,19 +288,19 @@ fn sdr_decode_matches_libultrahdr() {
     let h = our_sdr.height() as usize;
     let row_bytes = w * 4;
     let row_bucket = |y: usize| y / 16;
-    let n_buckets = (h + 15) / 16;
+    let n_buckets = h.div_ceil(16);
     let mut row_max = vec![0i32; n_buckets];
     // Per-column bucket max (columns in groups of 16).
     let col_bucket = |x: usize| (x / 4) / 16;
-    let n_col_buckets = (w + 15) / 16;
+    let n_col_buckets = w.div_ceil(16);
     let mut col_max = vec![0i32; n_col_buckets];
     // Sample high-delta hotspots.
     let mut hot: Vec<(usize, usize, u8, i32)> = Vec::new(); // (y, x, channel, delta)
     for y in 0..h {
-        let our_row_start = y * our_sdr.stride();
+        let our_row_start = y * our_sdr.stride_bytes();
         let lib_row_start = y * row_bytes;
         for x in 0..row_bytes {
-            let a = our_sdr.as_slice().as_strided_bytes()[our_row_start + x] as i32;
+            let a = our_sdr.as_view().as_strided_bytes()[our_row_start + x] as i32;
             let b = lib_raw[lib_row_start + x] as i32;
             let d = (a - b).abs();
             if d > max_delta {
@@ -366,7 +328,7 @@ fn sdr_decode_matches_libultrahdr() {
     eprintln!(
         "sdr_decode_matches_libultrahdr: MAE={mae:.6}, max_delta={max_delta} over {count} bytes"
     );
-    eprintln!("  size: {w}x{h}  stride={}", our_sdr.stride());
+    eprintln!("  size: {w}x{h}  stride={}", our_sdr.stride_bytes());
     // Delta histogram (top bins only).
     let mut cum: u64 = 0;
     eprintln!("  delta histogram (cumulative %):");
@@ -383,21 +345,11 @@ fn sdr_decode_matches_libultrahdr() {
     // Row bucket max — look for MCU-row bottom boundaries (y % 16 == 15)
     // or MCU-row top (y % 16 == 0).
     eprintln!("  per-16-row max delta (first 8 + last 4):");
-    for rb in 0..n_buckets.min(8) {
-        eprintln!(
-            "    rows {:>5}..{:>5}: max={}",
-            rb * 16,
-            rb * 16 + 15,
-            row_max[rb]
-        );
+    for (rb, max) in row_max.iter().enumerate().take(8) {
+        eprintln!("    rows {:>5}..{:>5}: max={}", rb * 16, rb * 16 + 15, max);
     }
-    for rb in n_buckets.saturating_sub(4)..n_buckets {
-        eprintln!(
-            "    rows {:>5}..{:>5}: max={}",
-            rb * 16,
-            rb * 16 + 15,
-            row_max[rb]
-        );
+    for (rb, max) in row_max.iter().enumerate().skip(n_buckets.saturating_sub(4)) {
+        eprintln!("    rows {:>5}..{:>5}: max={}", rb * 16, rb * 16 + 15, max);
     }
     // Column bucket max — should be roughly flat unless there's a horizontal edge issue.
     let col_max_overall = *col_max.iter().max().unwrap_or(&0);
@@ -500,7 +452,7 @@ fn hdr_decode_matches_libultrahdr() {
             "{name}: HDR byte size mismatch (expected 8 bytes/pixel for f16 RGBA)"
         );
 
-        let our_floats: &[f32] = bytemuck::cast_slice(&our_hdr.as_slice().as_strided_bytes());
+        let our_floats: &[f32] = bytemuck::cast_slice(our_hdr.as_view().as_strided_bytes());
         assert_eq!(
             our_floats.len(),
             lib_halfs.len(),

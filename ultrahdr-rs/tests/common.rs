@@ -34,7 +34,7 @@ pub fn create_hdr_gradient(width: u32, height: u32, peak_brightness: f32) -> Pix
         data,
         width,
         height,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
     )
@@ -61,7 +61,7 @@ pub fn create_sdr_gradient(width: u32, height: u32) -> PixelBuffer {
         data,
         width,
         height,
-        PixelFormat::Rgba8,
+        PixelFormat::RGBA8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
     )
@@ -85,7 +85,7 @@ pub fn create_hdr_solid(width: u32, height: u32, r: f32, g: f32, b: f32) -> Pixe
         data,
         width,
         height,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
     )
@@ -109,7 +109,7 @@ pub fn create_sdr_solid(width: u32, height: u32, r: u8, g: u8, b: u8) -> PixelBu
         data,
         width,
         height,
-        PixelFormat::Rgba8,
+        PixelFormat::RGBA8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
     )
@@ -137,7 +137,7 @@ pub fn create_hdr_checkerboard(width: u32, height: u32, low: f32, high: f32) -> 
         data,
         width,
         height,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
     )
@@ -165,7 +165,7 @@ pub fn create_sdr_checkerboard(width: u32, height: u32, low: u8, high: u8) -> Pi
         data,
         width,
         height,
-        PixelFormat::Rgba8,
+        PixelFormat::RGBA8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
     )
@@ -208,7 +208,7 @@ pub fn create_hdr_highlights(
         data,
         width,
         height,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
     )

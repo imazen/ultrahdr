@@ -26,11 +26,11 @@ use ultrahdr_rs::{
 const SDR_WHITE_NITS: f32 = 203.0;
 
 /// Read the linear-light RGBA f32 pixel at (x, y) from a decoded
-/// `PixelFormat::RgbaF32` buffer.
+/// `PixelFormat::RGBAF32` buffer.
 fn sample_rgba_f32(buf: &PixelBuffer, x: u32, y: u32) -> [f32; 4] {
-    let slice = buf.as_slice();
-    assert_eq!(slice.descriptor().pixel_format(), PixelFormat::RgbaF32);
-    let stride = slice.stride();
+    let slice = buf.as_view();
+    assert_eq!(slice.format().layout, PixelFormat::RGBAF32);
+    let stride = slice.stride_bytes();
     let bytes = slice.as_strided_bytes();
     let idx = y as usize * stride + x as usize * 16;
     let mut px = [0.0f32; 4];
@@ -44,9 +44,9 @@ fn sample_rgba_f32(buf: &PixelBuffer, x: u32, y: u32) -> [f32; 4] {
 /// Max linear R value over the whole buffer (peak luminance for the
 /// gray-scale fixtures used here).
 fn peak_linear(buf: &PixelBuffer) -> f32 {
-    let slice = buf.as_slice();
+    let slice = buf.as_view();
     let mut peak = f32::MIN;
-    for y in 0..slice.rows() {
+    for y in 0..slice.height() {
         for x in 0..slice.width() {
             let px = sample_rgba_f32(buf, x, y);
             peak = peak.max(px[0]);
@@ -122,7 +122,7 @@ fn sdr_plus_hdr_ramp_reconstructs_peak() {
         sdr_pixels,
         width,
         64,
-        PixelFormat::Rgba8,
+        PixelFormat::RGBA8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
     )
@@ -201,7 +201,7 @@ fn hdr_only_scene_reconstructs_highlight_and_midtone() {
         data,
         SIZE,
         SIZE,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
     )

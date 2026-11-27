@@ -165,7 +165,7 @@ fn test_roundtrip_with_decoder() {
 
     for i in 0..pixel_count.min(zen_pixels.len() / zen_channels) {
         let zen_r = zen_pixels[i * zen_channels] as i16;
-        let our_r = our_sdr.as_slice().as_strided_bytes()[i * 4] as i16;
+        let our_r = our_sdr.as_view().as_strided_bytes()[i * 4] as i16;
 
         let diff = (zen_r - our_r).abs();
         max_diff = max_diff.max(diff);

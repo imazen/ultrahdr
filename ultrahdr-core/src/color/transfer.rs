@@ -13,6 +13,13 @@
 
 #![allow(clippy::excessive_precision)]
 
+#[cfg(not(feature = "std"))]
+#[allow(
+    unused_imports,
+    reason = "float methods may be supplied by std in hosted builds"
+)]
+use num_traits::Float;
+
 use alloc::boxed::Box;
 
 use crate::types::TransferFunction;
@@ -30,7 +37,7 @@ use crate::types::TransferFunction;
 /// Delegates to `linear-srgb` (rational polynomial, ~5e-7 max error, no `powf`).
 #[inline]
 pub fn srgb_oetf(linear: f32) -> f32 {
-    linear_srgb::tf::linear_to_srgb(linear)
+    linear_srgb::default::linear_to_srgb(linear)
 }
 
 /// sRGB EOTF (inverse OETF): sRGB encoded `[0,1]` → Linear `[0,1]`
@@ -38,7 +45,7 @@ pub fn srgb_oetf(linear: f32) -> f32 {
 /// Delegates to `linear-srgb` (rational polynomial, ~5e-7 max error, no `powf`).
 #[inline]
 pub fn srgb_eotf(encoded: f32) -> f32 {
-    linear_srgb::tf::srgb_to_linear(encoded)
+    linear_srgb::default::srgb_to_linear(encoded)
 }
 
 // ============================================================================
@@ -51,7 +58,7 @@ pub fn srgb_eotf(encoded: f32) -> f32 {
 /// Delegates to `linear-srgb` (rational polynomial, ~3e-6 max error).
 #[inline]
 pub fn pq_oetf(linear: f32) -> f32 {
-    linear_srgb::tf::linear_to_pq(linear)
+    linear_srgb::default::linear_to_pq(linear)
 }
 
 /// PQ EOTF: PQ encoded `[0,1]` → Linear `[0,1]` (normalized to 10000 nits)
@@ -60,7 +67,7 @@ pub fn pq_oetf(linear: f32) -> f32 {
 /// Delegates to `linear-srgb` (rational polynomial, ~7e-7 max error).
 #[inline]
 pub fn pq_eotf(encoded: f32) -> f32 {
-    linear_srgb::tf::pq_to_linear(encoded)
+    linear_srgb::default::pq_to_linear(encoded)
 }
 
 /// Convert PQ-normalized linear to absolute nits.
@@ -94,11 +101,11 @@ pub fn nits_to_pq(nits: f32) -> f32 {
 ///
 /// **Deprecated API surface** — slated for removal in 0.5.0. No internal
 /// caller; decode direction is [`hlg_oetf_inv`]. If you need the forward
-/// direction, import `linear_srgb::tf::linear_to_hlg` directly.
+/// direction, import `linear_srgb::default::linear_to_hlg` directly.
 #[doc(hidden)]
 #[inline]
 pub fn hlg_oetf(linear: f32) -> f32 {
-    linear_srgb::tf::linear_to_hlg(linear)
+    linear_srgb::default::linear_to_hlg(linear)
 }
 
 /// HLG inverse OETF: HLG encoded `[0,1]` → Scene linear `[0,1]`
@@ -106,7 +113,7 @@ pub fn hlg_oetf(linear: f32) -> f32 {
 /// Delegates to `linear-srgb` (fast pow2 approximation, ~5e-6 max error).
 #[inline]
 pub fn hlg_oetf_inv(encoded: f32) -> f32 {
-    linear_srgb::tf::hlg_to_linear(encoded)
+    linear_srgb::default::hlg_to_linear(encoded)
 }
 
 /// HLG OOTF: Scene linear → Display linear
@@ -174,7 +181,7 @@ pub fn apply_oetf(linear: f32, transfer: TransferFunction) -> f32 {
         TransferFunction::Srgb => srgb_oetf(linear),
         TransferFunction::Linear => linear,
         TransferFunction::Pq => pq_oetf(linear),
-        TransferFunction::Hlg => hlg_oetf(linear),
+        TransferFunction::Hlg(_) => hlg_oetf(linear),
         _ => srgb_oetf(linear),
     }
 }
@@ -193,7 +200,7 @@ pub fn apply_eotf(encoded: f32, transfer: TransferFunction) -> f32 {
         TransferFunction::Srgb => srgb_eotf(encoded),
         TransferFunction::Linear => encoded,
         TransferFunction::Pq => pq_eotf(encoded),
-        TransferFunction::Hlg => {
+        TransferFunction::Hlg(_) => {
             // Return normalized to SDR white (203 nits)
             hlg_eotf(encoded, 1000.0) / 1000.0
         }
@@ -209,7 +216,7 @@ pub fn apply_eotf(encoded: f32, transfer: TransferFunction) -> f32 {
 ///
 /// **Deprecated API surface** — slated for removal in 0.5.0. Not used
 /// internally; no known external callers. Callers needing per-byte
-/// linearization should call `linear_srgb::tf::srgb_to_linear` directly
+/// linearization should call `linear_srgb::default::srgb_to_linear` directly
 /// (which already uses a rational-polynomial fast path with zero setup cost).
 #[doc(hidden)]
 pub struct SrgbEotfLut {

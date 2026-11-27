@@ -27,7 +27,7 @@ exclude = [
 
 [dependencies]
 # Private implementation; shared types remain owned by zencodec.
-zenmeta = { version = "0.1.0", default-features = false }
+zenmeta = { version = "0.2.0", default-features = false, features = ["xmp"] }
 # Core gain map math and metadata
 ultrahdr-core = { workspace = true }
 
@@ -53,7 +53,7 @@ enough = { workspace = true }
 # Testing (WASM-compatible)
 fast-ssim2 = { workspace = true }
 # zencodec conformance harness (`tests/sansio.rs`, feature `zencodec`).
-zencodec-testkit = ">=0.1.0, <0.3.0"
+zencodec-testkit = ">=0.3.0, <0.5.0"
 
 # `tests/fuzz_regression.rs` — replays the committed `fuzz/regression/` seeds
 # through every fuzz-target entry point on the stable toolchain. Three of the
@@ -117,7 +117,7 @@ tonemap-bt2446a = ["ultrahdr-core/tonemap-bt2446a"]
 # this in the Gain Map Interop workflow where `ultrahdr_app` is installed.
 # The caller (CI) decides whether to run these — no runtime "silent skip".
 __pixel-parity = []
-zencodec = ["dep:zenpixels"]  # zencodec trait integration (zencodec itself is already unconditional)
+zencodec = []  # Enable the zencodec trait adapter.
 # Soft-removed `ffi-tests` (libultrahdr C++ parity tests against the imazen
 # fork at `imazen/libultrahdr-rs`). The optional `libultrahdr_rs` dep and the
 # `tests/parity_libultrahdr.rs` harness were removed in commit `bc0e12f4`;
@@ -139,5 +139,4 @@ workspace = true
 
 [dependencies.zenpixels]
 workspace = true
-optional = true
 

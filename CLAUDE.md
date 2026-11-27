@@ -10,6 +10,15 @@
 
 - 2026-08-26: `target_quality.rs` added to ultrahdr-rs (per-codec copy of zenjpeg's loop, injected scorer, 9/9 tests; commit b8c58d63). Same session: repaired local git-object corruption — 25 corrupt loose objects (all in pushed history, so plain `git fetch` would NOT resend them; `git fetch --refetch` is the fix), quarantined to ~/tmp/ultrahdr-rescue with the damaged .jj state; jj re-initialized colocated on the refetched store. If old op-log history is ever needed it lives in the rescue dir, not in .jj.
 
+## Shared Pixel Cohort
+
+- The 0.5 integration pins zenjpeg `80dac328`, zenresize `e6c07756`,
+  zenpixels/zenpixels-convert `7fa06883`, garb `457ff8b9`, and linear-srgb
+  `ae83f194`. The JPEG and Ultra HDR paths share zencodec 0.3 and zenmeta 0.2
+  from `5d4f6c47`. Keep the root and standalone fuzz JPEG pins in step. The
+  optional core `resize` feature shares the single zenpixels 0.5 cohort through
+  zenresize.
+
 ## Known Bugs
 
 - The zencodec adapter retains `SharedPulse` and polls cancellation through the
@@ -24,8 +33,9 @@
   arithmetic and depth-only bounds on repeated-reference expansion. zenmeta now
   owns the corrected parser; ultrahdr retains its public `PlistValue` through a
   fallible private conversion. Keep parser regressions with zenmeta and wrapper
-  compatibility checks here. Apple tolerance is deliberately preserved through
-  `zenmeta::apple::compatibility`, not the strict inspector.
+  compatibility checks here. `zenmeta::apple::compatibility` was test-gated in
+  zenmeta 0.2 (`5d4f6c47`), so `ultrahdr-core::metadata::apple` delegates to
+  zenmeta's module-level strict Apple MakerNote functions.
 
 - **Fuzz CI (#32) — FIXED 2026-08-27.** Was red since 602d215 for two sibling-version-skew reasons in the standalone `fuzz/` workspace (which does NOT inherit the workspace-root `[patch.crates-io]`): (1) unpublished `zenpixels-convert ^0.2.15` — resolved by the 0.2.16 publish on 2026-07-24; (2) `fuzz_targets/tonemap.rs` imported `zentone::ToneMap` from a direct path dep on the sibling zentone 0.2.0 while `ultrahdr-core` requires registry `zentone ^0.1.0` — a `[patch]` can't satisfy `^0.1.0` with 0.2.0, so cargo silently ignored it, two `zentone` crates were linked, and `map_rgb` didn't apply (E0599). Fix: import `ToneMap` via `ultrahdr_core::color::tonemap::ToneMap` and drop fuzz's direct zentone dep + dead patch. **Lesson: a `[patch.crates-io]` whose path crate's version is outside the dependent's semver requirement is silently unused** — the workspace-root `zentone = { path = "../zentone" }` patch is in the same state (root `Cargo.lock` resolves registry 0.1.0 for ultrahdr-core and records path 0.2.0 under `[[patch.unused]]`); reconciling that is the still-open zentone 0.1↔0.2 publish question, separate from the fuzz build. The main `CI` workflow (all platforms, WASM, docs, MSRV, clippy, coverage) is green.
 

@@ -12,15 +12,15 @@
 #   pub modules                                 2
 #   pub types (struct/enum/trait/alias)        14
 #   free functions                             10
-#   inherent methods                           49
+#   inherent methods                           51
 #   re-exports                                 36
 #   trait roster entries (type × trait)        11
 #
 # per-module pub lines:
 #   color                            62
-#   gainmap                          49
+#   gainmap                          51
 
-## items (99 lines)
+## items (101 lines)
 
 pub fn color::HlgOetfInvLut::default() -> Self
 pub fn color::HlgOetfInvLut::lookup(&self, u16) -> f32
@@ -31,16 +31,17 @@ pub fn color::PqEotfLut::new() -> Self
 pub fn color::SrgbEotfLut::default() -> Self
 pub fn color::SrgbEotfLut::lookup(&self, u8) -> f32
 pub fn color::SrgbEotfLut::new() -> Self
-pub fn color::apply_eotf(f32, zenpixels::descriptor::TransferFunction) -> f32 [also: color::transfer]
-pub fn color::apply_oetf(f32, zenpixels::descriptor::TransferFunction) -> f32 [also: color::transfer]
+pub fn color::apply_eotf(f32, zenpixels::color::Transfer) -> f32 [also: color::transfer]
+pub fn color::apply_oetf(f32, zenpixels::color::Transfer) -> f32 [also: color::transfer]
 pub fn color::hlg_oetf(f32) -> f32 [also: color::transfer]
 pub fn color::nits_to_pq(f32) -> f32 [also: color::transfer]
 pub fn color::pq_to_nits(f32) -> f32 [also: color::transfer]
 pub fn gainmap::RowDecoder::current_row(&self) -> u32
 pub fn gainmap::RowDecoder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn gainmap::RowDecoder::gamut(&self) -> zenpixels::descriptor::ColorPrimaries
+pub fn gainmap::RowDecoder::gamut(&self) -> zenpixels::color::Primaries
 pub fn gainmap::RowDecoder::is_complete(&self) -> bool
-pub fn gainmap::RowDecoder::new(GainMap, GainMapMetadata, u32, u32, f32, zenpixels::descriptor::ColorPrimaries) -> Result<Self>
+pub fn gainmap::RowDecoder::new(GainMap, GainMapMetadata, u32, u32, f32, zenpixels::color::Primaries) -> Result<Self>
+pub fn gainmap::RowDecoder::process_rgba_rows(&mut self, &[f32], u32) -> Result<alloc::vec::Vec<f32>>
 pub fn gainmap::RowDecoder::process_row(&mut self, &[f32]) -> Result<alloc::vec::Vec<f32>>
 pub fn gainmap::RowDecoder::process_rows(&mut self, &[f32], u32) -> Result<alloc::vec::Vec<f32>>
 pub fn gainmap::RowDecoder::reset(&mut self)
@@ -48,16 +49,17 @@ pub fn gainmap::RowDecoder::rows_remaining(&self) -> u32
 pub fn gainmap::RowDecoder::total_rows(&self) -> u32
 pub fn gainmap::RowEncoder::finish(self) -> Result<(GainMap, GainMapMetadata)>
 pub fn gainmap::RowEncoder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn gainmap::RowEncoder::new(u32, u32, gainmap::GainMapConfig, zenpixels::descriptor::ColorPrimaries, zenpixels::descriptor::ColorPrimaries) -> Result<Self>
+pub fn gainmap::RowEncoder::new(u32, u32, gainmap::GainMapConfig, zenpixels::color::Primaries, zenpixels::color::Primaries) -> Result<Self>
 pub fn gainmap::RowEncoder::process_row(&mut self, &[f32], &[f32]) -> Result<core::option::Option<alloc::vec::Vec<u8>>>
 pub fn gainmap::RowEncoder::process_rows(&mut self, &[f32], &[f32], u32) -> Result<alloc::vec::Vec<alloc::vec::Vec<u8>>>
 pub fn gainmap::RowEncoder::progress(&self) -> (u32, u32)
 pub fn gainmap::StreamDecoder::can_process(&self, u32) -> bool
 pub fn gainmap::StreamDecoder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn gainmap::StreamDecoder::gainmap_rows_remaining(&self) -> u32
-pub fn gainmap::StreamDecoder::gamut(&self) -> zenpixels::descriptor::ColorPrimaries
+pub fn gainmap::StreamDecoder::gamut(&self) -> zenpixels::color::Primaries
 pub fn gainmap::StreamDecoder::is_complete(&self) -> bool
-pub fn gainmap::StreamDecoder::new(GainMapMetadata, u32, u32, u32, u32, u8, f32, zenpixels::descriptor::ColorPrimaries) -> Result<Self>
+pub fn gainmap::StreamDecoder::new(GainMapMetadata, u32, u32, u32, u32, u8, f32, zenpixels::color::Primaries) -> Result<Self>
+pub fn gainmap::StreamDecoder::process_sdr_rgba_rows(&mut self, &[f32], u32) -> Result<alloc::vec::Vec<f32>>
 pub fn gainmap::StreamDecoder::process_sdr_rows(&mut self, &[f32], u32) -> Result<alloc::vec::Vec<f32>>
 pub fn gainmap::StreamDecoder::push_gainmap_row(&mut self, &[u8]) -> Result<()>
 pub fn gainmap::StreamDecoder::push_gainmap_rows(&mut self, &[u8], u32) -> Result<()>
@@ -68,7 +70,7 @@ pub fn gainmap::StreamEncoder::gainmap_rows_remaining(&self) -> u32
 pub fn gainmap::StreamEncoder::hdr_rows_remaining(&self) -> u32
 pub fn gainmap::StreamEncoder::inputs_complete(&self) -> bool
 pub fn gainmap::StreamEncoder::is_complete(&self) -> bool
-pub fn gainmap::StreamEncoder::new(u32, u32, gainmap::GainMapConfig, zenpixels::descriptor::ColorPrimaries, zenpixels::descriptor::ColorPrimaries) -> Result<Self>
+pub fn gainmap::StreamEncoder::new(u32, u32, gainmap::GainMapConfig, zenpixels::color::Primaries, zenpixels::color::Primaries) -> Result<Self>
 pub fn gainmap::StreamEncoder::pending_gainmap_rows(&self) -> usize
 pub fn gainmap::StreamEncoder::push_hdr_row(&mut self, &[f32]) -> Result<()>
 pub fn gainmap::StreamEncoder::push_hdr_rows(&mut self, &[f32], u32) -> Result<()>

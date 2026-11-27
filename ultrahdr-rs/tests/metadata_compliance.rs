@@ -157,7 +157,7 @@ fn test_iso21496_roundtrip() {
 
     let original = create_test_metadata(4.0);
 
-    let serialized = serialize_iso21496(&original, ultrahdr_rs::Iso21496Format::AvifTmap);
+    let serialized = serialize_iso21496(&original, ultrahdr_rs::Iso21496Format::AvifTmap).unwrap();
     let parsed = parse_iso21496(&serialized, ultrahdr_rs::Iso21496Format::AvifTmap).unwrap();
 
     // Check values match (with tolerance for fraction conversion)
@@ -197,7 +197,7 @@ fn test_iso21496_version() {
     use zencodec::gainmap::serialize_iso21496_fmt as serialize_iso21496;
 
     let metadata = create_test_metadata(2.0);
-    let serialized = serialize_iso21496(&metadata, ultrahdr_rs::Iso21496Format::AvifTmap);
+    let serialized = serialize_iso21496(&metadata, ultrahdr_rs::Iso21496Format::AvifTmap).unwrap();
 
     // First byte should be version 0 (AVIF tmap format includes version prefix)
     assert_eq!(serialized[0], 0);
@@ -221,7 +221,7 @@ fn test_iso21496_flags() {
     metadata.alternate_hdr_headroom = 2.0;
     metadata.use_base_color_space = true;
 
-    let serialized = serialize_iso21496(&metadata, ultrahdr_rs::Iso21496Format::AvifTmap);
+    let serialized = serialize_iso21496(&metadata, ultrahdr_rs::Iso21496Format::AvifTmap).unwrap();
 
     // ISO 21496-1 wire format: version(1) + minimum_version(2) + writer_version(2) + flags(1)
     // Flags byte is at offset 5
@@ -259,7 +259,7 @@ fn test_iso21496_extreme_values() {
     metadata.alternate_hdr_headroom = 6.644; // log2(100)
     metadata.use_base_color_space = false;
 
-    let serialized = serialize_iso21496(&metadata, ultrahdr_rs::Iso21496Format::AvifTmap);
+    let serialized = serialize_iso21496(&metadata, ultrahdr_rs::Iso21496Format::AvifTmap).unwrap();
     let parsed = parse_iso21496(&serialized, ultrahdr_rs::Iso21496Format::AvifTmap).unwrap();
 
     // Values should round-trip reasonably (log2 domain)

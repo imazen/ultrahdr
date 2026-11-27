@@ -13,7 +13,9 @@ use whereat::at;
 use zencodec::Iso21496Format;
 use zencodec::gainmap::{ISO_21496_1_PRIMARY_APP2_BODY, serialize_iso21496_fmt};
 use zenjpeg::container::mpf::create_mpf_header;
-use zenjpeg::container::xmp::{create_xmp_app1_marker, generate_gainmap_xmp, generate_primary_xmp};
+use zenjpeg::container::xmp::create_xmp_app1_marker;
+use zenmeta::xmp::gainmap::{generate_gainmap_xmp, generate_primary_xmp};
+use zenpixels::ColorSpace;
 
 use crate::jpeg::{
     JpegSegment, create_icc_markers, get_icc_profile_for_gamut, insert_segment_after_soi,
@@ -43,13 +45,14 @@ fn wrap_app2(body: &[u8]) -> Vec<u8> {
 fn build_gainmap_metadata_markers(
     metadata: &GainMapMetadata,
     format: GainMapEncodingFormat,
-) -> Vec<Vec<u8>> {
+) -> Result<Vec<Vec<u8>>> {
     let mut markers = Vec::with_capacity(2);
     if matches!(
         format,
         GainMapEncodingFormat::Xmp | GainMapEncodingFormat::Both
     ) {
-        let xmp = generate_gainmap_xmp(metadata);
+        let xmp =
+            generate_gainmap_xmp(metadata).map_err(|err| at!(Error::XmpParse(err.to_string())))?;
         markers.push(create_xmp_app1_marker(&xmp));
     }
     if matches!(
@@ -58,10 +61,11 @@ fn build_gainmap_metadata_markers(
     ) {
         // Preserves prior behavior: `JxlJhgm` and `JpegApp2` serialize the
         // same payload (zencodec::gainmap::serialize_iso21496_fmt_into).
-        let iso_body = serialize_iso21496_fmt(metadata, Iso21496Format::JpegApp2BodyWithUrn);
+        let iso_body = serialize_iso21496_fmt(metadata, Iso21496Format::JpegApp2BodyWithUrn)
+            .map_err(|err| at!(Error::IsoParse(err.to_string())))?;
         markers.push(wrap_app2(&iso_body));
     }
-    markers
+    Ok(markers)
 }
 
 /// Retired helper: version-only ISO 21496-1 APP2 for the primary JPEG.
@@ -105,7 +109,7 @@ pub fn encode_ultrahdr_with_format(
     format: GainMapEncodingFormat,
 ) -> Result<Vec<u8>> {
     // Build metadata markers for the gain map JPEG (XMP and/or ISO 21496-1).
-    let metadata_markers = build_gainmap_metadata_markers(metadata, format);
+    let metadata_markers = build_gainmap_metadata_markers(metadata, format)?;
 
     // Inject metadata markers into the gain map JPEG after SOI.
     let mut gainmap_final = gainmap_jpeg.to_vec();
@@ -221,7 +225,10 @@ pub fn encode_ultrahdr_with_metadata_policy(
     metadata
         .validate()
         .map_err(|e| at!(Error::InvalidPixelData(e.to_string())))?;
-    if metadata.backward_direction || !metadata.use_base_color_space {
+    if metadata.backward_direction
+        || metadata.base_hdr_headroom > metadata.alternate_hdr_headroom
+        || !metadata.use_base_color_space
+    {
         return Err(at!(Error::InvalidPixelData(
             "XMP output cannot preserve this gain-map direction/color-space contract".into()
         )));
@@ -443,7 +450,7 @@ impl Encoder {
             let (base_jpeg, gamut) = if let Some(ref compressed) = self.compressed_sdr {
                 (compressed.clone(), ColorPrimaries::Bt709)
             } else if let Some(ref sdr_img) = self.sdr_image {
-                let gamut = sdr_img.descriptor().primaries;
+                let gamut = base_primaries(sdr_img);
                 (self.encode_base_jpeg(sdr_img, &stop)?, gamut)
             } else if let Some(ref hdr) = self.hdr_image {
                 let sdr_pixels =
@@ -452,12 +459,11 @@ impl Encoder {
                     sdr_pixels,
                     hdr.width(),
                     hdr.height(),
-                    PixelFormat::Rgba8,
+                    PixelFormat::RGBA8,
                     ColorPrimaries::Bt709,
                     TransferFunction::Srgb,
                 )?;
-                let gamut = sdr.descriptor().primaries;
-                (self.encode_base_jpeg(&sdr, &stop)?, gamut)
+                (self.encode_base_jpeg(&sdr, &stop)?, ColorPrimaries::Bt709)
             } else {
                 return Err(at!(Error::EncodeError(
                     "Either HDR image, SDR image, or compressed SDR is required".into(),
@@ -482,7 +488,7 @@ impl Encoder {
                 sdr_pixels,
                 hdr.width(),
                 hdr.height(),
-                PixelFormat::Rgba8,
+                PixelFormat::RGBA8,
                 ColorPrimaries::Bt709,
                 TransferFunction::Srgb,
             )?
@@ -519,7 +525,7 @@ impl Encoder {
         // Encode gain map JPEG
         let gainmap_jpeg = self.encode_gainmap_jpeg(&gainmap, &stop)?;
 
-        let gamut = sdr.descriptor().primaries;
+        let gamut = base_primaries(&sdr);
         encode_ultrahdr(&base_jpeg, &gainmap_jpeg, &metadata, gamut)
     }
 
@@ -571,8 +577,8 @@ impl Encoder {
 
         if self.content_fit_grid {
             ultrahdr_core::gainmap::compute::compute_gainmap_content_fit(
-                hdr.as_slice(),
-                sdr.as_slice(),
+                hdr.as_view(),
+                sdr.as_view(),
                 &config,
                 stop,
             )
@@ -585,38 +591,47 @@ impl Encoder {
     fn encode_base_jpeg(&self, sdr: &PixelBuffer, stop: impl Stop) -> Result<Vec<u8>> {
         use zenjpeg::encoder::{ChromaSubsampling, EncoderConfig, PixelLayout};
 
-        let format = sdr.descriptor().pixel_format();
-        let src_bytes = sdr.as_slice();
-        let src_data = src_bytes.as_strided_bytes();
-        let (pixel_layout, data): (PixelLayout, std::borrow::Cow<[u8]>) = match format {
-            PixelFormat::Rgba8 => {
-                // as_chunks: a trailing partial chunk (corrupt stride /
-                // truncated buffer) must not panic on `rgba[2]` — it is
-                // dropped instead. Fixed-size chunks also let LLVM elide
-                // the bounds checks.
-                let rgb: Vec<u8> = src_data
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .flat_map(|rgba| [rgba[0], rgba[1], rgba[2]])
-                    .collect();
-                (PixelLayout::Rgb8Srgb, std::borrow::Cow::Owned(rgb))
-            }
-            PixelFormat::Rgb8 => (PixelLayout::Rgb8Srgb, std::borrow::Cow::Borrowed(src_data)),
-            _ => {
-                return Err(at!(Error::EncodeError(format!(
-                    "Unsupported SDR pixel format: {:?}",
-                    format
-                ))));
-            }
-        };
-
+        ultrahdr_core::validate_ultrahdr_image(sdr)?;
         let config = EncoderConfig::ycbcr(self.base_quality as f32, ChromaSubsampling::Quarter);
         let mut enc = config
-            .encode_from_bytes(sdr.width(), sdr.height(), pixel_layout)
+            .encode_from_bytes(sdr.width(), sdr.height(), PixelLayout::Rgb8Srgb)
             .map_err(map_jpeg_encode_error)?;
-        enc.push_packed(&data, stop)
-            .map_err(map_jpeg_encode_error)?;
+        let pixels = sdr.as_view();
+        match pixels.format().layout {
+            PixelFormat::RGB8 => {
+                enc.push(
+                    pixels.as_strided_bytes(),
+                    pixels.height() as usize,
+                    pixels.stride_bytes(),
+                    stop,
+                )
+                .map_err(map_jpeg_encode_error)?;
+            }
+            PixelFormat::RGBA8 => {
+                let row_bytes = sdr.width() as usize * 3;
+                let mut rgb = Vec::new();
+                rgb.try_reserve_exact(row_bytes)
+                    .map_err(|_| at!(Error::AllocationFailed(row_bytes)))?;
+                rgb.resize(row_bytes, 0);
+                for y in 0..pixels.height() {
+                    for (dst, src) in rgb
+                        .as_chunks_mut::<3>()
+                        .0
+                        .iter_mut()
+                        .zip(pixels.row(y).as_chunks::<4>().0)
+                    {
+                        *dst = [src[0], src[1], src[2]];
+                    }
+                    enc.push_packed(&rgb, &stop)
+                        .map_err(map_jpeg_encode_error)?;
+                }
+            }
+            format => {
+                return Err(at!(Error::EncodeError(format!(
+                    "Unsupported SDR pixel format: {format:?}"
+                ))));
+            }
+        }
         enc.finish().map_err(map_jpeg_encode_error)
     }
 
@@ -650,6 +665,13 @@ impl Encoder {
         enc.push_packed(&gainmap.data, stop)
             .map_err(map_jpeg_encode_error)?;
         enc.finish().map_err(map_jpeg_encode_error)
+    }
+}
+
+fn base_primaries(buffer: &PixelBuffer) -> ColorPrimaries {
+    match buffer.format().color {
+        ColorSpace::Rgb { primaries, .. } => primaries,
+        _ => ColorPrimaries::Bt709,
     }
 }
 

@@ -36,7 +36,7 @@ fn sdr_base(w: u32, h: u32) -> ultrahdr_core::PixelBuffer {
         data,
         w,
         h,
-        PixelFormat::Rgb8,
+        PixelFormat::RGB8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
     )
@@ -175,7 +175,7 @@ fn rgb_gainmap_encodes_from_raw_multichannel_map() {
         hdr_px,
         bw,
         bh,
-        PixelFormat::RgbaF32,
+        PixelFormat::RGBAF32,
         ColorPrimaries::Bt709,
         TransferFunction::Linear,
     )
@@ -201,4 +201,54 @@ fn rgb_gainmap_encodes_from_raw_multichannel_map() {
         back.data.as_chunks::<3>().0.iter().any(|px| px[0] != px[1]),
         "encoded map lost its chroma"
     );
+}
+
+#[test]
+fn iso_gainmap_jpeg_components_are_independent_of_wire_record_count() {
+    use ultrahdr_rs::{GainMapEncodingFormat, encode_ultrahdr_with_format};
+
+    let base = mint_jpeg(8, 8, PixelLayout::Rgb8Srgb, &[128; 8 * 8 * 3], 24);
+    let rgb = mint_jpeg(8, 8, PixelLayout::Rgb8Srgb, &[17, 130, 238].repeat(64), 24);
+    let gray = mint_jpeg(8, 8, PixelLayout::Gray8Srgb, &[127; 64], 8);
+    for (jpeg, channels) in [(&gray, 1), (&rgb, 3)] {
+        for (meta, records) in [(luma_metadata(), 1), (rgb_metadata(), 3)] {
+            let image = encode_ultrahdr_with_format(
+                &base,
+                jpeg,
+                &meta,
+                ColorPrimaries::Bt709,
+                GainMapEncodingFormat::Iso21496,
+            )
+            .unwrap();
+            let decoder = Decoder::new(&image).unwrap();
+            assert_eq!(
+                decoder.metadata().unwrap().iso_channel_count(),
+                Some(records)
+            );
+            let map = decoder.decode_gainmap().unwrap();
+            assert_eq!(map.channels, channels);
+            assert_eq!(map.data.len(), 64 * usize::from(channels));
+        }
+    }
+}
+
+#[test]
+fn alternate_space_metadata_requires_iso_only() {
+    use ultrahdr_rs::{Error, GainMapEncodingFormat, encode_ultrahdr_with_format};
+
+    let base = mint_jpeg(8, 8, PixelLayout::Rgb8Srgb, &[128; 8 * 8 * 3], 24);
+    let map = mint_jpeg(8, 8, PixelLayout::Gray8Srgb, &[127; 64], 8);
+    let mut meta = luma_metadata();
+    meta.use_base_color_space = false;
+    let encode =
+        |format| encode_ultrahdr_with_format(&base, &map, &meta, ColorPrimaries::Bt709, format);
+    for format in [GainMapEncodingFormat::Xmp, GainMapEncodingFormat::Both] {
+        assert!(matches!(
+            encode(format).unwrap_err().error(),
+            Error::XmpParse(_)
+        ));
+    }
+    let image = encode(GainMapEncodingFormat::Iso21496).unwrap();
+    let decoder = Decoder::new(&image).unwrap();
+    assert!(!decoder.metadata().unwrap().use_base_color_space);
 }

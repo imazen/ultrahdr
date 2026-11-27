@@ -27,6 +27,13 @@
 //! # Ok::<(), ultrahdr_core::Error>(())
 //! ```
 
+#[cfg(not(feature = "std"))]
+#[allow(
+    unused_imports,
+    reason = "float methods may be supplied by std in hosted builds"
+)]
+use num_traits::Float;
+
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -403,17 +410,17 @@ impl AdaptiveTonemapper {
         sdr: &PixelBuffer,
         config: &FitConfig,
     ) -> Result<Self> {
-        let hdr_slice = hdr.as_slice();
-        let sdr_slice = sdr.as_slice();
+        let hdr_slice = hdr.as_view();
+        let sdr_slice = sdr.as_view();
         crate::types::validate_ultrahdr_slice(&hdr_slice)?;
         crate::types::validate_ultrahdr_slice(&sdr_slice)?;
 
-        if hdr_slice.width() != sdr_slice.width() || hdr_slice.rows() != sdr_slice.rows() {
+        if hdr_slice.width() != sdr_slice.width() || hdr_slice.height() != sdr_slice.height() {
             return Err(at!(Error::DimensionMismatch {
                 hdr_w: hdr_slice.width(),
-                hdr_h: hdr_slice.rows(),
+                hdr_h: hdr_slice.height(),
                 sdr_w: sdr_slice.width(),
-                sdr_h: sdr_slice.rows(),
+                sdr_h: sdr_slice.height(),
             }));
         }
 
@@ -444,21 +451,21 @@ impl AdaptiveTonemapper {
 
     /// Apply the tonemapper to an HDR image.
     pub fn apply(&self, hdr: &PixelBuffer) -> Result<PixelBuffer> {
-        let hdr_slice = hdr.as_slice();
+        let hdr_slice = hdr.as_view();
         crate::types::validate_ultrahdr_slice(&hdr_slice)?;
 
         let width = hdr_slice.width();
-        let height = hdr_slice.rows();
+        let height = hdr_slice.height();
 
         let mut output = new_pixel_buffer(
             width,
             height,
-            crate::PixelFormat::Rgba8,
+            crate::PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )?;
-        let out_stride = output.stride();
-        let mut out_mut = output.as_slice_mut();
+        let out_stride = output.stride_bytes();
+        let mut out_mut = output.as_view_mut();
         let out_data = out_mut.as_strided_bytes_mut();
 
         for y in 0..height {
@@ -490,22 +497,22 @@ impl AdaptiveTonemapper {
         gainmap: &GainMap,
         metadata: &GainMapMetadata,
     ) -> Result<PixelBuffer> {
-        let hdr_slice = hdr.as_slice();
+        let hdr_slice = hdr.as_view();
         crate::types::validate_ultrahdr_slice(&hdr_slice)?;
         gainmap.validate()?;
         crate::types::validate_gainmap_magnitude(metadata)?;
         let width = hdr_slice.width();
-        let height = hdr_slice.rows();
+        let height = hdr_slice.height();
 
         let mut output = new_pixel_buffer(
             width,
             height,
-            crate::PixelFormat::Rgba8,
+            crate::PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )?;
-        let out_stride = output.stride();
-        let mut out_mut = output.as_slice_mut();
+        let out_stride = output.stride_bytes();
+        let mut out_mut = output.as_view_mut();
         let out_data = out_mut.as_strided_bytes_mut();
 
         for y in 0..height {
@@ -580,7 +587,7 @@ impl AdaptiveTonemapper {
         config: &FitConfig,
     ) -> Result<Self> {
         let width = hdr.width() as usize;
-        let height = hdr.rows() as usize;
+        let height = hdr.height() as usize;
         let total_pixels = width * height;
 
         // Determine sampling
@@ -696,7 +703,7 @@ impl AdaptiveTonemapper {
         config: &FitConfig,
     ) -> Result<Self> {
         let width = hdr.width() as usize;
-        let height = hdr.rows() as usize;
+        let height = hdr.height() as usize;
         let total_pixels = width * height;
 
         let step = if config.max_samples > 0 && total_pixels > config.max_samples {
@@ -1057,7 +1064,7 @@ pub fn tonemap_to_sdr(
 ) -> [f32; 3] {
     match transfer {
         TransferFunction::Pq => tonemap_pq_to_sdr(encoded_rgb, config),
-        TransferFunction::Hlg => tonemap_hlg_to_sdr(encoded_rgb, config),
+        TransferFunction::Hlg(_) => tonemap_hlg_to_sdr(encoded_rgb, config),
         TransferFunction::Linear => {
             convert_gamut(encoded_rgb, config.source_gamut, config.target_gamut)
         }
@@ -1112,14 +1119,14 @@ pub fn tonemap_image_to_srgb8_with_stop(
 ) -> Result<Vec<u8>> {
     use crate::color::gamut::convert_gamut;
 
-    let slice = img.as_slice();
+    let slice = img.as_view();
     crate::types::validate_ultrahdr_slice(&slice)?;
 
-    let img_gamut = slice.descriptor().primaries;
-    let img_transfer = slice.descriptor().transfer();
+    let img_gamut = crate::types::pixel_primaries(slice.format());
+    let img_transfer = crate::types::pixel_transfer(slice.format());
     let config = ToneMapConfig::default();
     let width = slice.width() as usize;
-    let height = slice.rows() as usize;
+    let height = slice.height() as usize;
     let mut output = vec![0u8; width * height * 4];
 
     for y in 0..height {
@@ -1160,14 +1167,14 @@ pub fn tonemap_image_to_srgb8_with_stop(
 fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
     use crate::PixelFormat;
 
-    let desc = img.descriptor();
-    let format = desc.pixel_format();
-    let transfer = desc.transfer();
-    let stride = img.stride();
+    let spec = img.format();
+    let format = spec.layout;
+    let transfer = crate::types::pixel_transfer(spec);
+    let stride = img.stride_bytes();
     let data = img.as_strided_bytes();
     match format {
-        PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
-            let bpp = if format == PixelFormat::Rgba8 { 4 } else { 3 };
+        PixelFormat::RGBA8 | PixelFormat::RGB8 => {
+            let bpp = if format == PixelFormat::RGBA8 { 4 } else { 3 };
             let idx = (y as usize) * stride + (x as usize) * bpp;
             let r = data[idx] as f32 / 255.0;
             let g = data[idx + 1] as f32 / 255.0;
@@ -1178,13 +1185,13 @@ fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
                 [r, g, b]
             }
         }
-        PixelFormat::RgbaF32 => {
+        PixelFormat::RGBAF32 => {
             let idx = (y as usize) * stride + (x as usize) * 16;
-            let r = f32::from_le_bytes([data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]);
+            let r = f32::from_ne_bytes([data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]);
             let g =
-                f32::from_le_bytes([data[idx + 4], data[idx + 5], data[idx + 6], data[idx + 7]]);
+                f32::from_ne_bytes([data[idx + 4], data[idx + 5], data[idx + 6], data[idx + 7]]);
             let b =
-                f32::from_le_bytes([data[idx + 8], data[idx + 9], data[idx + 10], data[idx + 11]]);
+                f32::from_ne_bytes([data[idx + 8], data[idx + 9], data[idx + 10], data[idx + 11]]);
             [r, g, b]
         }
         _ => [0.5, 0.5, 0.5],
@@ -1195,12 +1202,12 @@ fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
 fn get_sdr_linear(sdr: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
     use crate::PixelFormat;
 
-    let format = sdr.descriptor().pixel_format();
-    let stride = sdr.stride();
+    let format = sdr.format().layout;
+    let stride = sdr.stride_bytes();
     let data = sdr.as_strided_bytes();
     match format {
-        PixelFormat::Rgba8 | PixelFormat::Rgb8 => {
-            let bpp = if format == PixelFormat::Rgba8 { 4 } else { 3 };
+        PixelFormat::RGBA8 | PixelFormat::RGB8 => {
+            let bpp = if format == PixelFormat::RGBA8 { 4 } else { 3 };
             let idx = (y as usize) * stride + (x as usize) * bpp;
             let r = data[idx] as f32 / 255.0;
             let g = data[idx + 1] as f32 / 255.0;
@@ -1461,10 +1468,10 @@ mod tests {
             for x in 0..width {
                 // HDR: gradient from 0 to 4 (2 stops over SDR white)
                 let l = (x as f32 / width as f32) * 4.0;
-                hdr_data.extend_from_slice(&l.to_le_bytes());
-                hdr_data.extend_from_slice(&l.to_le_bytes());
-                hdr_data.extend_from_slice(&l.to_le_bytes());
-                hdr_data.extend_from_slice(&1.0f32.to_le_bytes());
+                hdr_data.extend_from_slice(&l.to_ne_bytes());
+                hdr_data.extend_from_slice(&l.to_ne_bytes());
+                hdr_data.extend_from_slice(&l.to_ne_bytes());
+                hdr_data.extend_from_slice(&1.0f32.to_ne_bytes());
 
                 // SDR: simple tonemap (clamped)
                 let sdr_l = l.min(1.0);
@@ -1480,7 +1487,7 @@ mod tests {
             hdr_data,
             width,
             height,
-            PixelFormat::RgbaF32,
+            PixelFormat::RGBAF32,
             ColorPrimaries::Bt709,
             TransferFunction::Linear,
         )
@@ -1490,7 +1497,7 @@ mod tests {
             sdr_data,
             width,
             height,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )
@@ -1516,17 +1523,17 @@ mod tests {
         for y in 0..height {
             for x in 0..width {
                 let l = (x as f32 / width as f32) * 4.0 + (y as f32 / height as f32);
-                data.extend_from_slice(&l.to_le_bytes());
-                data.extend_from_slice(&(l * 0.5).to_le_bytes());
-                data.extend_from_slice(&(l * 0.25).to_le_bytes());
-                data.extend_from_slice(&1.0f32.to_le_bytes());
+                data.extend_from_slice(&l.to_ne_bytes());
+                data.extend_from_slice(&(l * 0.5).to_ne_bytes());
+                data.extend_from_slice(&(l * 0.25).to_ne_bytes());
+                data.extend_from_slice(&1.0f32.to_ne_bytes());
             }
         }
         crate::types::pixel_buffer_from_vec(
             data,
             width,
             height,
-            PixelFormat::RgbaF32,
+            PixelFormat::RGBAF32,
             ColorPrimaries::Bt709,
             TransferFunction::Linear,
         )
@@ -1858,7 +1865,7 @@ mod tests {
             hdr_data,
             width,
             height,
-            PixelFormat::RgbaF32,
+            PixelFormat::RGBAF32,
             ColorPrimaries::Bt709,
             TransferFunction::Linear,
         )
@@ -1868,7 +1875,7 @@ mod tests {
             sdr_data,
             width,
             height,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )

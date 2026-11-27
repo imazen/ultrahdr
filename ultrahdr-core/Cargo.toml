@@ -29,6 +29,7 @@ exclude = [
 [dependencies]
 # Cooperative cancellation
 enough = "0.4.5"
+num-traits = { version = "0.2.19", default-features = false, features = ["libm"] }
 
 # Math — f16 (IEEE 754 half-precision) conversion for `RgbaF16`/`RgbF16`
 # pixel I/O and the `HdrOutputFormat::LinearF16` decode output. Optional:
@@ -44,8 +45,8 @@ magetypes = { version = "0.9.33", default-features = false, optional = true }
 # Types
 bytemuck = { version = "1.25.2", features = ["derive"] }
 
-# Error handling - std only for now
-thiserror = "2.0.21"
+# Error handling
+thiserror = { version = "2.0.21", default-features = false }
 
 # Error location tracking (At<Error> server-side stack traces). no_std-compatible;
 # its `std` feature is gated into this crate's `std` feature below.
@@ -54,12 +55,12 @@ whereat = { version = "0.1.5", default-features = false }
 # Transfer functions (sRGB, PQ, HLG) — mandatory. These are load-bearing
 # for every meaningful gain map path; the old `transfer` feature flag was
 # removed in favour of always pulling linear-srgb.
-linear-srgb = { version = "0.6.12", default-features = false, features = ["transfer"] }
+linear-srgb = { workspace = true }
 
 # Zen ecosystem types (mandatory — canonical gain map metadata types)
 zenpixels = { workspace = true }
 zencodec = { workspace = true }
-zenmeta = { version = "0.1.0", default-features = false, features = ["apple"] }
+zenmeta = { version = "0.2.0", default-features = false, features = ["apple"] }
 
 # Advanced tone mapping curves + the luma gain map splitter. Optional:
 # the splitter API (LumaGainMapSplitter + curves) lives here, and ultrahdr-core
@@ -77,16 +78,8 @@ zentone = { version = ">=0.1.0, <0.3.0", default-features = false, features = ["
 # High-quality gain map resampling (optional)
 zenresize = { workspace = true, optional = true }
 
-# BT.2446 Method A tone-mapping + content-light-level measurement. Optional:
-# this is the production-recommended HDR→SDR curve per the 2026-06-22 audited
-# shootout (`zen/zentone/benchmarks/shootout_2026-06-22_findings_v2.md` —
-# Bt2446A wins mean ΔE2000 by 2-5× over every channel-independent curve;
-# `measure_max` wins 3 of 6 ranking criteria for peak measurement). Gated
-# behind `tonemap-bt2446a` (default-off — pulls archmage/magetypes/garb/libm
-# beyond ultrahdr-core's minimal-deps mandate). Pulls `hdr-experimental` from
-# zenpixels-convert; the underlying math is stable, the gate covers expected
-# 0.3.0 surface churn (the `measure_robust` → `measure` rename).
-zenpixels-convert = { version = ">=0.3.1, <0.4.0", default-features = false, features = ["hdr-experimental"], optional = true }
+# BT.2446 Method A and content-light measurement are opt-in.
+zenpixels-convert = { version = "0.5.0", default-features = false, features = ["bt2446a"], optional = true }
 
 # Native-only: proptest uses rusty-fork/wait-timeout (no wasm32 support)
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
@@ -111,13 +104,7 @@ std = ["enough/std", "archmage?/std", "magetypes?/std", "linear-srgb/std", "zent
 # `color::streaming_tonemap` modules. Default-on; turn off with
 # `--no-default-features --features std` to drop the transitive zentone dep.
 tonemap = ["dep:zentone"]
-# Gates re-export of `Bt2446A` (production-recommended HDR→SDR tone curve per
-# the 2026-06-22 audited shootout) + `CllMeasure::measure_max` /
-# `LightLevelMethod` (production-recommended peak measurement). Default-off:
-# pulls archmage/magetypes/garb/libm via zenpixels-convert, beyond
-# ultrahdr-core's minimal-deps mandate. Opt-in with
-# `features = ["tonemap-bt2446a"]` to access the audited-winner curve and
-# measurement primitives without depending on zenpixels-convert directly.
+# Re-exports BT.2446 Method A and content-light measurement from zenpixels-convert.
 tonemap-bt2446a = ["dep:zenpixels-convert"]
 simd = ["archmage", "magetypes"]  # Enable explicit SIMD optimizations
 # f16 (IEEE 754 half-precision) pixel support via the `half` crate. Default-off

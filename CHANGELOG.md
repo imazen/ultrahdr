@@ -4,15 +4,32 @@
 
 ### QUEUED BREAKING CHANGES
 
-None.
+- Migrate the pixel API to zenpixels 0.5. The existing Ultra HDR type names
+  refer to `PixelBuf`, `PixelView`, `PixelViewMut`, `SampleLayout`,
+  `Primaries`, and `Transfer`. Buffer access uses views and image specs,
+  HLG carries a mode, and content-light measurement is exposed as
+  `measure_cll` with an explicit diffuse-white anchor and optional HLG rendering.
 
 ### Fixed
+
+- Gain-map reconstruction preserves straight alpha, bypasses gains and offsets at
+  the base endpoint, uses a negative weight for HDR bases, and applies each RGB
+  parameter record to mono-map samples independently. Row and streaming decoders
+  also accept explicit linear RGBA rows.
+- Ultra HDR JPEG uses valid secondary ISO metadata when available and retains its
+  exact wire records. ISO map storage follows JPEG components. Metadata writers
+  propagate ISO and XMP encoding failures.
 
 - Fix Rust 1.100.0 Clippy `needless_range_loop` lints in `ultrahdr-core` and `ultrahdr-rs` tests.
 - Add `CROSS_CONTAINER_OPTS: --security-opt seccomp=unconfined` to the `metadata-policy-i686` CI job.
 - Keep the existing infallible pixel clone helper compatible with fallible full-image copying in the next pixel cohort.
 
 ### Changed
+
+- Use the zenpixels 0.5 Phase 3 revision with zencodec 0.3 and zenmeta 0.2.
+  Native MaxRGB and BT.2020 luminance are separate CLL reductions.
+
+- Pin zenjpeg `0714703d` in the workspace and standalone fuzz graph so both use the Phase 3 zencodec and zenmeta family.
 
 - Upgrade `archmage` and `magetypes` to `0.9.33` (including `fuzz/Cargo.lock`).
 - Bump `enough` (`0.4.5`), `thiserror` (`2.0.21`), and `zenutils-apidoc` (`0.1.1`), refresh `fuzz/` and `apidoc/` lockfiles, and regenerate `docs/public-api/` snapshots.

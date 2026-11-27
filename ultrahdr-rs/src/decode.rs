@@ -6,8 +6,9 @@ use ultrahdr_core::{
     TransferFunction, Unstoppable, limits, pixel_buffer_from_vec, validate_ultrahdr_dimensions,
 };
 use whereat::at;
+use zencodec::gainmap::{ISO_21496_1_URN, Iso21496Format, parse_iso21496_fmt};
 use zenjpeg::container::marker::find_jpeg_boundaries;
-use zenjpeg::container::xmp::parse_xmp;
+use zenmeta::xmp::gainmap::parse_xmp;
 
 use crate::container::{self, AppSegment};
 
@@ -246,12 +247,8 @@ impl<'a> Decoder<'a> {
     /// (interleaved RGB) for per-channel maps (Adobe exports, iOS 18 —
     /// issue #27).
     ///
-    /// The channel count is driven by the ISO 21496-1 **metadata**
-    /// (`is_single_channel`), not by pixel inspection: a single-channel
-    /// map JPEG-coded as YCbCr picks up ±1 chroma noise from subsampling,
-    /// and treating that noise as per-channel gain would change pixels.
-    /// Only when no metadata is available does a full achromatic scan
-    /// decide. For a different JPEG codec, see [`Decoder::gainmap_jpeg`].
+    /// ISO 21496-1 map storage follows JPEG component count independently
+    /// of metadata record arity. Legacy XMP retains its luma delivery rule.
     pub fn decode_gainmap(&self) -> Result<GainMap> {
         self.decode_gainmap_with_stop(Unstoppable)
     }
@@ -266,7 +263,17 @@ impl<'a> Decoder<'a> {
             .gainmap_jpeg()
             .ok_or_else(|| at!(Error::DecodeError("No gain map found".into())))?;
 
-        let single_channel = self.metadata.as_ref().map(|m| m.is_single_channel());
+        let encoded_channels = zenjpeg::decoder::Decoder::new()
+            .read_info(gainmap_data)
+            .ok()
+            .map(|info| info.num_components);
+        let single_channel = if encoded_channels == Some(1) {
+            Some(true)
+        } else {
+            self.metadata
+                .as_ref()
+                .map(|m| m.iso_channel_count().is_none() && m.is_single_channel())
+        };
 
         if single_channel != Some(false) {
             // Single-channel per metadata (or unknown): the historical Gray
@@ -412,7 +419,7 @@ impl<'a> Decoder<'a> {
     ///    (`apply_gainmap` → `HdrOutputFormat::LinearFloat`,
     ///    `1.0` = BT.2408 SDR white = 203 nits).
     /// 2. Auto-measure the source peak via
-    ///    [`CllMeasure::measure_max`](ultrahdr_core::CllMeasure::measure_max)
+    ///    a native-RGB MaxCLL scan
     ///    (MaxRgb reduction, BT.2408 anchor) — the audited-winner peak
     ///    measurement that won 3 of 6 ranking criteria in the 2026-06-22
     ///    shootout.
@@ -435,10 +442,7 @@ impl<'a> Decoder<'a> {
     #[cfg(feature = "tonemap-bt2446a")]
     pub fn decode_full_sdr(&self, target_primaries: ColorPrimaries) -> Result<PixelBuffer> {
         use ultrahdr_core::color::transfer::srgb_oetf;
-        use ultrahdr_core::{
-            Bt2446A, CllMeasure, ContentLightLevel, DiffuseWhite, LightLevelMethod,
-            new_pixel_buffer,
-        };
+        use ultrahdr_core::{Bt2446A, DiffuseWhite, new_pixel_buffer};
 
         let _ = target_primaries; // informational for now; see docs
 
@@ -459,22 +463,11 @@ impl<'a> Decoder<'a> {
             .max(1.0);
         let hdr = self.decode_hdr_with_format(display_boost, HdrOutputFormat::LinearFloat)?;
 
-        // Step 2: measure peak via audited-winner `measure_max` (MaxRgb /
-        // BT.2408). The reconstructed buffer is RgbaF32 linear, so this hits
-        // the `CllMeasure::measure_max` happy path directly.
-        let cll: ContentLightLevel = ContentLightLevel::measure_max(
-            hdr.as_slice(),
-            DiffuseWhite::BT2408,
-            LightLevelMethod::MaxRgb,
-        )
-        .ok_or_else(|| {
-            at!(Error::DecodeError(
-                "measure_max returned None on RgbaF32 HDR buffer".into(),
-            ))
-        })?;
-        // `measure_max` writes the MaxCLL field directly in cd/m². Clamp to
-        // SDR peak so peaks below 100 nits don't break the curve.
-        let hdr_peak_nits = (cll.max_content_light_level as f32).max(100.0);
+        let hdr_slice = hdr.as_view();
+        let peak = ultrahdr_core::color::audited::measure_peak(&hdr, DiffuseWhite::BT2408, None)
+            .map_err(|err| at!(Error::DecodeError(err.to_string())))?;
+        let cll = (f64::from(peak) + 0.5) as u16;
+        let hdr_peak_nits = f32::from(cll).max(100.0);
 
         // Step 3: apply Bt2446A. The curve expects normalized
         // `1.0 = hdr_peak_nits` in, normalized `1.0 = sdr_peak_nits` out.
@@ -485,7 +478,10 @@ impl<'a> Decoder<'a> {
         // in the sRGB-display convention. We renormalize so 100 nits → 1.0
         // (SDR-display 100% white) before sRGB encoding.
         let sdr_peak_nits: f32 = 100.0;
-        let curve = Bt2446A::new(hdr_peak_nits, sdr_peak_nits);
+        let curve = Bt2446A::with_peaks(
+            zenpixels::Nits::new_positive_or_panic(hdr_peak_nits),
+            zenpixels::Nits::new_positive_or_panic(sdr_peak_nits),
+        );
         let to_curve = DiffuseWhite::BT2408.nits() / hdr_peak_nits;
         let width = hdr.width();
         let height = hdr.height();
@@ -496,15 +492,14 @@ impl<'a> Decoder<'a> {
         let mut out = new_pixel_buffer(
             width,
             height,
-            PixelFormat::Rgba8,
+            PixelFormat::RGBA8,
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )?;
-        let hdr_slice = hdr.as_slice();
-        let hdr_stride = hdr_slice.stride();
+        let hdr_stride = hdr_slice.stride_bytes();
         let hdr_bytes = hdr_slice.as_strided_bytes();
-        let out_stride = out.stride();
-        let mut out_view = out.as_slice_mut();
+        let out_stride = out.stride_bytes();
+        let mut out_view = out.as_view_mut();
         let out_bytes = out_view.as_strided_bytes_mut();
 
         for y in 0..height as usize {
@@ -512,25 +507,29 @@ impl<'a> Decoder<'a> {
             let out_row = y * out_stride;
             for x in 0..width as usize {
                 let idx = in_row + x * 16;
-                let r = f32::from_le_bytes([
+                let r = f32::from_ne_bytes([
                     hdr_bytes[idx],
                     hdr_bytes[idx + 1],
                     hdr_bytes[idx + 2],
                     hdr_bytes[idx + 3],
                 ]);
-                let g = f32::from_le_bytes([
+                let g = f32::from_ne_bytes([
                     hdr_bytes[idx + 4],
                     hdr_bytes[idx + 5],
                     hdr_bytes[idx + 6],
                     hdr_bytes[idx + 7],
                 ]);
-                let b = f32::from_le_bytes([
+                let b = f32::from_ne_bytes([
                     hdr_bytes[idx + 8],
                     hdr_bytes[idx + 9],
                     hdr_bytes[idx + 10],
                     hdr_bytes[idx + 11],
                 ]);
-                let mapped = curve.map_rgb([r * to_curve, g * to_curve, b * to_curve]);
+                let mapped = curve.map_rgb_bt2020_peak_normalized([
+                    r * to_curve,
+                    g * to_curve,
+                    b * to_curve,
+                ]);
                 let r_srgb = srgb_oetf(mapped[0].clamp(0.0, 1.0));
                 let g_srgb = srgb_oetf(mapped[1].clamp(0.0, 1.0));
                 let b_srgb = srgb_oetf(mapped[2].clamp(0.0, 1.0));
@@ -564,10 +563,11 @@ impl<'a> Decoder<'a> {
         {
             self.is_ultrahdr = true;
             // Try parsing numeric metadata from primary XMP (legacy format)
-            if let Ok((metadata, _gainmap_len)) = parse_xmp(&xmp_str)
-                && (metadata.alternate_hdr_headroom != 0.0 || metadata.channels[0].max != 0.0)
+            if let Ok(parsed) = parse_xmp(&xmp_str)
+                && (parsed.params.alternate_hdr_headroom != 0.0
+                    || parsed.params.channels[0].max != 0.0)
             {
-                self.metadata = Some(metadata);
+                self.metadata = Some(parsed.params);
             }
         }
 
@@ -615,9 +615,9 @@ impl<'a> Decoder<'a> {
                     let gm_segments = container::scan_segments(gm);
                     if let Some(gm_xmp) = find_xmp_in_segments(&gm_segments)
                         && gm_xmp.contains("hdrgm:")
-                        && let Ok((gm_metadata, _)) = parse_xmp(&gm_xmp)
+                        && let Ok(parsed) = parse_xmp(&gm_xmp)
                     {
-                        self.metadata = Some(gm_metadata);
+                        self.metadata = Some(parsed.params);
                     }
                 }
             }
@@ -637,12 +637,25 @@ impl<'a> Decoder<'a> {
                     let gm_segments = container::scan_segments(gm_data);
                     if let Some(gm_xmp) = find_xmp_in_segments(&gm_segments)
                         && gm_xmp.contains("hdrgm:")
-                        && let Ok((gm_metadata, _)) = parse_xmp(&gm_xmp)
+                        && let Ok(parsed) = parse_xmp(&gm_xmp)
                     {
-                        self.metadata = Some(gm_metadata);
+                        self.metadata = Some(parsed.params);
                     }
                 }
             }
+        }
+
+        if let Some((start, end)) = self.gainmap_jpeg
+            && let Some(gainmap) = self.data.get(start..end)
+            && let Some(metadata) = zenjpeg::container::marker::iter(gainmap)
+                .filter(|segment| segment.kind == zenjpeg::container::marker::MarkerKind::App(2))
+                .filter(|segment| segment.payload.starts_with(ISO_21496_1_URN))
+                .find_map(|segment| {
+                    parse_iso21496_fmt(segment.payload, Iso21496Format::JpegApp2BodyWithUrn).ok()
+                })
+        {
+            self.metadata = Some(metadata);
+            self.is_ultrahdr = true;
         }
 
         // Set primary to full data if not found via MPF
@@ -851,7 +864,7 @@ fn decode_jpeg_to_rgb(
         data,
         width,
         height,
-        PixelFormat::Rgba8,
+        PixelFormat::RGBA8,
         ColorPrimaries::Bt709, // assume sRGB for SDR
         TransferFunction::Srgb,
     )

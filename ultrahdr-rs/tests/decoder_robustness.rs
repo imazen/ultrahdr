@@ -469,8 +469,8 @@ fn limits_valid_input_decodes_byte_identical() {
     assert_eq!(sdr_plain.width(), sdr_limited.width());
     assert_eq!(sdr_plain.height(), sdr_limited.height());
     assert_eq!(
-        sdr_plain.as_slice().as_strided_bytes(),
-        sdr_limited.as_slice().as_strided_bytes(),
+        sdr_plain.as_view().as_strided_bytes(),
+        sdr_limited.as_view().as_strided_bytes(),
         "SDR pixels must be byte-identical with and without limits"
     );
 
@@ -481,8 +481,8 @@ fn limits_valid_input_decodes_byte_identical() {
     let hdr_plain = plain.decode_hdr(4.0).unwrap();
     let hdr_limited = limited.decode_hdr(4.0).unwrap();
     assert_eq!(
-        hdr_plain.as_slice().as_strided_bytes(),
-        hdr_limited.as_slice().as_strided_bytes(),
+        hdr_plain.as_view().as_strided_bytes(),
+        hdr_limited.as_view().as_strided_bytes(),
         "HDR pixels must be byte-identical with and without limits"
     );
 }
@@ -544,8 +544,8 @@ fn stop_unstoppable_matches_plain_decode() {
         .decode_sdr_with_stop(ultrahdr_rs::Unstoppable)
         .unwrap();
     assert_eq!(
-        a.as_slice().as_strided_bytes(),
-        b.as_slice().as_strided_bytes()
+        a.as_view().as_strided_bytes(),
+        b.as_view().as_strided_bytes()
     );
 
     let h1 = decoder.decode_hdr(4.0).unwrap();
@@ -553,7 +553,7 @@ fn stop_unstoppable_matches_plain_decode() {
         .decode_hdr_with_stop(4.0, ultrahdr_rs::Unstoppable)
         .unwrap();
     assert_eq!(
-        h1.as_slice().as_strided_bytes(),
-        h2.as_slice().as_strided_bytes()
+        h1.as_view().as_strided_bytes(),
+        h2.as_view().as_strided_bytes()
     );
 }

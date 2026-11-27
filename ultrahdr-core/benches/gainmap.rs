@@ -17,13 +17,13 @@ fn create_sdr_image(width: u32, height: u32) -> PixelBuffer {
     let mut img = new_pixel_buffer(
         width,
         height,
-        PixelFormat::Rgba8,
+        PixelFormat::RGBA8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
     )
     .unwrap();
-    let stride = img.stride();
-    let mut slice = img.as_slice_mut();
+    let stride = img.stride_bytes();
+    let mut slice = img.as_view_mut();
     let data = slice.as_strided_bytes_mut();
     for y in 0..height {
         for x in 0..width {
@@ -43,13 +43,13 @@ fn create_hdr_image(width: u32, height: u32) -> PixelBuffer {
     let mut img = new_pixel_buffer(
         width,
         height,
-        PixelFormat::Rgba8,
+        PixelFormat::RGBA8,
         ColorPrimaries::Bt709,
         TransferFunction::Srgb,
     )
     .unwrap();
-    let stride = img.stride();
-    let mut slice = img.as_slice_mut();
+    let stride = img.stride_bytes();
+    let mut slice = img.as_view_mut();
     let data = slice.as_strided_bytes_mut();
     for y in 0..height {
         for x in 0..width {

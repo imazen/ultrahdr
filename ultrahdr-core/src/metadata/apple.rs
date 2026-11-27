@@ -23,8 +23,8 @@
 //! - <https://photoinvestigator.co/blog/the-mystery-of-maker-apple-metadata/>
 //!
 //! The shared reader in zenmeta performs byte parsing with `no_std` + `alloc`.
-//! These wrappers retain ultrahdr-core's published types and tolerant parsing
-//! behavior; strict inspection is available directly from zenmeta.
+//! These wrappers retain ultrahdr-core's published types while delegating to
+//! zenmeta's Apple MakerNote parser.
 
 #[cfg(test)]
 use alloc::vec::Vec;
@@ -74,7 +74,7 @@ impl AppleHdrInfo {
     /// stops = max(stops, 0)
     /// ```
     pub fn headroom_stops(&self) -> Option<f64> {
-        zenmeta::apple::compatibility::headroom_stops(&self.as_shared())
+        self.as_shared().headroom_stops()
     }
 
     fn as_shared(&self) -> zenmeta::apple::AppleHdrInfo {
@@ -138,7 +138,7 @@ pub fn from_apple_headroom(info: &AppleHdrInfo) -> Option<GainMapMetadata> {
 /// IFD. Returns `None` if the bytes are not a parseable TIFF, lack an Apple
 /// MakerNote, or carry no HDR tags.
 pub fn parse_exif_for_apple_hdr(exif: &[u8]) -> Option<AppleHdrInfo> {
-    zenmeta::apple::compatibility::parse_exif_for_apple_hdr(exif).map(AppleHdrInfo::from_shared)
+    zenmeta::apple::parse_exif_for_apple_hdr(exif).map(AppleHdrInfo::from_shared)
 }
 
 /// Parse an Apple iOS MakerNote blob (`"Apple iOS\0"` + version + byte-order
@@ -147,10 +147,10 @@ pub fn parse_exif_for_apple_hdr(exif: &[u8]) -> Option<AppleHdrInfo> {
 /// Addressing has two bases (verified against iPhone 8/13/16/17 captures):
 /// the byte-order marker and IFD live at offset 12, but the entries' *value
 /// offsets* for out-of-line data are relative to the MakerNote start
-/// (`maker[0]`). Returns `None` only if the blob is not a recognizable Apple
-/// MakerNote; a malformed individual entry is skipped, not fatal.
+/// (`maker[0]`). Returns `None` for unrecognized notes, malformed entries, or
+/// duplicate rendering tags.
 pub fn parse_apple_makernote(maker: &[u8]) -> Option<AppleHdrInfo> {
-    zenmeta::apple::compatibility::parse_apple_makernote(maker).map(AppleHdrInfo::from_shared)
+    zenmeta::apple::parse_apple_makernote(maker).map(AppleHdrInfo::from_shared)
 }
 
 #[cfg(test)]

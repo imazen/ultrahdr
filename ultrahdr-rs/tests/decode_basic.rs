@@ -45,12 +45,12 @@ fn test_decode_sdr() {
     assert!(sdr.width() > 0, "Width should be positive");
     assert!(sdr.height() > 0, "Height should be positive");
     assert_eq!(
-        sdr.descriptor().pixel_format(),
-        PixelFormat::Rgba8,
+        sdr.format().layout,
+        PixelFormat::RGBA8,
         "SDR should be RGBA8"
     );
     assert_eq!(
-        sdr.as_slice().as_strided_bytes().len(),
+        sdr.as_view().as_strided_bytes().len(),
         (sdr.width() * sdr.height() * 4) as usize,
         "Data size should match dimensions"
     );
@@ -116,10 +116,10 @@ fn test_decode_hdr_4x_boost() {
     assert!(hdr.width() > 0);
     assert!(hdr.height() > 0);
     assert_eq!(
-        hdr.descriptor().pixel_format(),
-        PixelFormat::RgbaF32,
+        hdr.format().layout,
+        PixelFormat::RGBAF32,
         "HDR output should be linear float RGBA, got {:?}",
-        hdr.descriptor().pixel_format()
+        hdr.format().layout
     );
 }
 
@@ -225,10 +225,21 @@ fn test_pixel_values_valid() {
     let decoder = Decoder::new(TEST_ULTRAHDR).unwrap();
     let sdr = decoder.decode_sdr().unwrap();
 
-    // Check first few pixels are valid RGBA
-    for chunk in sdr.as_slice().as_strided_bytes().chunks(4).take(100) {
-        assert_eq!(chunk.len(), 4, "Each pixel should be 4 bytes");
-        // Alpha should typically be 255 for opaque images
+    let hdr = decoder.decode_hdr(4.0).unwrap();
+    let sdr_view = sdr.as_view();
+    let hdr_view = hdr.as_view();
+    for y in 0..sdr.height() {
+        for rgb in sdr_view.row(y).as_chunks::<4>().0 {
+            assert_eq!(rgb[3], 255, "JPEG SDR alpha at row {y}");
+        }
+        for rgb in hdr_view.row_as::<f32>(y).unwrap().as_chunks::<4>().0 {
+            assert_eq!(
+                rgb[3].to_bits(),
+                1.0_f32.to_bits(),
+                "JPEG HDR alpha at row {y}"
+            );
+            assert!(rgb[..3].iter().all(|sample| sample.is_finite()));
+        }
     }
 }
 

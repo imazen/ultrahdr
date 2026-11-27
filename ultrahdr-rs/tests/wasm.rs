@@ -37,7 +37,7 @@ fn test_wasm_decode_sdr() {
     assert!(sdr.width() > 0, "width should be positive");
     assert!(sdr.height() > 0, "height should be positive");
     assert!(
-        !sdr.as_slice().as_strided_bytes().is_empty(),
+        !sdr.as_view().as_strided_bytes().is_empty(),
         "data should not be empty"
     );
 }
@@ -59,7 +59,7 @@ fn test_wasm_decode_hdr() {
     assert!(hdr.width() > 0, "HDR width should be positive");
     assert!(hdr.height() > 0, "HDR height should be positive");
     assert!(
-        !hdr.as_slice().as_strided_bytes().is_empty(),
+        !hdr.as_view().as_strided_bytes().is_empty(),
         "HDR data should not be empty"
     );
 }
@@ -102,7 +102,7 @@ fn create_small_hdr(width: u32, height: u32) -> ultrahdr_rs::PixelBuffer {
         width,
         height,
         stride: width * 16,
-        format: ultrahdr_rs::PixelFormat::RgbaF32,
+        format: ultrahdr_rs::PixelFormat::RGBAF32,
         gamut: ultrahdr_rs::ColorPrimaries::Bt2020,
         transfer: ultrahdr_rs::TransferFunction::Linear,
         data,
@@ -126,7 +126,7 @@ fn create_small_sdr(width: u32, height: u32) -> ultrahdr_rs::PixelBuffer {
         width,
         height,
         stride: width * 4,
-        format: ultrahdr_rs::PixelFormat::Rgba8,
+        format: ultrahdr_rs::PixelFormat::RGBA8,
         gamut: ultrahdr_rs::ColorPrimaries::Bt709,
         transfer: ultrahdr_rs::TransferFunction::Srgb,
         data: pixels,
@@ -343,7 +343,7 @@ fn test_roundtrip_with_raw_jpeg_passthrough() {
         width: sdr.width(),
         height: sdr.height(),
         stride: sdr.width() * 16,
-        format: ultrahdr_rs::PixelFormat::RgbaF32,
+        format: ultrahdr_rs::PixelFormat::RGBAF32,
         gamut: ultrahdr_rs::ColorPrimaries::Bt709,
         transfer: ultrahdr_rs::TransferFunction::Linear,
         data: hdr_data,
