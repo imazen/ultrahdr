@@ -601,8 +601,8 @@ impl Encoder {
             PixelFormat::RGB8 => {
                 enc.push(
                     pixels.as_strided_bytes(),
-                    pixels.rows() as usize,
-                    pixels.stride(),
+                    pixels.height() as usize,
+                    pixels.stride_bytes(),
                     stop,
                 )
                 .map_err(map_jpeg_encode_error)?;
@@ -613,7 +613,7 @@ impl Encoder {
                 rgb.try_reserve_exact(row_bytes)
                     .map_err(|_| at!(Error::AllocationFailed(row_bytes)))?;
                 rgb.resize(row_bytes, 0);
-                for y in 0..pixels.rows() {
+                for y in 0..pixels.height() {
                     for (dst, src) in rgb
                         .as_chunks_mut::<3>()
                         .0

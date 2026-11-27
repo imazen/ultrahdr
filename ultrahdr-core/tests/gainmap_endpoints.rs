@@ -259,7 +259,7 @@ fn odd_center_uses_shepard_lattice_and_ignores_stride_padding() {
 #[test]
 fn cll_distinguishes_native_max_rgb_and_bt2020_luminance() {
     use ultrahdr_core::color::audited::{
-        DiffuseWhite, LightLevelMethod, measure_cll, measure_peak,
+        DiffuseWhite, LightLevelMethod, measure_content_light_level, measure_peak,
     };
     let red = linear_buffer(&[[4.0, 0.0, 0.0, 1.0]], 1, 1);
     assert_eq!(
@@ -267,7 +267,8 @@ fn cll_distinguishes_native_max_rgb_and_bt2020_luminance() {
         812.0
     );
     let frame = linear_buffer(&[[4.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]], 2, 1);
-    let cll = |method| measure_cll(&frame, DiffuseWhite::BT2408, None, method).unwrap();
+    let cll =
+        |method| measure_content_light_level(&frame, DiffuseWhite::BT2408, None, method).unwrap();
     let native = cll(LightLevelMethod::MaxRgb);
     let luma = cll(LightLevelMethod::LuminanceBt2020);
     assert_eq!(native.max_content_light_level, 812);

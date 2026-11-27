@@ -268,7 +268,7 @@ pub fn validate_ultrahdr_image(buffer: &PixelBuffer) -> Result<()> {
 /// Validate a [`PixelSlice`] against ultrahdr-core's dimension caps and
 /// the kernels' format subset.
 pub fn validate_ultrahdr_slice(slice: &PixelSlice<'_>) -> Result<()> {
-    validate_ultrahdr_dimensions(slice.width(), slice.rows())?;
+    validate_ultrahdr_dimensions(slice.width(), slice.height())?;
     require_supported_spec(slice.format())
 }
 

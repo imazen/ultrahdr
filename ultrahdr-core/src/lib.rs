@@ -16,7 +16,7 @@
 //! # BT.2446 Method A
 //!
 //! Enable `tonemap-bt2446a` to use `Bt2446A` and the converter's
-//! `measure_cll` through `color::audited` or the crate root.
+//! `measure_content_light_level` through `color::audited` or the crate root.
 //! Measurement uses native primaries for MaxRGB and BT.2020 working RGB
 //! for luminance. Callers supply a diffuse-white anchor and optional HLG
 //! rendering parameters.
@@ -128,7 +128,9 @@ pub use zentone::{
 // full citation. Gated behind `tonemap-bt2446a` (default-off — pulls
 // archmage/magetypes/garb/libm via zenpixels-convert).
 #[cfg(feature = "tonemap-bt2446a")]
-pub use color::audited::{Bt2446A, ContentLightLevel, DiffuseWhite, LightLevelMethod, measure_cll};
+pub use color::audited::{
+    Bt2446A, ContentLightLevel, DiffuseWhite, LightLevelMethod, measure_content_light_level,
+};
 
 /// Safety limits for parsing and allocation.
 pub mod limits {

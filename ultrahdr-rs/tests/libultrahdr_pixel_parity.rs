@@ -297,7 +297,7 @@ fn sdr_decode_matches_libultrahdr() {
     // Sample high-delta hotspots.
     let mut hot: Vec<(usize, usize, u8, i32)> = Vec::new(); // (y, x, channel, delta)
     for y in 0..h {
-        let our_row_start = y * our_sdr.stride();
+        let our_row_start = y * our_sdr.stride_bytes();
         let lib_row_start = y * row_bytes;
         for x in 0..row_bytes {
             let a = our_sdr.as_view().as_strided_bytes()[our_row_start + x] as i32;
@@ -328,7 +328,7 @@ fn sdr_decode_matches_libultrahdr() {
     eprintln!(
         "sdr_decode_matches_libultrahdr: MAE={mae:.6}, max_delta={max_delta} over {count} bytes"
     );
-    eprintln!("  size: {w}x{h}  stride={}", our_sdr.stride());
+    eprintln!("  size: {w}x{h}  stride={}", our_sdr.stride_bytes());
     // Delta histogram (top bins only).
     let mut cum: u64 = 0;
     eprintln!("  delta histogram (cumulative %):");

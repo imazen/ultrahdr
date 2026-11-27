@@ -415,12 +415,12 @@ impl AdaptiveTonemapper {
         crate::types::validate_ultrahdr_slice(&hdr_slice)?;
         crate::types::validate_ultrahdr_slice(&sdr_slice)?;
 
-        if hdr_slice.width() != sdr_slice.width() || hdr_slice.rows() != sdr_slice.rows() {
+        if hdr_slice.width() != sdr_slice.width() || hdr_slice.height() != sdr_slice.height() {
             return Err(at!(Error::DimensionMismatch {
                 hdr_w: hdr_slice.width(),
-                hdr_h: hdr_slice.rows(),
+                hdr_h: hdr_slice.height(),
                 sdr_w: sdr_slice.width(),
-                sdr_h: sdr_slice.rows(),
+                sdr_h: sdr_slice.height(),
             }));
         }
 
@@ -455,7 +455,7 @@ impl AdaptiveTonemapper {
         crate::types::validate_ultrahdr_slice(&hdr_slice)?;
 
         let width = hdr_slice.width();
-        let height = hdr_slice.rows();
+        let height = hdr_slice.height();
 
         let mut output = new_pixel_buffer(
             width,
@@ -464,7 +464,7 @@ impl AdaptiveTonemapper {
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )?;
-        let out_stride = output.stride();
+        let out_stride = output.stride_bytes();
         let mut out_mut = output.as_view_mut();
         let out_data = out_mut.as_strided_bytes_mut();
 
@@ -502,7 +502,7 @@ impl AdaptiveTonemapper {
         gainmap.validate()?;
         crate::types::validate_gainmap_magnitude(metadata)?;
         let width = hdr_slice.width();
-        let height = hdr_slice.rows();
+        let height = hdr_slice.height();
 
         let mut output = new_pixel_buffer(
             width,
@@ -511,7 +511,7 @@ impl AdaptiveTonemapper {
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )?;
-        let out_stride = output.stride();
+        let out_stride = output.stride_bytes();
         let mut out_mut = output.as_view_mut();
         let out_data = out_mut.as_strided_bytes_mut();
 
@@ -587,7 +587,7 @@ impl AdaptiveTonemapper {
         config: &FitConfig,
     ) -> Result<Self> {
         let width = hdr.width() as usize;
-        let height = hdr.rows() as usize;
+        let height = hdr.height() as usize;
         let total_pixels = width * height;
 
         // Determine sampling
@@ -703,7 +703,7 @@ impl AdaptiveTonemapper {
         config: &FitConfig,
     ) -> Result<Self> {
         let width = hdr.width() as usize;
-        let height = hdr.rows() as usize;
+        let height = hdr.height() as usize;
         let total_pixels = width * height;
 
         let step = if config.max_samples > 0 && total_pixels > config.max_samples {
@@ -1126,7 +1126,7 @@ pub fn tonemap_image_to_srgb8_with_stop(
     let img_transfer = crate::types::pixel_transfer(slice.format());
     let config = ToneMapConfig::default();
     let width = slice.width() as usize;
-    let height = slice.rows() as usize;
+    let height = slice.height() as usize;
     let mut output = vec![0u8; width * height * 4];
 
     for y in 0..height {
@@ -1170,7 +1170,7 @@ fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
     let spec = img.format();
     let format = spec.layout;
     let transfer = crate::types::pixel_transfer(spec);
-    let stride = img.stride();
+    let stride = img.stride_bytes();
     let data = img.as_strided_bytes();
     match format {
         PixelFormat::RGBA8 | PixelFormat::RGB8 => {
@@ -1203,7 +1203,7 @@ fn get_sdr_linear(sdr: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
     use crate::PixelFormat;
 
     let format = sdr.format().layout;
-    let stride = sdr.stride();
+    let stride = sdr.stride_bytes();
     let data = sdr.as_strided_bytes();
     match format {
         PixelFormat::RGBA8 | PixelFormat::RGB8 => {

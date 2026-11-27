@@ -479,8 +479,8 @@ impl<'a> Decoder<'a> {
         // (SDR-display 100% white) before sRGB encoding.
         let sdr_peak_nits: f32 = 100.0;
         let curve = Bt2446A::with_peaks(
-            zenpixels::Nits::new(hdr_peak_nits),
-            zenpixels::Nits::new(sdr_peak_nits),
+            zenpixels::Nits::new_positive_or_panic(hdr_peak_nits),
+            zenpixels::Nits::new_positive_or_panic(sdr_peak_nits),
         );
         let to_curve = DiffuseWhite::BT2408.nits() / hdr_peak_nits;
         let width = hdr.width();
@@ -496,9 +496,9 @@ impl<'a> Decoder<'a> {
             ColorPrimaries::Bt709,
             TransferFunction::Srgb,
         )?;
-        let hdr_stride = hdr_slice.stride();
+        let hdr_stride = hdr_slice.stride_bytes();
         let hdr_bytes = hdr_slice.as_strided_bytes();
-        let out_stride = out.stride();
+        let out_stride = out.stride_bytes();
         let mut out_view = out.as_view_mut();
         let out_bytes = out_view.as_strided_bytes_mut();
 
@@ -525,7 +525,11 @@ impl<'a> Decoder<'a> {
                     hdr_bytes[idx + 10],
                     hdr_bytes[idx + 11],
                 ]);
-                let mapped = curve.map_rgb([r * to_curve, g * to_curve, b * to_curve]);
+                let mapped = curve.map_rgb_bt2020_peak_normalized([
+                    r * to_curve,
+                    g * to_curve,
+                    b * to_curve,
+                ]);
                 let r_srgb = srgb_oetf(mapped[0].clamp(0.0, 1.0));
                 let g_srgb = srgb_oetf(mapped[1].clamp(0.0, 1.0));
                 let b_srgb = srgb_oetf(mapped[2].clamp(0.0, 1.0));

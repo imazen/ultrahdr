@@ -322,8 +322,8 @@ fn privacy_filter_preserves_scans_parameters_and_both_image_boundaries() {
     let before_hdr = Decoder::new(&baseline).unwrap().decode_hdr(4.0).unwrap();
     let after_hdr = decoded.decode_hdr(4.0).unwrap();
     assert_eq!(
-        before_hdr.as_view().contiguous_bytes().unwrap(),
-        after_hdr.as_view().contiguous_bytes().unwrap()
+        before_hdr.as_view().to_contiguous_bytes().unwrap(),
+        after_hdr.as_view().to_contiguous_bytes().unwrap()
     );
     assert_eq!(marker::find_jpeg_boundaries(&output).len(), 2);
     // The caller opts into the independent-reader gate. ExifTool must follow

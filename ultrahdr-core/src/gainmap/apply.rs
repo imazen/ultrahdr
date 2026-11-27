@@ -194,7 +194,7 @@ pub fn apply_gainmap_slice(
     }
 
     let width = sdr.width();
-    let height = sdr.rows();
+    let height = sdr.height();
     let sdr_primaries = crate::types::pixel_primaries(sdr.format());
 
     // Calculate weight factor based on display capability
@@ -254,7 +254,7 @@ pub fn apply_gainmap_slice(
         metadata.channels[2].alternate_offset as f32,
     ];
 
-    let out_stride = output.stride();
+    let out_stride = output.stride_bytes();
     let mut out_slice = output.as_view_mut();
     let out_data = out_slice.as_strided_bytes_mut();
 
@@ -452,7 +452,7 @@ fn signed_weight(distance: f64, span: f64) -> f32 {
 /// Get linear RGB from SDR image.
 fn get_sdr_linear(sdr: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
     let format = sdr.format().layout;
-    let stride = sdr.stride();
+    let stride = sdr.stride_bytes();
     let data = sdr.as_strided_bytes();
     match format {
         PixelFormat::RGBA8 | PixelFormat::RGB8 => {

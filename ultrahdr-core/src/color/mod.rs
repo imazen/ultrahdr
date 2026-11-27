@@ -24,7 +24,9 @@ pub mod tonemap;
 #[cfg(feature = "tonemap-bt2446a")]
 pub mod audited {
     pub use zenpixels::{ContentLightLevel, DiffuseWhite};
-    pub use zenpixels_convert::{Bt2446A, LightLevelMethod, measure_cll, measure_peak};
+    pub use zenpixels_convert::{
+        Bt2446A, LightLevelMethod, measure_content_light_level, measure_peak,
+    };
 }
 
 pub use gamut::*;

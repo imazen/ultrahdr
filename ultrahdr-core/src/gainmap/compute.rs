@@ -203,9 +203,9 @@ fn compute_gainmap_slice_observed(
     crate::types::validate_ultrahdr_slice(&sdr)?;
 
     let hdr_w = hdr.width();
-    let hdr_h = hdr.rows();
+    let hdr_h = hdr.height();
     let sdr_w = sdr.width();
-    let sdr_h = sdr.rows();
+    let sdr_h = sdr.height();
 
     if hdr_w != sdr_w || hdr_h != sdr_h {
         return Err(at!(crate::types::Error::DimensionMismatch {
@@ -315,7 +315,7 @@ fn compute_luminance_gainmap(
 ) -> Result<GainMap> {
     let mut gainmap = GainMap::new(gm_width, gm_height)?;
     let hdr_w = hdr.width();
-    let hdr_h = hdr.rows();
+    let hdr_h = hdr.height();
     let hdr_gamut = crate::types::pixel_primaries(hdr.format());
     let sdr_gamut = crate::types::pixel_primaries(sdr.format());
 
@@ -475,7 +475,7 @@ fn compute_multichannel_gainmap(
 ) -> Result<GainMap> {
     let mut gainmap = GainMap::new_multichannel(gm_width, gm_height)?;
     let hdr_w = hdr.width();
-    let hdr_h = hdr.rows();
+    let hdr_h = hdr.height();
 
     let log_min = config.min_boost.ln();
     let log_max = config.max_boost.ln();
@@ -541,7 +541,7 @@ fn get_linear_rgb(img: &PixelSlice<'_>, x: u32, y: u32) -> [f32; 3] {
     let spec = img.format();
     let format = spec.layout;
     let transfer = crate::types::pixel_transfer(spec);
-    let stride = img.stride();
+    let stride = img.stride_bytes();
     let data = img.as_strided_bytes();
     match format {
         PixelFormat::RGBA8 | PixelFormat::RGB8 => {
@@ -953,7 +953,7 @@ mod tests {
         let hdr_slice = hdr.as_view();
         let sdr_slice = sdr.as_view();
         let w = hdr_slice.width() as usize;
-        let h = hdr_slice.rows() as usize;
+        let h = hdr_slice.height() as usize;
         let mut min_max = (f32::MAX, f32::MIN);
         let mut row_bytes = vec![0u8; w];
         let mut hdr_row_rgb = vec![0.0f32; w * 3];
