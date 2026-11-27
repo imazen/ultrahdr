@@ -171,11 +171,13 @@ fn pulse_cancellation_reaches_existing_decode_checkpoint() {
 }
 
 #[test]
-#[allow(deprecated)] // Preserve the published cancellation-only adapter.
 fn legacy_stop_cancellation_reaches_existing_decode_checkpoint() {
+    // StopToken adapts through `how_far::StopOnly` onto the retained `SharedPulse`.
     let job = UltraHdrDecoderConfig
         .job()
-        .with_stop(zencodec::StopToken::new(StopImmediately));
+        .with_pulse(zencodec::SharedPulse::new(
+            zencodec::how_far::StopOnly::new(zencodec::StopToken::new(StopImmediately)),
+        ));
     assert_stopped(job);
 }
 
