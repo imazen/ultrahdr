@@ -31,8 +31,9 @@
   arithmetic and depth-only bounds on repeated-reference expansion. zenmeta now
   owns the corrected parser; ultrahdr retains its public `PlistValue` through a
   fallible private conversion. Keep parser regressions with zenmeta and wrapper
-  compatibility checks here. Apple tolerance is deliberately preserved through
-  `zenmeta::apple::compatibility`, not the strict inspector.
+  compatibility checks here. `zenmeta::apple::compatibility` was test-gated in
+  zenmeta 0.2 (`5d4f6c47`), so `ultrahdr-core::metadata::apple` delegates to
+  zenmeta's module-level strict Apple MakerNote functions.
 
 - **Fuzz CI (#32) — FIXED 2026-08-27.** Was red since 602d215 for two sibling-version-skew reasons in the standalone `fuzz/` workspace (which does NOT inherit the workspace-root `[patch.crates-io]`): (1) unpublished `zenpixels-convert ^0.2.15` — resolved by the 0.2.16 publish on 2026-07-24; (2) `fuzz_targets/tonemap.rs` imported `zentone::ToneMap` from a direct path dep on the sibling zentone 0.2.0 while `ultrahdr-core` requires registry `zentone ^0.1.0` — a `[patch]` can't satisfy `^0.1.0` with 0.2.0, so cargo silently ignored it, two `zentone` crates were linked, and `map_rgb` didn't apply (E0599). Fix: import `ToneMap` via `ultrahdr_core::color::tonemap::ToneMap` and drop fuzz's direct zentone dep + dead patch. **Lesson: a `[patch.crates-io]` whose path crate's version is outside the dependent's semver requirement is silently unused** — the workspace-root `zentone = { path = "../zentone" }` patch is in the same state (root `Cargo.lock` resolves registry 0.1.0 for ultrahdr-core and records path 0.2.0 under `[[patch.unused]]`); reconciling that is the still-open zentone 0.1↔0.2 publish question, separate from the fuzz build. The main `CI` workflow (all platforms, WASM, docs, MSRV, clippy, coverage) is green.
 

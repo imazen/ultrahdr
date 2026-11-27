@@ -563,10 +563,11 @@ impl<'a> Decoder<'a> {
         {
             self.is_ultrahdr = true;
             // Try parsing numeric metadata from primary XMP (legacy format)
-            if let Ok((metadata, _gainmap_len)) = parse_xmp(&xmp_str)
-                && (metadata.alternate_hdr_headroom != 0.0 || metadata.channels[0].max != 0.0)
+            if let Ok(parsed) = parse_xmp(&xmp_str)
+                && (parsed.params.alternate_hdr_headroom != 0.0
+                    || parsed.params.channels[0].max != 0.0)
             {
-                self.metadata = Some(metadata);
+                self.metadata = Some(parsed.params);
             }
         }
 
@@ -614,9 +615,9 @@ impl<'a> Decoder<'a> {
                     let gm_segments = container::scan_segments(gm);
                     if let Some(gm_xmp) = find_xmp_in_segments(&gm_segments)
                         && gm_xmp.contains("hdrgm:")
-                        && let Ok((gm_metadata, _)) = parse_xmp(&gm_xmp)
+                        && let Ok(parsed) = parse_xmp(&gm_xmp)
                     {
-                        self.metadata = Some(gm_metadata);
+                        self.metadata = Some(parsed.params);
                     }
                 }
             }
@@ -636,9 +637,9 @@ impl<'a> Decoder<'a> {
                     let gm_segments = container::scan_segments(gm_data);
                     if let Some(gm_xmp) = find_xmp_in_segments(&gm_segments)
                         && gm_xmp.contains("hdrgm:")
-                        && let Ok((gm_metadata, _)) = parse_xmp(&gm_xmp)
+                        && let Ok(parsed) = parse_xmp(&gm_xmp)
                     {
-                        self.metadata = Some(gm_metadata);
+                        self.metadata = Some(parsed.params);
                     }
                 }
             }

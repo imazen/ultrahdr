@@ -110,7 +110,7 @@ impl DecoderConfig for UltraHdrDecoderConfig {
         &[ZenImageFormat::Jpeg] // Ultra HDR is JPEG-based
     }
 
-    fn supported_descriptors() -> &'static [PixelFormat] {
+    fn supported_pixel_formats() -> &'static [PixelFormat] {
         static SUPPORTED: [PixelFormat; 2] = [PixelFormat::RGB8_SRGB, PixelFormat::RGBA8_SRGB];
         &SUPPORTED
     }

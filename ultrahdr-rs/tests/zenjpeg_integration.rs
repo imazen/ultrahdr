@@ -258,7 +258,8 @@ fn test_xmp_roundtrip() {
         compute_gainmap(&hdr_image, &sdr_image, &config, CoreUnstoppable).expect("compute gainmap");
 
     let xmp = generate_xmp(&metadata, 1000).unwrap();
-    let (parsed, gainmap_len) = parse_xmp(&xmp).expect("parse XMP");
+    let parsed_xmp = parse_xmp(&xmp).expect("parse XMP");
+    let (parsed, gainmap_len) = (parsed_xmp.params, parsed_xmp.gain_map_byte_len);
 
     assert_eq!(gainmap_len, Some(1000));
 
@@ -464,7 +465,7 @@ fn test_ultrahdr_decode() {
 
     // Verify XMP
     let xmp_str = extras.xmp().expect("should have XMP");
-    let (parsed_metadata, _) = parse_xmp(xmp_str).expect("parse XMP");
+    let parsed_metadata = parse_xmp(xmp_str).expect("parse XMP").params;
     assert!(parsed_metadata.alternate_hdr_headroom > 1.0);
 
     // Verify gainmap
@@ -501,7 +502,7 @@ fn test_ultrahdr_roundtrip() {
 
     let extras = decoded.extras().expect("extras");
     let xmp_str = extras.xmp().expect("XMP");
-    let (parsed_metadata, _) = parse_xmp(xmp_str).expect("parse XMP");
+    let parsed_metadata = parse_xmp(xmp_str).expect("parse XMP").params;
 
     let gainmap_data = extras.gainmap().expect("gainmap");
     let gainmap_decoded = Decoder::new()
@@ -682,7 +683,8 @@ fn test_readme_workflow_encode_decode() {
 
     // 2. Parse XMP metadata
     let xmp_str = extras.xmp().expect("should have XMP");
-    let (parsed_metadata, gainmap_len) = parse_xmp(xmp_str).expect("parse XMP");
+    let parsed_xmp = parse_xmp(xmp_str).expect("parse XMP");
+    let (parsed_metadata, gainmap_len) = (parsed_xmp.params, parsed_xmp.gain_map_byte_len);
 
     assert!(gainmap_len.is_some(), "XMP should contain gainmap length");
     assert!(
@@ -843,7 +845,7 @@ fn test_readme_workflow_lossless_roundtrip() {
     assert!(pixel_diff > 0, "Pixels should have changed after edit");
 
     // HDR reconstruction should still work with edited SDR + preserved gainmap
-    let (parsed_metadata, _) = parse_xmp(re_xmp).expect("parse XMP");
+    let parsed_metadata = parse_xmp(re_xmp).expect("parse XMP").params;
     let gainmap_decoded = Decoder::new()
         .decode(re_gainmap, Unstoppable)
         .expect("decode gainmap");
